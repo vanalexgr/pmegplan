@@ -275,92 +275,82 @@ export function renderGraftSketch({
   ctx.stroke();
 
   // Opening at bottom (bifurcation hint: slight inward taper)
-  ctx.strokeStyle = "rgba(16,33,31,0.3)";
+  ctx.strokeStyle = "rgba(16,33,31,0.25)";
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 3]);
   ctx.beginPath();
   ctx.moveTo(graftBodyX, graftBodyY + graftBodyH);
-  ctx.lineTo(graftBodyX + graftBodyW * 0.35, graftBodyY + graftBodyH + (p ? 18 : 10));
+  ctx.lineTo(graftBodyX + graftBodyW * 0.35, graftBodyY + graftBodyH + (p ? 14 : 8));
   ctx.moveTo(graftBodyX + graftBodyW, graftBodyY + graftBodyH);
-  ctx.lineTo(graftBodyX + graftBodyW * 0.65, graftBodyY + graftBodyH + (p ? 18 : 10));
+  ctx.lineTo(graftBodyX + graftBodyW * 0.65, graftBodyY + graftBodyH + (p ? 14 : 8));
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // ── Ring / gap zone shading ──────────────────────────────────────────────────
+  // ── Ring / gap zone shading (B&W, Cook CMD style) ────────────────────────────
+  // Ring zones: very light gray (stent wire present)
+  // Inter-ring gaps: white (strut-free)
   {
     let y = 0;
     for (let ri = 0; ri < nRings; ri++) {
       const rTop = graftBodyY + y * yScale;
       const rH = ringHeight * yScale;
-      ctx.fillStyle = "rgba(220,38,38,0.07)";
-      ctx.fillRect(graftBodyX, rTop, graftBodyW, rH);
+      ctx.fillStyle = "rgba(0,0,0,0.04)";
+      ctx.fillRect(graftBodyX + 1, rTop, graftBodyW - 1, rH);
+      // Ring label on RIGHT side outside graft
+      ctx.fillStyle = "#6b7280";
+      ctx.font = `400 ${p ? 9 : 7}px sans-serif`;
+      ctx.textAlign = "left";
+      ctx.fillText(`Ring ${ri + 1}  ←${ringHeight}mm→`, graftBodyX + graftBodyW + (p ? 5 : 3), rTop + rH / 2 + 3);
       y += ringHeight;
       if (ri < nRings - 1) {
         const gTop = graftBodyY + y * yScale;
         const gH = interRingGap * yScale;
-        ctx.fillStyle = "rgba(15,118,110,0.10)";
-        ctx.fillRect(graftBodyX, gTop, graftBodyW, gH);
-        // "Safe zone" label in gap
-        if (gH > (p ? 20 : 12)) {
-          ctx.fillStyle = "rgba(15,118,110,0.60)";
-          ctx.font = `400 ${p ? 10 : 7}px sans-serif`;
-          ctx.textAlign = "right";
-          ctx.fillText("safe zone", graftBodyX - 4, gTop + gH / 2 + 3);
-          ctx.textAlign = "left";
+        // Gap stays white — just label it
+        if (gH > (p ? 12 : 8)) {
+          ctx.fillStyle = "#6b7280";
+          ctx.font = `400 italic ${p ? 9 : 7}px sans-serif`;
+          ctx.fillText(`gap ${interRingGap}mm`, graftBodyX + graftBodyW + (p ? 5 : 3), gTop + gH / 2 + 3);
         }
         y += interRingGap;
       }
     }
+    ctx.textAlign = "left";
   }
 
-  // ── Depth grid & axis ────────────────────────────────────────────────────────
-  ctx.strokeStyle = "rgba(16,33,31,0.08)";
-  ctx.lineWidth = 0.5;
-  const gridStep = 10;
-  for (let d = 0; d <= maxDepth; d += gridStep) {
-    const gy = graftBodyY + d * yScale;
-    if (gy > graftBodyY + graftBodyH + 5) break;
-    ctx.beginPath();
-    ctx.moveTo(graftBodyX, gy);
-    ctx.lineTo(graftBodyX + graftBodyW, gy);
-    ctx.stroke();
-  }
-  ctx.fillStyle = "#45605b";
+  // ── Depth tick marks on left axis (no grid, just ticks + numbers) ────────────
+  ctx.fillStyle = "#374151";
   ctx.font = `400 ${p ? 9 : 7}px sans-serif`;
   ctx.textAlign = "right";
-  for (let d = 0; d <= maxDepth; d += gridStep) {
+  for (let d = 0; d <= maxDepth; d += 10) {
     const gy = graftBodyY + d * yScale;
     if (gy > graftBodyY + graftBodyH + 5) break;
+    // Short tick at graft edge
+    ctx.strokeStyle = "#374151";
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(graftBodyX - (p ? 3 : 2), gy);
+    ctx.lineTo(graftBodyX, gy);
+    ctx.stroke();
     ctx.fillText(`${d}`, graftBodyX - (p ? 6 : 4), gy + 3);
   }
   ctx.textAlign = "left";
-  // Depth axis label (rotated)
-  ctx.save();
-  ctx.translate(margin + (p ? 12 : 6), graftBodyY + graftBodyH / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillStyle = "#45605b";
-  ctx.font = `400 ${p ? 10 : 8}px sans-serif`;
-  ctx.textAlign = "center";
-  ctx.fillText("Depth from proximal edge (mm)", 0, 0);
-  ctx.restore();
-  ctx.textAlign = "left";
 
-  // ── Clock position guides at top ─────────────────────────────────────────────
+  // ── Clock position labels & thin guide lines at top ──────────────────────────
   const clockGuides = [
     { label: "9:00", arcD: -circ / 4 },
     { label: "12:00", arcD: 0 },
     { label: "3:00", arcD: circ / 4 },
   ];
-  ctx.font = `400 ${p ? 10 : 7}px sans-serif`;
+  ctx.font = `600 ${p ? 10 : 7}px sans-serif`;
   ctx.textAlign = "center";
   for (const { label, arcD } of clockGuides) {
     const gx = graftBodyCX + arcD * xScale;
     if (gx < graftBodyX || gx > graftBodyX + graftBodyW) continue;
-    ctx.fillStyle = "#45605b";
-    ctx.fillText(label, gx, graftBodyY - (p ? 8 : 5));
-    ctx.strokeStyle = "rgba(16,33,31,0.12)";
-    ctx.lineWidth = 0.5;
-    ctx.setLineDash([3, 3]);
+    ctx.fillStyle = "#374151";
+    ctx.fillText(label, gx, graftBodyY - (p ? 9 : 6));
+    ctx.strokeStyle = "rgba(0,0,0,0.10)";
+    ctx.lineWidth = 0.4;
+    ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]);
     ctx.beginPath();
     ctx.moveTo(gx, graftBodyY);
     ctx.lineTo(gx, graftBodyY + graftBodyH);
@@ -489,65 +479,72 @@ export function renderGraftSketch({
     }
   }
 
-  // Annotations: suprarenal bare stent label (if applicable)
-  const barsLabelX = graftBodyX - (p ? 4 : 2);
-  ctx.fillStyle = "#45605b";
-  ctx.font = `400 ${p ? 11 : 8}px sans-serif`;
+  // ── Callout labels (left of graft body, Cook CMD style) ─────────────────────
+  const calloutX = graftBodyX - (p ? 5 : 3);
+  ctx.font = `400 ${p ? 10 : 7}px sans-serif`;
   ctx.textAlign = "right";
+
   if (result.device.hasBareSuprarenal) {
-    ctx.fillText("Bare stent →", barsLabelX, graftBodyY - supraH / 2 + 3);
-    ctx.fillText("Barbs →", barsLabelX, graftBodyY - supraH - (p ? 4 : 2));
+    ctx.fillStyle = "#374151";
+    ctx.fillText("Barbs", calloutX, graftBodyY - supraH - (p ? 2 : 1));
+    ctx.fillText("Bare stent", calloutX, graftBodyY - supraH / 2 + 3);
   } else {
-    ctx.fillText("Anchors →", barsLabelX, graftBodyY - (p ? 10 : 6));
+    ctx.fillStyle = "#374151";
+    ctx.fillText("Anchors", calloutX, graftBodyY - (p ? 8 : 5));
   }
+
   if (result.device.id === "zenith_alpha") {
-    ctx.fillText("Long Gold Markers →", barsLabelX, graftBodyY + (p ? 7 : 5));
+    // "LONG GOLD MARKERS" label at the marker level (within 2mm of fabric edge)
+    ctx.fillStyle = "#d97706";
+    ctx.font = `600 ${p ? 10 : 7}px sans-serif`;
+    ctx.fillText("Long Gold", calloutX, graftBodyY + (p ? 5 : 3));
+    ctx.fillText("Markers", calloutX, graftBodyY + (p ? 15 : 10));
+    ctx.font = `400 ${p ? 10 : 7}px sans-serif`;
   }
+
   if (result.device.hasInfrarenalBarbs) {
     ctx.fillStyle = "#0f766e";
-    ctx.fillText("Infrarenal barbs →", barsLabelX, graftBodyY + ringHeight * yScale + (p ? 4 : 2));
-    ctx.fillStyle = "#45605b";
+    ctx.fillText("Infrarenal", calloutX, graftBodyY + ringHeight * yScale - (p ? 3 : 2));
+    ctx.fillText("barbs", calloutX, graftBodyY + ringHeight * yScale + (p ? 8 : 5));
   }
+
+  ctx.fillStyle = "#374151";
   ctx.textAlign = "left";
 
-  // ── Seam line ────────────────────────────────────────────────────────────────
+  // ── Seam lines (Cook CMD: thick red dashed, full height) ────────────────────
+  // Draw seam BEFORE struts so it sits behind the wire drawing
   const seamArcRaw = (seamDeg / 360) * circ;
   const seamArcRotated = wrapMm(seamArcRaw + delta, circ);
   const seamDrawX = graftBodyCX + arcFromNoon(seamArcRotated, circ) * xScale;
+  const seamTopY = graftBodyY - supraH - (p ? 4 : 2);
 
-  if (seamDrawX >= graftBodyX - 1 && seamDrawX <= graftBodyX + graftBodyW + 1) {
+  const drawSeamLine = (sx: number, alpha: number) => {
+    if (sx < graftBodyX - 2 || sx > graftBodyX + graftBodyW + 2) return;
     ctx.save();
-    ctx.setLineDash([p ? 10 : 6, p ? 6 : 4]);
-    ctx.strokeStyle = "rgba(220,38,38,0.9)";
-    ctx.lineWidth = p ? 2 : 1.5;
+    ctx.setLineDash([p ? 8 : 5, p ? 5 : 3]);
+    ctx.strokeStyle = `rgba(220,38,38,${alpha})`;
+    ctx.lineWidth = p ? 2.5 : 1.8;
     ctx.beginPath();
-    ctx.moveTo(seamDrawX, graftBodyY - (p ? 20 : 12));
-    ctx.lineTo(seamDrawX, graftBodyY + graftBodyH);
+    ctx.moveTo(sx, seamTopY);
+    ctx.lineTo(sx, graftBodyY + graftBodyH + (p ? 10 : 6));
     ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = "rgba(220,38,38,0.85)";
-    ctx.font = `400 ${p ? 10 : 8}px sans-serif`;
-    ctx.textAlign = "center";
-    const seamLabel = seamDeg === 0 ? "Seam 12:00" : seamDeg === 180 ? "Seam 6:00" : `Seam ${seamDeg}°`;
-    ctx.fillText(seamLabel, seamDrawX, graftBodyY - (p ? 4 : 2));
-    ctx.textAlign = "left";
-  }
+  };
 
-  // Seam at opposite edge (Zenith: seam at 6:00 = both edges)
+  drawSeamLine(seamDrawX, 0.92);
+  // Seam at opposite side of cylinder
   const seamOppositeX = seamDrawX < graftBodyCX
     ? graftBodyCX + (graftBodyCX - seamDrawX)
     : graftBodyCX - (seamDrawX - graftBodyCX);
-  if (seamOppositeX >= graftBodyX - 1 && seamOppositeX <= graftBodyX + graftBodyW + 1 && Math.abs(seamOppositeX - seamDrawX) > 4) {
-    ctx.save();
-    ctx.setLineDash([p ? 10 : 6, p ? 6 : 4]);
-    ctx.strokeStyle = "rgba(220,38,38,0.5)";
-    ctx.lineWidth = p ? 1.5 : 1;
-    ctx.beginPath();
-    ctx.moveTo(seamOppositeX, graftBodyY - (p ? 10 : 6));
-    ctx.lineTo(seamOppositeX, graftBodyY + graftBodyH);
-    ctx.stroke();
-    ctx.restore();
-  }
+  if (Math.abs(seamOppositeX - seamDrawX) > 4) drawSeamLine(seamOppositeX, 0.55);
+
+  // Seam label (above graft)
+  ctx.fillStyle = "rgba(220,38,38,0.90)";
+  ctx.font = `600 ${p ? 9 : 7}px sans-serif`;
+  ctx.textAlign = "center";
+  const seamLabel = seamDeg === 0 ? "Seam\n12:00" : seamDeg === 180 ? "Seam\n6:00" : `Seam\n${seamDeg}°`;
+  ctx.fillText(seamLabel.replace("\n", " "), seamDrawX, seamTopY - (p ? 3 : 2));
+  ctx.textAlign = "left";
 
   // ── Fenestrations ────────────────────────────────────────────────────────────
   const fenCountByType: Record<string, number> = {};
@@ -573,77 +570,96 @@ export function renderGraftSketch({
     ctx.clip();
 
     if (fen.ftype === "SCALLOP") {
-      const sW = Math.max(fen.widthMm * xScale, p ? 18 : 12);
-      const sH = Math.max(fen.heightMm * yScale, p ? 14 : 9);
-      ctx.fillStyle = `${color}28`;
+      // Scallop: semicircle notch cut into proximal edge
+      const sW = Math.max(fen.widthMm * xScale, p ? 20 : 13);
+      const sH = Math.max(fen.heightMm * yScale, p ? 16 : 10);
+      ctx.fillStyle = "#ffffff";
       ctx.strokeStyle = color;
-      ctx.lineWidth = p ? 2.5 : 2;
+      ctx.lineWidth = p ? 2.2 : 1.8;
       ctx.beginPath();
       ctx.arc(fenDrawX, graftBodyY, sW / 2, Math.PI, 0, false);
-      ctx.lineTo(fenDrawX + sW / 2, graftBodyY);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      // Depth line from top down to scallop height
-      if (sH > 4) {
-        ctx.strokeStyle = `${color}88`;
+      // Height dimension line inside scallop
+      if (sH > (p ? 8 : 5)) {
+        ctx.strokeStyle = `${color}70`;
         ctx.lineWidth = 0.7;
         ctx.setLineDash([2, 2]);
         ctx.beginPath();
         ctx.moveTo(fenDrawX, graftBodyY);
-        ctx.lineTo(fenDrawX, graftBodyY + sH);
+        ctx.lineTo(fenDrawX, graftBodyY - sH);
         ctx.stroke();
         ctx.setLineDash([]);
       }
-      // Label
+      // Vessel label above graft edge
       ctx.fillStyle = color;
       ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
       ctx.textAlign = "center";
-      ctx.fillText(fen.vessel, fenDrawX, graftBodyY - (p ? 6 : 4));
+      ctx.fillText(fen.vessel, fenDrawX, graftBodyY - sH - (p ? 4 : 3));
       ctx.textAlign = "left";
     } else {
-      const rW = Math.max((fen.widthMm / 2) * xScale, p ? 9 : 6);
-      const rH = Math.max((fen.heightMm / 2) * yScale, p ? 9 : 6);
+      // Round/large fenestration: circle with center crosshair (Cook CMD style)
+      const rW = Math.max((fen.widthMm / 2) * xScale, p ? 10 : 7);
+      const rH = Math.max((fen.heightMm / 2) * yScale, p ? 10 : 7);
+      // Use circle (not ellipse) — Cook CMD shows round holes as circles
+      const r = Math.max(rW, rH);
 
-      // Conflict ring (dashed red halo)
+      // Conflict: dashed red outer ring
       if (isConflicted) {
         ctx.strokeStyle = "#dc2626";
         ctx.lineWidth = p ? 1.5 : 1;
-        ctx.setLineDash([4, 3]);
+        ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]);
         ctx.beginPath();
-        ctx.ellipse(fenDrawX, fenDrawY, rW + (p ? 8 : 5), rH + (p ? 8 : 5), 0, 0, Math.PI * 2);
+        ctx.arc(fenDrawX, fenDrawY, r + (p ? 7 : 5), 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
       }
 
-      // Fenestration ellipse
-      ctx.fillStyle = `${color}30`;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = p ? 2.5 : 2;
+      // White fill (punch-out appearance)
+      ctx.fillStyle = "#ffffff";
       ctx.beginPath();
-      ctx.ellipse(fenDrawX, fenDrawY, rW, rH, 0, 0, Math.PI * 2);
+      ctx.arc(fenDrawX, fenDrawY, r, 0, Math.PI * 2);
       ctx.fill();
+
+      // Circle border (thick, device color)
+      ctx.strokeStyle = color;
+      ctx.lineWidth = p ? 2.2 : 1.8;
+      ctx.beginPath();
+      ctx.arc(fenDrawX, fenDrawY, r, 0, Math.PI * 2);
       ctx.stroke();
 
-      // "A" = strut-free annotation (Cook CMD convention)
+      // Center crosshair (Cook CMD convention)
+      const cSize = p ? 5 : 3;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = p ? 1.2 : 0.9;
+      ctx.beginPath();
+      ctx.moveTo(fenDrawX - cSize, fenDrawY);
+      ctx.lineTo(fenDrawX + cSize, fenDrawY);
+      ctx.moveTo(fenDrawX, fenDrawY - cSize);
+      ctx.lineTo(fenDrawX, fenDrawY + cSize);
+      ctx.stroke();
+
+      // "A" = strut-free (Cook CMD: prominent letter beside hole)
       if (isStrFree) {
-        ctx.fillStyle = "#10211f";
-        ctx.font = `700 ${p ? 14 : 10}px sans-serif`;
+        ctx.fillStyle = "#111827";
+        ctx.font = `900 ${p ? 16 : 11}px sans-serif`;
         ctx.textAlign = "center";
-        ctx.fillText("A", fenDrawX, fenDrawY + rH + (p ? 16 : 11));
+        ctx.fillText("A", fenDrawX, fenDrawY + r + (p ? 14 : 10));
         ctx.textAlign = "left";
       }
 
-      // Vessel label
+      // Vessel label to the right of hole
       ctx.fillStyle = color;
       ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
-      ctx.fillText(fen.vessel, fenDrawX + rW + (p ? 5 : 3), fenDrawY - 1);
+      ctx.fillText(fen.vessel, fenDrawX + r + (p ? 4 : 3), fenDrawY + 3);
 
-      // Depth annotation (short horizontal tick)
-      ctx.strokeStyle = `${color}80`;
-      ctx.lineWidth = 0.8;
+      // Horizontal leader tick to left graft wall
+      ctx.strokeStyle = `${color}60`;
+      ctx.lineWidth = 0.7;
       ctx.beginPath();
       ctx.moveTo(graftBodyX, fenDrawY);
-      ctx.lineTo(graftBodyX - (p ? 5 : 3), fenDrawY);
+      ctx.lineTo(graftBodyX - (p ? 4 : 3), fenDrawY);
       ctx.stroke();
 
       dimLines.push({ y: fenDrawY, label: `${fen.depthMm}`, color });
@@ -652,29 +668,32 @@ export function renderGraftSketch({
     ctx.restore();
   });
 
-  // ── Depth dimension lines (left of graft body) ───────────────────────────────
+  // ── Depth dimension lines (Cook CMD style: staggered vertical arrows) ────────
+  // Each fenestration gets its own offset column so labels don't collide
   {
-    const dimX = margin + (p ? 42 : 20);
-    const arrowSz = p ? 4 : 3;
-    ctx.strokeStyle = "#45605b";
-    ctx.lineWidth = 0.8;
-    ctx.fillStyle = "#45605b";
+    const colW = p ? 14 : 10;
+    const arrowSz = p ? 3.5 : 2.5;
 
-    for (const { y, label, color } of dimLines) {
-      // Vertical line from graftBodyY to fenY
+    dimLines.forEach(({ y, label, color }, i) => {
+      const dimX = graftBodyX - (p ? 10 : 7) - i * colW;
+
+      // Vertical arrow line: proximal edge → fenestration
       ctx.strokeStyle = color;
+      ctx.lineWidth = p ? 1.2 : 0.9;
       ctx.beginPath();
       ctx.moveTo(dimX, graftBodyY);
       ctx.lineTo(dimX, y);
       ctx.stroke();
-      // Arrows
+
+      // Arrowheads
       ctx.fillStyle = color;
       drawArrow(ctx, dimX, graftBodyY, "up", arrowSz);
       drawArrow(ctx, dimX, y, "down", arrowSz);
-      // Horizontal leaders from dim line to graft
-      ctx.strokeStyle = `${color}60`;
-      ctx.lineWidth = 0.6;
-      ctx.setLineDash([2, 2]);
+
+      // Short horizontal leaders to graft wall
+      ctx.strokeStyle = `${color}55`;
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([p ? 3 : 2, p ? 2 : 1.5]);
       ctx.beginPath();
       ctx.moveTo(dimX, graftBodyY);
       ctx.lineTo(graftBodyX, graftBodyY);
@@ -682,13 +701,14 @@ export function renderGraftSketch({
       ctx.lineTo(graftBodyX, y);
       ctx.stroke();
       ctx.setLineDash([]);
-      // Label
+
+      // Dimension label (bold, Cook CMD style)
       ctx.fillStyle = color;
-      ctx.font = `600 ${p ? 11 : 8}px sans-serif`;
+      ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
       ctx.textAlign = "right";
-      ctx.fillText(label, dimX - (p ? 5 : 3), (graftBodyY + y) / 2 + 4);
+      ctx.fillText(label, dimX - (p ? 3 : 2), (graftBodyY + y) / 2 + 4);
       ctx.textAlign = "left";
-    }
+    });
   }
 
   // ── Spec panel ───────────────────────────────────────────────────────────────
@@ -697,8 +717,8 @@ export function renderGraftSketch({
   const sw = specPanelW;
 
   // Rotation plan
-  ctx.fillStyle = "#10211f";
-  ctx.font = `700 ${p ? 13 : 10}px sans-serif`;
+  ctx.fillStyle = "#111827";
+  ctx.font = `700 ${p ? 14 : 10}px sans-serif`;
   ctx.fillText("ROTATION PLAN", specPanelX, sy);
   sy += lineH * 1.3;
   ctx.fillStyle = "#0f766e";
