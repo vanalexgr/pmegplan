@@ -78,6 +78,12 @@ async function buildSummaryPdfBlob(
     format: "a4",
   });
 
+  const exportDate = new Date().toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
   pdf.setFillColor(248, 244, 237);
   pdf.rect(0, 0, 297, 210, "F");
   pdf.setTextColor(16, 33, 31);
@@ -87,7 +93,7 @@ async function buildSummaryPdfBlob(
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(11);
   pdf.text(
-    `Patient: ${caseInput.patientId || "N/A"}    Neck diameter: ${caseInput.neckDiameterMm} mm`,
+    `Patient: ${caseInput.patientId || "N/A"}    Neck: ${caseInput.neckDiameterMm} mm    Surgeon: ${caseInput.surgeonName || "N/A"}    Date: ${exportDate}`,
     16,
     28,
   );

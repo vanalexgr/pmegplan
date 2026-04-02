@@ -21,6 +21,7 @@ function SummaryTable({ results }: { results: DeviceAnalysisResult[] }) {
             <th className="pb-3 pr-4">Rank</th>
             <th className="pb-3 pr-4">Device</th>
             <th className="pb-3 pr-4">Selected size</th>
+            <th className="pb-3 pr-4">Status</th>
             <th className="pb-3 pr-4">Rotation</th>
             <th className="pb-3 pr-4">Valid window</th>
             <th className="pb-3">Clearance</th>
@@ -36,6 +37,13 @@ function SummaryTable({ results }: { results: DeviceAnalysisResult[] }) {
               <td className="py-4 pr-4">{result.device.shortName}</td>
               <td className="py-4 pr-4">
                 {result.size ? `${result.size.graftDiameter} mm` : "Unavailable"}
+              </td>
+              <td className="py-4 pr-4">
+                {result.rotation.hasConflictFreeRotation ? (
+                  <span className="font-medium text-emerald-700">Conflict-free</span>
+                ) : (
+                  <span className="text-amber-700">Compromise</span>
+                )}
               </td>
               <td className="py-4 pr-4">{result.rotation.optimalDeltaDeg.toFixed(1)}°</td>
               <td className="py-4 pr-4">{result.totalValidWindowMm.toFixed(1)} mm</td>

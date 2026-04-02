@@ -71,7 +71,8 @@ export function clockToArc(clock: string, circ: number) {
 
 export function arcToClockString(arcMm: number, circ: number) {
   const wrappedArc = wrapMm(arcMm, circ);
-  const roundedMinutes = Math.round(((wrappedArc / circ) * 720) / 15) * 15;
+  // Round to nearest 5 minutes (720 clock-minutes = full circumference).
+  const roundedMinutes = Math.round(((wrappedArc / circ) * 720) / 5) * 5;
   const totalMinutes = ((roundedMinutes % 720) + 720) % 720;
   const hours = Math.floor(totalMinutes / 60) % 12;
   const minutes = totalMinutes % 60;

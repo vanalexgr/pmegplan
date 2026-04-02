@@ -43,13 +43,16 @@ export function RotationChart({
     );
   }
 
-  const threshold = Math.max(
-    ...roundFenestrations.map(
-      (fenestration) =>
-        Math.max(fenestration.widthMm, fenestration.heightMm) / 2 +
-        result.device.wireRadius,
-    ),
+  // Use vessel+index as data key to avoid collisions when the same vessel
+  // appears more than once (e.g. two CUSTOM fenestrations).
+  const dataKeys = roundFenestrations.map((fen, i) => `${fen.vessel}_${i}`);
+
+  // Compute per-fenestration safe thresholds; deduplicate for reference lines.
+  const thresholds = roundFenestrations.map(
+    (fen) => Math.max(fen.widthMm, fen.heightMm) / 2 + result.device.wireRadius,
   );
+  const uniqueThresholds = [...new Set(thresholds)].sort((a, b) => a - b);
+
   const chartData = result.rotation.scanData
     .filter((_, index, data) => index % 4 === 0 || index === data.length - 1)
     .map((point) => {
@@ -57,8 +60,8 @@ export function RotationChart({
         rotationDeg: point.deltaDeg,
         allClear: point.allClear,
       };
-      roundFenestrations.forEach((fenestration, index) => {
-        row[fenestration.vessel] = point.distPerFen[index];
+      roundFenestrations.forEach((_fen, index) => {
+        row[dataKeys[index]] = point.distPerFen[index];
       });
       return row;
     });
@@ -83,16 +86,17 @@ export function RotationChart({
               stroke="#45605b"
             />
             <Tooltip
-              formatter={(value) => {
+              formatter={(value, name) => {
                 const numericValue =
                   typeof value === "number" ? value : Number(value);
+                const label = String(name).replace(/_\d+$/, "");
                 return Number.isFinite(numericValue)
-                  ? `${numericValue.toFixed(2)} mm`
-                  : String(value ?? "");
+                  ? [`${numericValue.toFixed(2)} mm`, label]
+                  : [String(value ?? ""), label];
               }}
               labelFormatter={(value) => `Rotation ${Number(value).toFixed(1)}°`}
             />
-            <Legend />
+            <Legend formatter={(value) => String(value).replace(/_\d+$/, "")} />
             {result.rotation.validWindows.map((window, index) => (
               <ReferenceArea
                 key={`${window.startDeg}-${window.endDeg}-${index}`}
@@ -101,16 +105,25 @@ export function RotationChart({
                 fill="rgba(15, 118, 110, 0.12)"
               />
             ))}
-            <ReferenceLine
-              y={threshold}
-              label="Safe threshold"
-              stroke="#dc2626"
-              strokeDasharray="5 5"
-            />
+            {uniqueThresholds.map((t) => (
+              <ReferenceLine
+                key={t}
+                y={t}
+                label={{
+                  value: `${t.toFixed(1)} mm`,
+                  position: "insideTopRight",
+                  fontSize: 11,
+                  fill: "#dc2626",
+                }}
+                stroke="#dc2626"
+                strokeDasharray="5 5"
+              />
+            ))}
             {roundFenestrations.map((fenestration, index) => (
               <Line
-                key={fenestration.vessel}
-                dataKey={fenestration.vessel}
+                key={dataKeys[index]}
+                dataKey={dataKeys[index]}
+                name={dataKeys[index]}
                 type="monotone"
                 dot={false}
                 strokeWidth={2}

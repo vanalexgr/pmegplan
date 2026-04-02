@@ -338,26 +338,20 @@ export function selectSize(
   device: DeviceGeometry,
   neckDiameterMm: number,
 ): DeviceSize | null {
-  const oversizedNeck = neckDiameterMm * 1.15;
-  const oversizedCandidates = device.sizes.filter(
+  // The device size table already encodes appropriate oversizing:
+  // neckDiameterMin/Max is the patient neck range; graftDiameter is the
+  // pre-oversized implant. Direct lookup is correct — applying an additional
+  // 1.15× multiplier to the neck was selecting grafts 2-3 sizes too large.
+  const candidates = device.sizes.filter(
     (size) =>
-      oversizedNeck >= size.neckDiameterMin &&
-      oversizedNeck <= size.neckDiameterMax,
+      neckDiameterMm >= size.neckDiameterMin &&
+      neckDiameterMm <= size.neckDiameterMax,
   );
 
-  if (oversizedCandidates.length > 0) {
-    return oversizedCandidates.sort(
-      (left, right) => left.graftDiameter - right.graftDiameter,
-    )[0];
-  }
+  if (candidates.length === 0) return null;
 
-  return (
-    device.sizes.find(
-      (size) =>
-        neckDiameterMm >= size.neckDiameterMin &&
-        neckDiameterMm <= size.neckDiameterMax,
-    ) ?? null
-  );
+  // If multiple sizes span this neck diameter, use the smallest (least oversize).
+  return candidates.sort((a, b) => a.graftDiameter - b.graftDiameter)[0];
 }
 
 export function getTREOWaveWidth(graftDiameterMm: number): number {
