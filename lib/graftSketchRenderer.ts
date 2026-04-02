@@ -286,29 +286,56 @@ export function renderGraftSketch({
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // ── Ring / gap zone shading (B&W, Cook CMD style) ────────────────────────────
-  // Ring zones: very light gray (stent wire present)
-  // Inter-ring gaps: white (strut-free)
+  // ── Ring zones: fabric hatching + gap labels (Cook CMD / publication style) ──
+  // Ring zones: diagonal crosshatch = woven polyester fabric
+  // Inter-ring gaps: white (strut-free, no hatching)
   {
+    const hatchSpacing = p ? 5 : 4;  // pixels between hatch lines
+    const hatchColor = "rgba(0,0,0,0.18)";
+
     let y = 0;
     for (let ri = 0; ri < nRings; ri++) {
       const rTop = graftBodyY + y * yScale;
       const rH = ringHeight * yScale;
-      ctx.fillStyle = "rgba(0,0,0,0.04)";
-      ctx.fillRect(graftBodyX + 1, rTop, graftBodyW - 1, rH);
-      // Ring label on RIGHT side outside graft
+
+      // Clip to this ring band and draw diagonal hatch
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(graftBodyX + 1, rTop, graftBodyW - 2, rH);
+      ctx.clip();
+      ctx.strokeStyle = hatchColor;
+      ctx.lineWidth = p ? 0.7 : 0.6;
+      // Diagonal lines at 45° across band
+      const diagRange = graftBodyW + rH;
+      for (let d = -rH; d < graftBodyW + rH; d += hatchSpacing) {
+        ctx.beginPath();
+        ctx.moveTo(graftBodyX + d, rTop);
+        ctx.lineTo(graftBodyX + d + rH, rTop + rH);
+        ctx.stroke();
+      }
+      // Cross-hatch (other direction) for polyester fabric texture
+      for (let d = -rH; d < graftBodyW + rH; d += hatchSpacing) {
+        ctx.beginPath();
+        ctx.moveTo(graftBodyX + d + rH, rTop);
+        ctx.lineTo(graftBodyX + d, rTop + rH);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Ring label on RIGHT side
       ctx.fillStyle = "#6b7280";
       ctx.font = `400 ${p ? 9 : 7}px sans-serif`;
       ctx.textAlign = "left";
-      ctx.fillText(`Ring ${ri + 1}  ←${ringHeight}mm→`, graftBodyX + graftBodyW + (p ? 5 : 3), rTop + rH / 2 + 3);
+      ctx.fillText(`Ring ${ri + 1}`, graftBodyX + graftBodyW + (p ? 5 : 3), rTop + rH / 2 + 3);
+
       y += ringHeight;
       if (ri < nRings - 1) {
         const gTop = graftBodyY + y * yScale;
         const gH = interRingGap * yScale;
-        // Gap stays white — just label it
-        if (gH > (p ? 12 : 8)) {
-          ctx.fillStyle = "#6b7280";
+        if (gH > (p ? 10 : 7)) {
+          ctx.fillStyle = "#374151";
           ctx.font = `400 italic ${p ? 9 : 7}px sans-serif`;
+          ctx.textAlign = "left";
           ctx.fillText(`gap ${interRingGap}mm`, graftBodyX + graftBodyW + (p ? 5 : 3), gTop + gH / 2 + 3);
         }
         y += interRingGap;
@@ -369,95 +396,131 @@ export function renderGraftSketch({
   ctx.rect(graftBodyX, graftBodyY - supraH - 2, graftBodyW + 2, graftBodyH + supraH + 6);
   ctx.clip();
 
-  ctx.strokeStyle = "rgba(15,23,42,0.82)";
-  ctx.lineWidth = p ? 1.6 : 1.2;
-
-  for (const [ax, ay, bx, by] of result.strutSegments as StrutSegment[]) {
-    for (const copy of [-1, 0, 1]) {
-      const dax = graftBodyCX + arcFromNoon(wrapMm(ax + delta, circ), circ) * xScale + copy * graftBodyW;
-      const dbx = graftBodyCX + arcFromNoon(wrapMm(bx + delta, circ), circ) * xScale + copy * graftBodyW;
-      const day = graftBodyY + ay * yScale;
-      const dby = graftBodyY + by * yScale;
-      if (Math.max(dax, dbx) < graftBodyX - 4 || Math.min(dax, dbx) > graftBodyX + graftBodyW + 4) continue;
-      ctx.beginPath();
-      ctx.moveTo(dax, day);
-      ctx.lineTo(dbx, dby);
-      ctx.stroke();
-    }
-  }
-
-  // ── Suprarenal bare stent (IFU-confirmed: Zenith Alpha, Endurant II, TREO) ──
-  // Drawn as a mini Z-wave above the fabric proximal edge, with barbs at peaks.
-  if (result.device.hasBareSuprarenal) {
-    ctx.strokeStyle = "rgba(15,23,42,0.72)";
-    ctx.lineWidth = p ? 1.4 : 1.0;
-    ctx.setLineDash([p ? 3 : 2, p ? 2 : 1.5]); // dashed = bare (no fabric)
-    // Draw a simplified Z-wave for the suprarenal stent
-    for (let pk = 0; pk < result.nPeaks * 2; pk++) {
-      const arcA = (pk * waveWidth) / 2 + delta;
-      const arcB = ((pk + 1) * waveWidth) / 2 + delta;
+  // Draw strut wires on top of hatching — white outline first for contrast
+  const strutLW = p ? 2.0 : 1.5;
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.strokeStyle = pass === 0 ? "#ffffff" : "rgba(15,23,42,0.88)";
+    ctx.lineWidth = pass === 0 ? strutLW + (p ? 2 : 1.5) : strutLW;
+    for (const [ax, ay, bx, by] of result.strutSegments as StrutSegment[]) {
       for (const copy of [-1, 0, 1]) {
-        const xa = graftBodyCX + arcFromNoon(wrapMm(arcA, circ), circ) * xScale + copy * graftBodyW;
-        const xb = graftBodyCX + arcFromNoon(wrapMm(arcB, circ), circ) * xScale + copy * graftBodyW;
-        if (Math.max(xa, xb) < graftBodyX || Math.min(xa, xb) > graftBodyX + graftBodyW) continue;
-        const yA = pk % 2 === 0 ? graftBodyY : graftBodyY - supraH;
-        const yB = pk % 2 === 0 ? graftBodyY - supraH : graftBodyY;
+        const dax = graftBodyCX + arcFromNoon(wrapMm(ax + delta, circ), circ) * xScale + copy * graftBodyW;
+        const dbx = graftBodyCX + arcFromNoon(wrapMm(bx + delta, circ), circ) * xScale + copy * graftBodyW;
+        const day = graftBodyY + ay * yScale;
+        const dby = graftBodyY + by * yScale;
+        if (Math.max(dax, dbx) < graftBodyX - 4 || Math.min(dax, dbx) > graftBodyX + graftBodyW + 4) continue;
         ctx.beginPath();
-        ctx.moveTo(xa, yA);
-        ctx.lineTo(xb, yB);
+        ctx.moveTo(dax, day);
+        ctx.lineTo(dbx, dby);
         ctx.stroke();
       }
     }
-    ctx.setLineDash([]);
+  }
 
-    // Barbs at the cranial (top) peaks of the suprarenal stent
-    ctx.strokeStyle = "rgba(15,23,42,0.80)";
-    ctx.lineWidth = p ? 1.3 : 0.9;
-    const barbLen = p ? 9 : 5;
+  // ── Suprarenal bare stent ─────────────────────────────────────────────────────
+  // Drawn above the fabric proximal edge — bare = no hatching, dashed outline
+  if (result.device.hasBareSuprarenal) {
+    const isTREO = result.device.id === "treo";
+
+    if (isTREO) {
+      // TREO suprarenal: open crown stent (rounded arches, like IFU diagram)
+      // Drawn as scalloped arcs across the top
+      ctx.strokeStyle = "rgba(15,23,42,0.78)";
+      ctx.lineWidth = p ? 1.5 : 1.1;
+      for (let pk = 0; pk < result.nPeaks; pk++) {
+        const arcA = wrapMm(pk * waveWidth + delta, circ);
+        const arcB = wrapMm((pk + 0.5) * waveWidth + delta, circ);
+        const arcC = wrapMm((pk + 1) * waveWidth + delta, circ);
+        for (const copy of [-1, 0, 1]) {
+          const xa = graftBodyCX + arcFromNoon(arcA, circ) * xScale + copy * graftBodyW;
+          const xb = graftBodyCX + arcFromNoon(arcB, circ) * xScale + copy * graftBodyW;
+          const xc = graftBodyCX + arcFromNoon(arcC, circ) * xScale + copy * graftBodyW;
+          if (Math.max(xa, xc) < graftBodyX || Math.min(xa, xc) > graftBodyX + graftBodyW) continue;
+          // Arch: two lines meeting at the peak, slightly curved
+          const archH = supraH * 0.85;
+          ctx.beginPath();
+          ctx.moveTo(xa, graftBodyY);
+          ctx.quadraticCurveTo(xb, graftBodyY - archH, xc, graftBodyY);
+          ctx.stroke();
+        }
+      }
+      // Small dots at arch bases (TREO crown stent foot points)
+      ctx.fillStyle = "rgba(15,23,42,0.70)";
+      for (let pk = 0; pk < result.nPeaks; pk++) {
+        const footArc = wrapMm(pk * waveWidth + delta, circ);
+        const fx = graftBodyCX + arcFromNoon(footArc, circ) * xScale;
+        if (fx < graftBodyX + 1 || fx > graftBodyX + graftBodyW - 1) continue;
+        ctx.beginPath();
+        ctx.arc(fx, graftBodyY, p ? 2.5 : 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // Zenith Alpha / Endurant II: Z-stent bare suprarenal, dashed (no fabric)
+      ctx.strokeStyle = "rgba(15,23,42,0.75)";
+      ctx.lineWidth = p ? 1.5 : 1.1;
+      ctx.setLineDash([p ? 4 : 3, p ? 2.5 : 2]);
+      for (let pk = 0; pk < result.nPeaks * 2; pk++) {
+        const arcA = (pk * waveWidth) / 2 + delta;
+        const arcB = ((pk + 1) * waveWidth) / 2 + delta;
+        for (const copy of [-1, 0, 1]) {
+          const xa = graftBodyCX + arcFromNoon(wrapMm(arcA, circ), circ) * xScale + copy * graftBodyW;
+          const xb = graftBodyCX + arcFromNoon(wrapMm(arcB, circ), circ) * xScale + copy * graftBodyW;
+          if (Math.max(xa, xb) < graftBodyX || Math.min(xa, xb) > graftBodyX + graftBodyW) continue;
+          const yA = pk % 2 === 0 ? graftBodyY : graftBodyY - supraH;
+          const yB = pk % 2 === 0 ? graftBodyY - supraH : graftBodyY;
+          ctx.beginPath();
+          ctx.moveTo(xa, yA);
+          ctx.lineTo(xb, yB);
+          ctx.stroke();
+        }
+      }
+      ctx.setLineDash([]);
+    }
+
+    // Fixation barbs at cranial peaks
+    ctx.strokeStyle = "rgba(15,23,42,0.85)";
+    ctx.lineWidth = p ? 1.4 : 1.0;
+    const barbLen = p ? 10 : 6;
     for (let pk = 0; pk < result.nPeaks; pk++) {
       const peakArc = pk * waveWidth + delta;
       for (const copy of [-1, 0, 1]) {
         const px = graftBodyCX + arcFromNoon(wrapMm(peakArc, circ), circ) * xScale + copy * graftBodyW;
         if (px < graftBodyX + 1 || px > graftBodyX + graftBodyW - 1) continue;
-        // Barb: short oblique line cranially from peak
+        const topY = result.device.id === "treo" ? graftBodyY - supraH * 0.85 : graftBodyY - supraH;
         ctx.beginPath();
-        ctx.moveTo(px, graftBodyY - supraH);
-        ctx.lineTo(px - barbLen * 0.55, graftBodyY - supraH - barbLen);
+        ctx.moveTo(px, topY);
+        ctx.lineTo(px - barbLen * 0.5, topY - barbLen);
         ctx.stroke();
       }
     }
   } else {
-    // No bare stent — draw simple barb ticks at the proximal graft edge
+    // No bare stent: simple anchor ticks at proximal fabric edge
     ctx.strokeStyle = "rgba(15,23,42,0.65)";
     ctx.lineWidth = p ? 1.2 : 0.9;
-    const barbLen = p ? 9 : 5;
+    const barbLen = p ? 8 : 5;
     for (let pk = 0; pk < result.nPeaks; pk++) {
       const peakArc = pk * waveWidth + delta;
       const px = graftBodyCX + arcFromNoon(wrapMm(peakArc, circ), circ) * xScale;
       if (px < graftBodyX + 2 || px > graftBodyX + graftBodyW - 2) continue;
       ctx.beginPath();
       ctx.moveTo(px, graftBodyY);
-      ctx.lineTo(px - barbLen * 0.5, graftBodyY - barbLen);
+      ctx.lineTo(px - barbLen * 0.45, graftBodyY - barbLen);
       ctx.stroke();
     }
   }
 
-  // ── Infrarenal barbs (TREO: in fabric "valleys" of proximal covered ring) ──
-  // IFU: "infrarenal barbs obscured in graft fabric valleys prior to final clasp release"
+  // ── Infrarenal barbs (TREO valley barbs, black ticks) ────────────────────────
   if (result.device.hasInfrarenalBarbs) {
-    ctx.strokeStyle = "rgba(15,118,110,0.90)";
+    ctx.strokeStyle = "rgba(15,23,42,0.85)";
     ctx.lineWidth = p ? 1.3 : 0.9;
-    const irbLen = p ? 8 : 5;
-    // Valleys are between peaks, at depth = ringHeight (bottom of first ring)
+    const irbLen = p ? 7 : 5;
     const valleyY = graftBodyY + ringHeight * yScale;
     for (let v = 0; v < result.nPeaks; v++) {
-      const valleyArc = (v + 0.5) * waveWidth + delta; // valley midpoint
+      const valleyArc = (v + 0.5) * waveWidth + delta;
       const vx = graftBodyCX + arcFromNoon(wrapMm(valleyArc, circ), circ) * xScale;
       if (vx < graftBodyX + 2 || vx > graftBodyX + graftBodyW - 2) continue;
-      // Barb: short outward tick pointing distally (downward in sketch)
       ctx.beginPath();
       ctx.moveTo(vx, valleyY);
-      ctx.lineTo(vx + irbLen * 0.4, valleyY + irbLen);
+      ctx.lineTo(vx, valleyY + irbLen);
       ctx.stroke();
     }
   }
