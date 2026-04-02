@@ -633,33 +633,47 @@ export function renderGraftSketch({
     ctx.clip();
 
     if (fen.ftype === "SCALLOP") {
-      // Scallop: semicircle notch cut into proximal edge
+      // Scallop: semi-ellipse notch cut INTO proximal edge (downward into graft body)
+      // Width = fen.widthMm across graft circumference; Height = fen.heightMm depth below proximal edge
       const sW = Math.max(fen.widthMm * xScale, p ? 20 : 13);
       const sH = Math.max(fen.heightMm * yScale, p ? 16 : 10);
+
+      // Semi-ellipse going downward from the proximal edge:
+      //   ellipse(cx, cy, rx, ry, rot, startAngle=π, endAngle=0, clockwise)
+      //   startAngle=π → left edge, endAngle=0 → right edge, clockwise → sweeps through BOTTOM
       ctx.fillStyle = "#ffffff";
       ctx.strokeStyle = color;
       ctx.lineWidth = p ? 2.2 : 1.8;
       ctx.beginPath();
-      ctx.arc(fenDrawX, graftBodyY, sW / 2, Math.PI, 0, false);
-      ctx.closePath();
+      ctx.ellipse(fenDrawX, graftBodyY, sW / 2, sH, 0, Math.PI, 0, false);
+      ctx.closePath();  // straight line along proximal edge (top of scallop)
       ctx.fill();
       ctx.stroke();
-      // Height dimension line inside scallop
+
+      // Height dimension line: vertical dashed line from proximal edge downward to scallop bottom
       if (sH > (p ? 8 : 5)) {
         ctx.strokeStyle = `${color}70`;
         ctx.lineWidth = 0.7;
         ctx.setLineDash([2, 2]);
         ctx.beginPath();
         ctx.moveTo(fenDrawX, graftBodyY);
-        ctx.lineTo(fenDrawX, graftBodyY - sH);
+        ctx.lineTo(fenDrawX, graftBodyY + sH);  // downward into graft
         ctx.stroke();
         ctx.setLineDash([]);
+        // Dimension label offset to the right of the scallop to avoid overlap with center line
+        ctx.fillStyle = `${color}90`;
+        ctx.font = `400 ${p ? 9 : 7}px sans-serif`;
+        ctx.textAlign = "left";
+        ctx.fillText(`H:${fen.heightMm}`, fenDrawX + sW / 2 + (p ? 4 : 3), graftBodyY + sH / 2 + 3);
+        ctx.fillText(`W:${fen.widthMm}`, fenDrawX + sW / 2 + (p ? 4 : 3), graftBodyY + sH / 2 + (p ? 13 : 10));
+        ctx.textAlign = "left";
       }
-      // Vessel label above graft edge
+
+      // Vessel label above the proximal edge (clear of clock labels at graftBodyY-9)
       ctx.fillStyle = color;
       ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
       ctx.textAlign = "center";
-      ctx.fillText(fen.vessel, fenDrawX, graftBodyY - sH - (p ? 4 : 3));
+      ctx.fillText(fen.vessel, fenDrawX, graftBodyY - (p ? 18 : 12));
       ctx.textAlign = "left";
     } else {
       // Round/large fenestration: circle with center crosshair (Cook CMD style)
