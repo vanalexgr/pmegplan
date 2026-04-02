@@ -165,8 +165,10 @@ export function renderGraftSketch({
   ctx.clearRect(0, 0, width, height);
 
   if (!result.size) {
+    const s = mode === "print" ? width / 600 : 1;
     ctx.fillStyle = "#f8f4ed";
     ctx.fillRect(0, 0, width, height);
+    if (s !== 1) ctx.scale(s, s);
     ctx.fillStyle = "#45605b";
     ctx.font = "400 14px sans-serif";
     ctx.fillText("No compatible graft size for this anatomy.", 24, 40);
@@ -175,21 +177,31 @@ export function renderGraftSketch({
 
   const p = mode === "print";
 
+  // ── Scale setup ─────────────────────────────────────────────────────────────
+  // For print mode the canvas is 2480×3508 (300 DPI A4 portrait).
+  // All layout constants and font sizes are written for a ~600px logical width.
+  // We apply ctx.scale so the renderer works in logical coordinates and the
+  // high-res canvas is filled correctly.
+  const printScale = p ? width / 600 : 1;
+  const lw = Math.round(width / printScale);   // logical width  (≈600 for print)
+  const lh = Math.round(height / printScale);  // logical height (≈850 for print)
+
   // ── Background ──────────────────────────────────────────────────────────────
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, width, height);           // fill at native resolution
+  if (p) ctx.scale(printScale, printScale);    // scale AFTER background fill
 
-  const margin = p ? 56 : 20;
-  const headerH = p ? 70 : 44;
-  const footerH = p ? 72 : 36;
+  const margin = p ? 24 : 20;
+  const headerH = p ? 54 : 44;
+  const footerH = p ? 42 : 36;
 
   // Layout: ~52% drawing | ~48% specs
-  const totalBodyW = width - margin * 2;
+  const totalBodyW = lw - margin * 2;
   const drawPanelW = Math.round(totalBodyW * 0.52);
-  const specPanelX = margin + drawPanelW + (p ? 28 : 14);
-  const specPanelW = width - specPanelX - margin;
+  const specPanelX = margin + drawPanelW + (p ? 16 : 14);
+  const specPanelW = lw - specPanelX - margin;
   const bodyY = margin + headerH;
-  const bodyH = height - bodyY - footerH - margin;
+  const bodyH = lh - bodyY - footerH - margin;
 
   // ── Header ──────────────────────────────────────────────────────────────────
   ctx.fillStyle = "#10211f";
@@ -228,9 +240,10 @@ export function renderGraftSketch({
     sealZoneH + 15,
     ...caseInput.fenestrations.map((f) => f.depthMm + 20),
   );
-  const availH = bodyH - (p ? 50 : 30); // space for Ø callout above
-  const yScale = Math.min(availH / maxDepth, p ? 5.2 : 3.0);
-  const graftBodyY = bodyY + (p ? 48 : 28); // proximal edge y
+  const graftBodyY = bodyY + (p ? 36 : 28); // proximal edge y (space for Ø callout + bare stent)
+  const availH = bodyH - (p ? 38 : 30);    // available height for graft body
+  // Fill available height in print; cap at 3.0 px/mm on screen to avoid overflow
+  const yScale = p ? availH / maxDepth : Math.min(availH / maxDepth, 3.0);
   const graftBodyH = maxDepth * yScale;
 
   // ── Diameter callout ─────────────────────────────────────────────────────────
@@ -679,7 +692,7 @@ export function renderGraftSketch({
   }
 
   // ── Spec panel ───────────────────────────────────────────────────────────────
-  const lh = p ? 17 : 12;
+  const lineH = p ? 15 : 12;
   let sy = bodyY + (p ? 6 : 4);
   const sw = specPanelW;
 
@@ -687,19 +700,19 @@ export function renderGraftSketch({
   ctx.fillStyle = "#10211f";
   ctx.font = `700 ${p ? 13 : 10}px sans-serif`;
   ctx.fillText("ROTATION PLAN", specPanelX, sy);
-  sy += lh * 1.3;
+  sy += lineH * 1.3;
   ctx.fillStyle = "#0f766e";
   ctx.font = `600 ${p ? 11 : 9}px sans-serif`;
-  sy = wrapText(ctx, getRotationSummary(result), specPanelX, sy, sw, lh, 4);
+  sy = wrapText(ctx, getRotationSummary(result), specPanelX, sy, sw, lineH, 4);
 
-  sy += lh * 0.8;
+  sy += lineH * 0.8;
   ctx.strokeStyle = "rgba(16,33,31,0.15)";
   ctx.lineWidth = 0.5;
   ctx.beginPath();
   ctx.moveTo(specPanelX, sy);
   ctx.lineTo(specPanelX + sw, sy);
   ctx.stroke();
-  sy += lh * 0.8;
+  sy += lineH * 0.8;
 
   // Fenestration specs
   const fcnt = { SCALLOP: 0, LARGE_FEN: 0, SMALL_FEN: 0 };
@@ -719,7 +732,7 @@ export function renderGraftSketch({
     ctx.fillStyle = color;
     ctx.font = `700 ${p ? 12 : 9}px sans-serif`;
     ctx.fillText(typeLabel, specPanelX, sy);
-    sy += lh;
+    sy += lineH;
 
     if (fen.ftype !== "SCALLOP") {
       const arcSep = computeArcSep(adjClock, seamDeg, delta, circ);
@@ -729,12 +742,12 @@ export function renderGraftSketch({
         ctx.fillStyle = "#0f766e";
         ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
         ctx.fillText("**Strut Free**", specPanelX + (p ? 6 : 4), sy);
-        sy += lh;
+        sy += lineH;
       } else if (isConflicted) {
         ctx.fillStyle = "#dc2626";
         ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
         ctx.fillText(`⚠ Conflict — min clearance ${conflict.minDist.toFixed(1)} mm`, specPanelX + (p ? 6 : 4), sy);
-        sy += lh;
+        sy += lineH;
       }
       ctx.fillStyle = "#334155";
       ctx.font = `400 ${p ? 11 : 9}px sans-serif`;
@@ -747,7 +760,7 @@ export function renderGraftSketch({
       ];
       for (const line of specLines) {
         ctx.fillText(line, specPanelX + (p ? 6 : 4), sy);
-        sy += lh;
+        sy += lineH;
       }
     } else {
       ctx.fillStyle = "#334155";
@@ -760,26 +773,26 @@ export function renderGraftSketch({
       ];
       for (const line of specLines) {
         ctx.fillText(line, specPanelX + (p ? 6 : 4), sy);
-        sy += lh;
+        sy += lineH;
       }
     }
-    sy += lh * 0.5;
+    sy += lineH * 0.5;
   });
 
-  sy += lh * 0.5;
+  sy += lineH * 0.5;
   ctx.strokeStyle = "rgba(16,33,31,0.15)";
   ctx.lineWidth = 0.5;
   ctx.beginPath();
   ctx.moveTo(specPanelX, sy);
   ctx.lineTo(specPanelX + sw, sy);
   ctx.stroke();
-  sy += lh;
+  sy += lineH;
 
   // Device data block
   ctx.fillStyle = "#10211f";
   ctx.font = `700 ${p ? 12 : 9}px sans-serif`;
   ctx.fillText("DEVICE", specPanelX, sy);
-  sy += lh;
+  sy += lineH;
   ctx.fillStyle = "#334155";
   ctx.font = `400 ${p ? 11 : 9}px sans-serif`;
   const deviceLines: string[] = [
@@ -798,26 +811,26 @@ export function renderGraftSketch({
   if (dev.maxSuprarenalAngleDeg != null) deviceLines.push(`Max suprarenal angle (IFU): ${dev.maxSuprarenalAngleDeg}°`);
   deviceLines.forEach((line) => {
     ctx.fillText(line, specPanelX + (p ? 6 : 4), sy);
-    sy += lh;
+    sy += lineH;
   });
 
   if (caseInput.surgeonNote) {
-    sy += lh * 0.5;
+    sy += lineH * 0.5;
     ctx.fillStyle = "#45605b";
     ctx.font = `400 italic ${p ? 10 : 8}px sans-serif`;
-    sy = wrapText(ctx, `Note: ${caseInput.surgeonNote}`, specPanelX, sy, sw, lh, 4);
+    sy = wrapText(ctx, `Note: ${caseInput.surgeonNote}`, specPanelX, sy, sw, lineH, 4);
   }
 
   // ── Footer ───────────────────────────────────────────────────────────────────
-  const footerY = height - footerH + (p ? 16 : 8);
+  const footerY = lh - footerH + (p ? 14 : 8);
   ctx.strokeStyle = "rgba(16,33,31,0.15)";
   ctx.lineWidth = 0.5;
   ctx.beginPath();
-  ctx.moveTo(margin, footerY - (p ? 10 : 6));
-  ctx.lineTo(width - margin, footerY - (p ? 10 : 6));
+  ctx.moveTo(margin, footerY - (p ? 8 : 6));
+  ctx.lineTo(lw - margin, footerY - (p ? 8 : 6));
   ctx.stroke();
   ctx.fillStyle = "#45605b";
-  ctx.font = `400 ${p ? 10 : 8}px sans-serif`;
+  ctx.font = `400 ${p ? 9 : 8}px sans-serif`;
   ctx.fillText(
     "For research and planning use only. All clinical decisions remain the surgeon's responsibility. Not to scale.",
     margin,
@@ -826,12 +839,12 @@ export function renderGraftSketch({
   ctx.fillText(
     `PMEGplan.io  •  ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`,
     margin,
-    footerY + (p ? 14 : 10),
+    footerY + (p ? 12 : 10),
   );
   if (p) {
     ctx.fillText(
       "Signature: ___________________________   Date: ___________",
-      width / 2 - 10,
+      lw / 2 - 10,
       footerY,
     );
   }
