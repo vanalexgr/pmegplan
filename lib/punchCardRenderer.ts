@@ -3,6 +3,21 @@ import { getRotationSummary } from "@/lib/analysis";
 import { getSealZoneHeightMm } from "@/lib/stentGeometry";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
+function isInInterRingGap(
+  depthMm: number,
+  ringHeight: number,
+  interRingGap: number,
+  nRings: number,
+): boolean {
+  let y = 0;
+  for (let i = 0; i < nRings - 1; i++) {
+    y += ringHeight;
+    if (depthMm >= y && depthMm <= y + interRingGap) return true;
+    y += interRingGap;
+  }
+  return false;
+}
+
 const vesselColors: Record<string, string> = {
   SMA: "#f59e0b",
   LRA: "#2563eb",
@@ -223,6 +238,13 @@ export function renderPunchCard({
     ctx.fillStyle = "rgba(220, 38, 38, 0.12)";
     ctx.fillRect(chartX, ringTop, chartWidth, ringHeightPx);
 
+    // Ring label
+    if (ringHeightPx > (mode === "print" ? 18 : 12)) {
+      ctx.fillStyle = "rgba(185, 28, 28, 0.55)";
+      ctx.font = mode === "print" ? "400 11px sans-serif" : "400 9px sans-serif";
+      ctx.fillText(`Ring ${ringIndex + 1}`, chartX + 4, ringTop + (mode === "print" ? 14 : 10));
+    }
+
     currentY += result.device.ringHeight;
 
     if (ringIndex < result.device.nRings - 1) {
@@ -230,6 +252,14 @@ export function renderPunchCard({
       const gapHeightPx = result.device.interRingGap * yScale;
       ctx.fillStyle = "rgba(15, 118, 110, 0.12)";
       ctx.fillRect(chartX, gapTop, chartWidth, gapHeightPx);
+
+      // "Safe zone" label in inter-ring gap
+      if (gapHeightPx > (mode === "print" ? 18 : 12)) {
+        ctx.fillStyle = "rgba(15, 118, 110, 0.65)";
+        ctx.font = mode === "print" ? "600 11px sans-serif" : "600 9px sans-serif";
+        ctx.fillText("safe zone", chartX + 4, gapTop + gapHeightPx / 2 + 4);
+      }
+
       currentY += result.device.interRingGap;
     }
   }
@@ -299,6 +329,21 @@ export function renderPunchCard({
       conflict?.conflict ?? false,
       fenestration.ftype === "SCALLOP",
     );
+
+    const inGap =
+      fenestration.ftype !== "SCALLOP" &&
+      isInInterRingGap(
+        fenestration.depthMm,
+        result.device.ringHeight,
+        result.device.interRingGap,
+        result.device.nRings,
+      );
+    if (inGap) {
+      ctx.fillStyle = "#10211f";
+      ctx.font =
+        mode === "print" ? "700 13px sans-serif" : "700 10px sans-serif";
+      ctx.fillText("A", x, y + heightPx / 2 + (mode === "print" ? 18 : 13));
+    }
 
     ctx.fillStyle = color;
     ctx.font = mode === "print" ? "600 13px sans-serif" : "600 11px sans-serif";

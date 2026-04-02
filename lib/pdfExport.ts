@@ -3,6 +3,7 @@ import { jsPDF } from "jspdf";
 import { saveAs } from "file-saver";
 
 import { getConflictCount } from "@/lib/analysis";
+import { renderGraftSketch } from "@/lib/graftSketchRenderer";
 import { renderPunchCard } from "@/lib/punchCardRenderer";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
@@ -42,25 +43,60 @@ function makeFileName(result: DeviceAnalysisResult, caseInput: CaseInput) {
   return `${slugify(result.device.shortName)}${patient}.pdf`;
 }
 
+function renderSketchOffscreenCanvas(
+  result: DeviceAnalysisResult,
+  caseInput: CaseInput,
+) {
+  // Portrait A4 at 300 DPI: 2480 × 3508
+  const canvas = document.createElement("canvas");
+  canvas.width = 2480;
+  canvas.height = 3508;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Unable to create sketch canvas.");
+  renderGraftSketch({
+    ctx: context,
+    width: canvas.width,
+    height: canvas.height,
+    result,
+    caseInput,
+    mode: "print",
+  });
+  return canvas;
+}
+
 async function buildDevicePdfBlob(
   result: DeviceAnalysisResult,
   caseInput: CaseInput,
 ) {
-  const canvas = renderOffscreenCanvas(result, caseInput);
+  // Page 1: landscape punch card
+  const punchCanvas = renderOffscreenCanvas(result, caseInput);
   const pdf = new jsPDF({
     orientation: "landscape",
     unit: "mm",
     format: "a4",
     compress: true,
   });
-
   pdf.addImage(
-    canvas.toDataURL("image/png"),
+    punchCanvas.toDataURL("image/png"),
     "PNG",
     0,
     0,
     A4_LANDSCAPE_MM.width,
     A4_LANDSCAPE_MM.height,
+    undefined,
+    "FAST",
+  );
+
+  // Page 2: portrait graft sketch (Cook CMD-style)
+  const sketchCanvas = renderSketchOffscreenCanvas(result, caseInput);
+  pdf.addPage("a4", "portrait");
+  pdf.addImage(
+    sketchCanvas.toDataURL("image/png"),
+    "PNG",
+    0,
+    0,
+    210,   // A4 portrait width (mm)
+    297,   // A4 portrait height (mm)
     undefined,
     "FAST",
   );
