@@ -37,6 +37,16 @@ export interface DeviceGeometry {
   waveWidthMm: number;
   sizes: DeviceSize[];
   sources: string[];
+  /** Device has a bare suprarenal stent with fixation barbs above the fabric. */
+  hasBareSuprarenal?: boolean;
+  /** Device also has infrarenal barbs (in fabric valleys of proximal covered ring). */
+  hasInfrarenalBarbs?: boolean;
+  /** Minimum infrarenal neck length (mm) per IFU. */
+  minNeckLengthMm?: number;
+  /** Maximum infrarenal neck angulation (degrees) per IFU. */
+  maxInfrarenalAngleDeg?: number;
+  /** Maximum suprarenal neck angulation (degrees) per IFU. */
+  maxSuprarenalAngleDeg?: number;
 }
 
 export interface Fenestration {

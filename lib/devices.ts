@@ -33,6 +33,13 @@ export const ZENITH_ALPHA: DeviceGeometry = {
   clinicalRank: 1,
   color: "#2563eb",
   waveWidthMm: 13.6,
+  // IFU T_ZALPHA_REV5: bare suprarenal nitinol stent with fixation barbs
+  hasBareSuprarenal: true,
+  hasInfrarenalBarbs: false,
+  // IFU §2: ≥15 mm non-aneurysmal neck, <60° infrarenal, <45° suprarenal
+  minNeckLengthMm: 15,
+  maxInfrarenalAngleDeg: 60,
+  maxSuprarenalAngleDeg: 45,
   sizes: [
     {
       graftDiameter: 22,
@@ -51,9 +58,10 @@ export const ZENITH_ALPHA: DeviceGeometry = {
       mainBodyLengths: [70, 84, 98, 108, 118, 128],
     },
     {
+      // IFU: intended vessel 22 mm (exactly) → 26 mm graft
       graftDiameter: 26,
       neckDiameterMin: 22,
-      neckDiameterMax: 23,
+      neckDiameterMax: 22,
       sheathFr: 16,
       nPeaks: 6,
       mainBodyLengths: [70, 84, 98, 108, 118, 128],
@@ -118,6 +126,13 @@ export const ENDURANT_II: DeviceGeometry = {
   clinicalRank: 2,
   color: "#7c3aed",
   waveWidthMm: 12.8,
+  // IFU M985265A001DOC1: bare suprarenal nitinol stent with anchor pins
+  hasBareSuprarenal: true,
+  hasInfrarenalBarbs: false,
+  // IFU §5: ≥10 mm neck (≤60° infrarenal); ≥15 mm neck (≤75° infrarenal)
+  minNeckLengthMm: 10,
+  maxInfrarenalAngleDeg: 60,
+  maxSuprarenalAngleDeg: 45,
   sizes: [
     {
       graftDiameter: 23,
@@ -186,6 +201,14 @@ export const TREO: DeviceGeometry = {
   clinicalRank: 3,
   color: "#0d9488",
   waveWidthMm: 0,
+  // IFU PM-08467-ROW: suprarenal barbs (fully covered until clasp release)
+  // AND infrarenal barbs in fabric "valleys" of proximal covered ring
+  hasBareSuprarenal: true,
+  hasInfrarenalBarbs: true,
+  // IFU: ≥10 mm (infrarenal <60°) or ≥15 mm (infrarenal 60–75°); suprarenal ≤45°
+  minNeckLengthMm: 10,
+  maxInfrarenalAngleDeg: 60,
+  maxSuprarenalAngleDeg: 45,
   sizes: [
     {
       graftDiameter: 20,
@@ -279,6 +302,13 @@ export const GORE_EXCLUDER: DeviceGeometry = {
   clinicalRank: 4,
   color: "#dc2626",
   waveWidthMm: 10.5,
+  // IFU: nitinol anchors + ePTFE/FEP sealing cuff at proximal end (no separate bare stent)
+  hasBareSuprarenal: false,
+  hasInfrarenalBarbs: false,
+  // IFU: ≥15 mm non-aneurysmal neck, ≤60° proximal aortic neck angulation
+  minNeckLengthMm: 15,
+  maxInfrarenalAngleDeg: 60,
+  maxSuprarenalAngleDeg: 60,
   sizes: [
     {
       graftDiameter: 23,
