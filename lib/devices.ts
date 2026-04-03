@@ -19,7 +19,9 @@ export const ZENITH_ALPHA: DeviceGeometry = {
   name: "Cook Zenith Alpha Abdominal",
   shortName: "Zenith Alpha",
   manufacturer: "Cook Medical",
-  ringHeight: 18,
+  // ringHeight = projected vertical height of each Z-stent ring (~8–10 mm clinically).
+  // NOTE: the strut wire length is ~18 mm; projected height ≈ 9 mm after angular deployment.
+  ringHeight: 9,
   interRingGap: 6,
   nRings: 5,
   foreshortening: 0.06,
@@ -29,7 +31,7 @@ export const ZENITH_ALPHA: DeviceGeometry = {
   fabricMaterial: "polyester",
   pmegSuitability: 1,
   pmegNotes:
-    "Gold standard PMEG platform. Narrow 6 mm inter-ring gaps can create renal conflicts when both vessels land in the same ring zone.",
+    "Gold standard PMEG platform. Proximal working zone: Ring 1 (0–9 mm) for SMA/scallop; Gap 1 (9–15 mm) strut-free; Ring 2 (15–24 mm) for renals. Narrow 6 mm inter-ring gaps mean renal fenestrations often land on a ring — rotation planning critical. Wider grafts (≥32 mm) give meaningfully larger peak-to-peak arcs.",
   clinicalRank: 1,
   color: "#2563eb",
   waveWidthMm: 13.6,
@@ -187,7 +189,12 @@ export const TREO: DeviceGeometry = {
   name: "Terumo Aortic TREO",
   shortName: "TREO",
   manufacturer: "Terumo Aortic",
-  ringHeight: 18,
+  // ringHeight = projected vertical height of each Z-stent ring (~9 mm, same Z-stent technology as Zenith).
+  // The defining PMEG advantage is interRingGap ≈ 18–20 mm (vs 6 mm for Zenith Alpha).
+  // Transrenal fixation zone (0–18 mm above fabric edge) shown as suprarenal bare stent in sketch.
+  // Working zones below fabric: Zone 1 ≈ 0–27 mm (Ring 1 + Gap 1); Zone 2 ≈ 27–54 mm (Ring 2 + Gap 2).
+  // Published inter-stent distance ≈ 20 mm (operator planning estimate, not official IFU dimension).
+  ringHeight: 9,
   interRingGap: 18,
   nRings: 4,
   foreshortening: 0.05,
@@ -197,7 +204,7 @@ export const TREO: DeviceGeometry = {
   fabricMaterial: "polyester",
   pmegSuitability: 1,
   pmegNotes:
-    "Wider 18 mm inter-ring gaps provide the largest conflict-free fenestration windows in the database.",
+    "Largest conflict-free fenestration windows of any device in the database (~18 mm inter-ring gaps). Two main working zones: 0–27 mm (SMA + scallop or first renal pair) and 27–54 mm (second renal target). Dual fixation (suprarenal + infrarenal valley barbs) adds proximal security. Preferred for multiple fenestrations across a wide longitudinal range.",
   clinicalRank: 3,
   color: "#0d9488",
   waveWidthMm: 0,
