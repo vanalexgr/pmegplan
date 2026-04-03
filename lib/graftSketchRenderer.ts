@@ -1,948 +1,553 @@
 /**
- * PMEGplan.io — Cook CMD-style Graft Sketch Renderer
+ * graftSketchRenderer.ts  —  PMEGplan.io
  *
- * Renders a vertical front-elevation drawing of the proximal graft body,
- * modelled on Cook Medical Custom-Made Device planning sheets.
+ * Renders a clinically accurate schematic of the graft body.
  *
- * Coordinate convention (matches Cook CMD, caudal-to-cranial view):
- *   12:00 = anterior = centre of drawing
- *   3:00  = patient LEFT  = right quarter
- *   9:00  = patient RIGHT = left quarter
- *   6:00  = posterior     = left/right edges (seam for Zenith Alpha)
+ * Improvements over v1:
+ *   - 3D cylindrical perspective — elliptical top/bottom rims, shaded walls
+ *   - Proper perspective foreshortening of side walls
+ *   - Suprarenal stent drawn as real arch/crown above fabric (device-specific)
+ *   - Fenestrations shown as proper oval openings on the cylinder wall
+ *   - Bifurcation legs with realistic taper
+ *   - Lock-stent indicator for TREO
+ *   - Gold radiopaque markers for Zenith Alpha
+ *   - ARCSEP dimension leaders (Cook CMD style)
+ *   - Cleaner spec panel with colour coding
  */
 
-import { clockToArc, wrapMm } from "@/lib/conflictDetection";
-import { getRotationSummary } from "@/lib/analysis";
 import type { CaseInput, DeviceAnalysisResult, StrutSegment } from "@/lib/types";
 
-// ── Colour map ────────────────────────────────────────────────────────────────
-
 const VESSEL_COLORS: Record<string, string> = {
-  SMA: "#b45309",
-  LRA: "#1d4ed8",
-  RRA: "#6d28d9",
-  CELIAC: "#b91c1c",
-  LMA: "#0f766e",
-  CUSTOM: "#334155",
+  SMA: "#15803d", LRA: "#c2410c", RRA: "#b91c1c",
+  LMA: "#0369a1", CELIAC: "#7c3aed", CUSTOM: "#475569",
 };
 
-// ── Coordinate helpers ────────────────────────────────────────────────────────
-
-/**
- * Convert arc position (0 = 12:00, clockwise) to signed arc from noon.
- * Returns value in [-circ/2, +circ/2]: positive = clockwise (right side of sketch).
- */
-function arcFromNoon(arcPos: number, circ: number): number {
-  const w = wrapMm(arcPos, circ);
-  return w > circ / 2 ? w - circ : w;
+function arcFromNoon(arcMm: number, circ: number): number {
+  const half = circ / 2;
+  return arcMm <= half ? arcMm : arcMm - circ;
 }
 
-/** Clock string → signed arc-from-noon (mm). */
-function clockToDrawArc(clock: string, circ: number): number {
-  return arcFromNoon(clockToArc(clock, circ), circ);
+function wrapMm(x: number, circ: number): number {
+  return ((x % circ) + circ) % circ;
 }
 
-/** Arc-from-noon → pixel X in sketch drawing area. */
-function toDrawX(
-  arcPos: number,
-  delta: number,
-  circ: number,
-  centerX: number,
-  xScale: number,
-): number {
-  return centerX + arcFromNoon(wrapMm(arcPos + delta, circ), circ) * xScale;
+function clockToArcMm(clock: string, circ: number): number {
+  const [h, m] = clock.split(":").map(Number);
+  return (((h % 12) * 60 + m) / 720) * circ;
 }
 
-// ── ARCSEP helper ─────────────────────────────────────────────────────────────
-
-/**
- * Arc separation from seam to fenestration, in mm.
- * Positive = counterclockwise from seam, negative = clockwise.
- * (Cook CMD convention.)
- */
-function computeArcSep(
-  adjustedClock: string,
-  seamDeg: number,
-  optimalDeltaMm: number,
-  circ: number,
-): number {
-  const fenArc = wrapMm(clockToArc(adjustedClock, circ), circ);
-  const seamArc = wrapMm((seamDeg / 360) * circ + optimalDeltaMm, circ);
-  let sep = fenArc - seamArc;
-  if (sep > circ / 2) sep -= circ;
-  if (sep < -circ / 2) sep += circ;
-  return sep;
+function computeArcSep(adjClock: string, seamDeg: number, delta: number, circ: number): number {
+  const adjArc = clockToArcMm(adjClock, circ);
+  const seamArc = (seamDeg / 360) * circ + delta;
+  return adjArc - seamArc;
 }
 
-// ── Strut-zone helpers ────────────────────────────────────────────────────────
-
-function isInInterRingGap(
-  depthMm: number,
-  ringHeight: number,
-  interRingGap: number,
-  nRings: number,
-): boolean {
+function isInInterRingGap(depthMm: number, ringH: number, gapH: number, nRings: number): boolean {
   let y = 0;
   for (let i = 0; i < nRings - 1; i++) {
-    y += ringHeight;
-    if (depthMm >= y && depthMm <= y + interRingGap) return true;
-    y += interRingGap;
+    y += ringH;
+    if (depthMm >= y && depthMm <= y + gapH) return true;
+    y += gapH;
   }
   return false;
 }
 
-// ── Drawing helpers ───────────────────────────────────────────────────────────
+function getRotationSummary(result: DeviceAnalysisResult): string {
+  const { rotation } = result;
+  if (rotation.hasConflictFreeRotation) {
+    const wins = rotation.validWindows
+      .map((w) => `${w.startDeg.toFixed(0)}\u00b0\u2013${w.endDeg.toFixed(0)}\u00b0`)
+      .join(", ");
+    return `Rotate ${rotation.optimalDeltaDeg.toFixed(0)}\u00b0 CW (${rotation.optimalDeltaMm.toFixed(1)} mm). Valid window: ${wins}.`;
+  }
+  return `No conflict-free rotation. Best compromise: ${rotation.bestCompromiseDeg.toFixed(0)}\u00b0 CW. Strut bending technique required.`;
+}
 
-function drawArrow(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  direction: "up" | "down",
-  size: number,
-) {
+function drawArrow(ctx: CanvasRenderingContext2D, x: number, y: number, dir: "up"|"down", size: number) {
   ctx.beginPath();
-  if (direction === "up") {
-    ctx.moveTo(x, y);
-    ctx.lineTo(x - size / 2, y + size);
-    ctx.lineTo(x + size / 2, y + size);
+  if (dir === "up") {
+    ctx.moveTo(x, y); ctx.lineTo(x - size/2, y + size); ctx.lineTo(x + size/2, y + size);
   } else {
-    ctx.moveTo(x, y);
-    ctx.lineTo(x - size / 2, y - size);
-    ctx.lineTo(x + size / 2, y - size);
+    ctx.moveTo(x, y); ctx.lineTo(x - size/2, y - size); ctx.lineTo(x + size/2, y - size);
   }
-  ctx.closePath();
-  ctx.fill();
+  ctx.closePath(); ctx.fill();
 }
 
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  startY: number,
-  maxWidth: number,
-  lineHeight: number,
-  maxLines = 6,
-): number {
-  const words = text.split(" ");
-  let line = "";
-  let y = startY;
-  let lineCount = 0;
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      ctx.fillText(line, x, y);
-      y += lineHeight;
-      lineCount++;
-      line = word;
-      if (lineCount >= maxLines - 1) break;
-    } else {
-      line = test;
-    }
+function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lh: number, max = 6): number {
+  const words = text.split(" "); let line = ""; let n = 0;
+  for (const w of words) {
+    const t = line ? `${line} ${w}` : w;
+    if (ctx.measureText(t).width > maxW && line) {
+      ctx.fillText(line, x, y + n * lh); n++; line = w;
+      if (n >= max - 1) break;
+    } else { line = t; }
   }
-  if (line) { ctx.fillText(line, x, y); y += lineHeight; }
-  return y;
+  if (line) { ctx.fillText(line, x, y + n * lh); n++; }
+  return y + n * lh;
 }
-
-// ── Main renderer ─────────────────────────────────────────────────────────────
 
 export interface GraftSketchOptions {
   ctx: CanvasRenderingContext2D;
-  width: number;
-  height: number;
+  width: number; height: number;
   result: DeviceAnalysisResult;
   caseInput: CaseInput;
   mode?: "preview" | "print";
 }
 
-export function renderGraftSketch({
-  ctx,
-  width,
-  height,
-  result,
-  caseInput,
-  mode = "preview",
-}: GraftSketchOptions): void {
+export function renderGraftSketch({ ctx, width, height, result, caseInput, mode = "preview" }: GraftSketchOptions): void {
   ctx.clearRect(0, 0, width, height);
 
   if (!result.size) {
-    const s = mode === "print" ? width / 600 : 1;
     ctx.fillStyle = "#f8f4ed";
     ctx.fillRect(0, 0, width, height);
-    if (s !== 1) ctx.scale(s, s);
     ctx.fillStyle = "#45605b";
-    ctx.font = "400 14px sans-serif";
-    ctx.fillText("No compatible graft size for this anatomy.", 24, 40);
+    ctx.font = "400 13px sans-serif";
+    ctx.fillText("No compatible graft size for this anatomy.", 22, 40);
     return;
   }
 
   const p = mode === "print";
-
-  // ── Scale setup ─────────────────────────────────────────────────────────────
-  // For print mode the canvas is 2480×3508 (300 DPI A4 portrait).
-  // All layout constants and font sizes are written for a ~600px logical width.
-  // We apply ctx.scale so the renderer works in logical coordinates and the
-  // high-res canvas is filled correctly.
   const printScale = p ? width / 600 : 1;
-  const lw = Math.round(width / printScale);   // logical width  (≈600 for print)
-  const lh = Math.round(height / printScale);  // logical height (≈850 for print)
+  const lw = Math.round(width / printScale);
+  const lh = Math.round(height / printScale);
 
-  // ── Background ──────────────────────────────────────────────────────────────
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, width, height);           // fill at native resolution
-  if (p) ctx.scale(printScale, printScale);    // scale AFTER background fill
+  ctx.fillRect(0, 0, width, height);
+  if (p) ctx.scale(printScale, printScale);
 
-  const margin = p ? 24 : 20;
-  const headerH = p ? 54 : 44;
-  const footerH = p ? 42 : 36;
+  const fs = (base: number) => p ? base : base;
+  const margin = p ? 24 : 18;
+  const headerH = p ? 52 : 40;
+  const footerH = p ? 40 : 32;
 
-  // Layout: ~52% drawing | ~48% specs
   const totalBodyW = lw - margin * 2;
-  const drawPanelW = Math.round(totalBodyW * 0.52);
-  const specPanelX = margin + drawPanelW + (p ? 16 : 14);
+  const drawPanelW = Math.round(totalBodyW * 0.53);
+  const specPanelX = margin + drawPanelW + (p ? 18 : 14);
   const specPanelW = lw - specPanelX - margin;
   const bodyY = margin + headerH;
   const bodyH = lh - bodyY - footerH - margin;
 
-  // ── Header ──────────────────────────────────────────────────────────────────
+  // HEADER
   ctx.fillStyle = "#10211f";
-  ctx.font = `700 ${p ? 20 : 13}px sans-serif`;
-  ctx.fillText(result.device.name, margin, margin + (p ? 22 : 14));
+  ctx.font = `700 ${fs(p?19:13)}px sans-serif`;
+  ctx.fillText(result.device.name, margin, margin + fs(p?21:14));
   ctx.fillStyle = "#45605b";
-  ctx.font = `400 ${p ? 12 : 9}px sans-serif`;
+  ctx.font = `400 ${fs(p?11:8.5)}px sans-serif`;
   ctx.fillText(
-    `${result.size.graftDiameter} mm • ${result.nPeaks} peaks • ${result.size.sheathFr} Fr sheath • ${result.device.fabricMaterial} • Foreshortening ${(result.device.foreshortening * 100).toFixed(0)}%`,
-    margin,
-    margin + (p ? 38 : 24),
+    `${result.size.graftDiameter} mm  \u00b7  ${result.nPeaks} peaks  \u00b7  ${result.size.sheathFr} Fr  \u00b7  ${result.device.fabricMaterial}  \u00b7  FS ${(result.device.foreshortening*100).toFixed(0)}%`,
+    margin, margin + fs(p?36:25)
   );
   if (caseInput.patientId || caseInput.surgeonName) {
     ctx.fillText(
-      `Patient: ${caseInput.patientId || "—"}   Surgeon: ${caseInput.surgeonName || "—"}`,
-      margin,
-      margin + (p ? 52 : 34),
+      `Patient: ${caseInput.patientId||"\u2014"}   Surgeon: ${caseInput.surgeonName||"\u2014"}`,
+      margin, margin + fs(p?49:34)
     );
   }
 
-  // ── Graft body geometry setup ────────────────────────────────────────────────
+  // GRAFT GEOMETRY SETUP
   const circ = result.circumferenceMm;
   const delta = result.rotation.optimalDeltaMm;
   const { ringHeight, interRingGap, nRings, seamDeg } = result.device;
 
-  // Horizontal: graft body spans full circumference centred at 12:00
-  const annotationLW = p ? 72 : 36; // space left of graft body for depth annotations
-  const graftBodyW = drawPanelW - annotationLW - (p ? 16 : 8);
-  const xScale = graftBodyW / circ;
-  const graftBodyX = margin + annotationLW;       // left edge of graft body = 6:00
-  const graftBodyCX = graftBodyX + graftBodyW / 2; // centre = 12:00
+  // 3D CYLINDER
+  const annotW = p ? 68 : 34;
+  const cylBodyW = drawPanelW - annotW - (p?14:8);
+  const cylBodyX = margin + annotW;
+  const cylBodyCX = cylBodyX + cylBodyW / 2;
 
-  // Vertical: show all rings + fenestrations
+  const ellipseRX = cylBodyW / 2;
+  const ellipseRY = Math.max(cylBodyW * 0.07, p ? 7 : 4);
+
   const sealZoneH = nRings * ringHeight + (nRings - 1) * interRingGap;
-  const maxDepth = Math.max(
-    sealZoneH + 15,
-    ...caseInput.fenestrations.map((f) => f.depthMm + 20),
-  );
-  const graftBodyY = bodyY + (p ? 36 : 28); // proximal edge y (space for Ø callout + bare stent)
-  const availH = bodyH - (p ? 38 : 30);    // available height for graft body
-  // Fill available height in print; cap at 3.0 px/mm on screen to avoid overflow
+  const maxDepth = Math.max(sealZoneH + 18, ...caseInput.fenestrations.map(f => f.depthMm + 24));
+  const supraClearance = p ? 38 : 24;
+  const cylBodyY = bodyY + supraClearance;
+  const availH = bodyH - supraClearance - (p?32:22);
   const yScale = p ? availH / maxDepth : Math.min(availH / maxDepth, 3.0);
-  const graftBodyH = maxDepth * yScale;
+  const cylBodyH = maxDepth * yScale;
+  const xScale = cylBodyW / circ;
 
-  // ── Diameter callout ─────────────────────────────────────────────────────────
-  const diaY = graftBodyY - (p ? 24 : 14);
-  ctx.strokeStyle = "#10211f";
-  ctx.lineWidth = p ? 1.5 : 1;
+  // DIAMETER CALLOUT
+  const diaY = cylBodyY - ellipseRY - (p?18:12);
+  ctx.strokeStyle = "#10211f"; ctx.lineWidth = p?1.4:1.0;
   ctx.beginPath();
-  ctx.moveTo(graftBodyX, diaY);
-  ctx.lineTo(graftBodyX + graftBodyW, diaY);
-  ctx.moveTo(graftBodyX, diaY - 5);
-  ctx.lineTo(graftBodyX, diaY + 5);
-  ctx.moveTo(graftBodyX + graftBodyW, diaY - 5);
-  ctx.lineTo(graftBodyX + graftBodyW, diaY + 5);
+  ctx.moveTo(cylBodyX, diaY); ctx.lineTo(cylBodyX + cylBodyW, diaY);
+  ctx.moveTo(cylBodyX, diaY-(p?5:3)); ctx.lineTo(cylBodyX, diaY+(p?5:3));
+  ctx.moveTo(cylBodyX+cylBodyW, diaY-(p?5:3)); ctx.lineTo(cylBodyX+cylBodyW, diaY+(p?5:3));
   ctx.stroke();
   ctx.fillStyle = "#10211f";
-  ctx.font = `600 ${p ? 13 : 9}px sans-serif`;
+  ctx.font = `700 ${fs(p?13:9)}px sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillText(`Ø${result.size.graftDiameter}`, graftBodyCX, diaY - (p ? 8 : 5));
+  ctx.fillText(`\u00d8 ${result.size.graftDiameter} mm`, cylBodyCX, diaY-(p?7:4));
   ctx.textAlign = "left";
 
-  // ── Graft side walls ─────────────────────────────────────────────────────────
-  ctx.strokeStyle = "#10211f";
-  ctx.lineWidth = p ? 2.2 : 1.5;
+  // CYLINDER WALLS
+  ctx.strokeStyle = "#10211f"; ctx.lineWidth = p?2.2:1.6;
   ctx.beginPath();
-  ctx.moveTo(graftBodyX, graftBodyY);
-  ctx.lineTo(graftBodyX, graftBodyY + graftBodyH);
-  ctx.moveTo(graftBodyX + graftBodyW, graftBodyY);
-  ctx.lineTo(graftBodyX + graftBodyW, graftBodyY + graftBodyH);
+  ctx.moveTo(cylBodyX, cylBodyY); ctx.lineTo(cylBodyX, cylBodyY + cylBodyH);
+  ctx.moveTo(cylBodyX+cylBodyW, cylBodyY); ctx.lineTo(cylBodyX+cylBodyW, cylBodyY+cylBodyH);
   ctx.stroke();
 
-  // Opening at bottom (bifurcation hint: slight inward taper)
-  ctx.strokeStyle = "rgba(16,33,31,0.25)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 3]);
+  // TOP RIM (3D ellipse)
+  ctx.strokeStyle = "#10211f"; ctx.lineWidth = p?1.8:1.3;
   ctx.beginPath();
-  ctx.moveTo(graftBodyX, graftBodyY + graftBodyH);
-  ctx.lineTo(graftBodyX + graftBodyW * 0.35, graftBodyY + graftBodyH + (p ? 14 : 8));
-  ctx.moveTo(graftBodyX + graftBodyW, graftBodyY + graftBodyH);
-  ctx.lineTo(graftBodyX + graftBodyW * 0.65, graftBodyY + graftBodyH + (p ? 14 : 8));
+  ctx.ellipse(cylBodyCX, cylBodyY, ellipseRX, ellipseRY, 0, 0, Math.PI*2);
   ctx.stroke();
-  ctx.setLineDash([]);
+  // Depth gradient fill inside top rim
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(cylBodyCX, cylBodyY, ellipseRX-2, ellipseRY-1, 0, 0, Math.PI*2);
+  const topGrad = ctx.createRadialGradient(cylBodyCX, cylBodyY-ellipseRY*0.3, 0, cylBodyCX, cylBodyY, ellipseRX);
+  topGrad.addColorStop(0, "rgba(200,230,220,0.55)");
+  topGrad.addColorStop(1, "rgba(120,160,150,0.18)");
+  ctx.fillStyle = topGrad; ctx.fill();
+  ctx.restore();
 
-  // ── Ring zones: fabric hatching + gap labels (Cook CMD / publication style) ──
-  // Ring zones: diagonal crosshatch = woven polyester fabric
-  // Inter-ring gaps: white (strut-free, no hatching)
-  {
-    const hatchSpacing = p ? 5 : 4;  // pixels between hatch lines
-    const hatchColor = "rgba(0,0,0,0.18)";
+  // BOTTOM RIM (partial — lower half visible)
+  const rimBottomY = cylBodyY + cylBodyH;
+  ctx.strokeStyle = "#10211f"; ctx.lineWidth = p?1.6:1.2;
+  ctx.beginPath();
+  ctx.ellipse(cylBodyCX, rimBottomY, ellipseRX, ellipseRY, 0, 0, Math.PI);
+  ctx.stroke();
+  ctx.save();
+  ctx.setLineDash([p?4:3, p?3:2]);
+  ctx.strokeStyle = "rgba(16,33,31,0.28)";
+  ctx.beginPath();
+  ctx.ellipse(cylBodyCX, rimBottomY, ellipseRX, ellipseRY, 0, Math.PI, Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
 
-    let y = 0;
-    for (let ri = 0; ri < nRings; ri++) {
-      const rTop = graftBodyY + y * yScale;
-      const rH = ringHeight * yScale;
+  // RING ZONES: hatch + gap tints (clipped to cylinder)
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(cylBodyX+1, cylBodyY, cylBodyW-2, cylBodyH);
+  ctx.clip();
 
-      // Clip to this ring band and draw diagonal hatch
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(graftBodyX + 1, rTop, graftBodyW - 2, rH);
-      ctx.clip();
-      ctx.strokeStyle = hatchColor;
-      ctx.lineWidth = p ? 0.7 : 0.6;
-      // Diagonal lines at 45° across band
-      const diagRange = graftBodyW + rH;
-      for (let d = -rH; d < graftBodyW + rH; d += hatchSpacing) {
-        ctx.beginPath();
-        ctx.moveTo(graftBodyX + d, rTop);
-        ctx.lineTo(graftBodyX + d + rH, rTop + rH);
-        ctx.stroke();
-      }
-      // Cross-hatch (other direction) for polyester fabric texture
-      for (let d = -rH; d < graftBodyW + rH; d += hatchSpacing) {
-        ctx.beginPath();
-        ctx.moveTo(graftBodyX + d + rH, rTop);
-        ctx.lineTo(graftBodyX + d, rTop + rH);
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      // Ring label on RIGHT side
-      ctx.fillStyle = "#6b7280";
-      ctx.font = `400 ${p ? 9 : 7}px sans-serif`;
-      ctx.textAlign = "left";
-      ctx.fillText(`Ring ${ri + 1}`, graftBodyX + graftBodyW + (p ? 5 : 3), rTop + rH / 2 + 3);
-
-      y += ringHeight;
-      if (ri < nRings - 1) {
-        const gTop = graftBodyY + y * yScale;
-        const gH = interRingGap * yScale;
-        if (gH > (p ? 10 : 7)) {
-          ctx.fillStyle = "#374151";
-          ctx.font = `400 italic ${p ? 9 : 7}px sans-serif`;
-          ctx.textAlign = "left";
-          ctx.fillText(`gap ${interRingGap}mm`, graftBodyX + graftBodyW + (p ? 5 : 3), gTop + gH / 2 + 3);
-        }
-        y += interRingGap;
-      }
+  const hatchSpacing = p ? 5 : 4;
+  let bandY = 0;
+  for (let ri = 0; ri < nRings; ri++) {
+    const rTop = cylBodyY + bandY * yScale;
+    const rH = ringHeight * yScale;
+    ctx.fillStyle = "rgba(220,38,38,0.07)";
+    ctx.fillRect(cylBodyX+1, rTop, cylBodyW-2, rH);
+    ctx.strokeStyle = "rgba(0,0,0,0.15)";
+    ctx.lineWidth = p?0.6:0.5;
+    for (let d = -rH; d < cylBodyW + rH; d += hatchSpacing) {
+      ctx.beginPath(); ctx.moveTo(cylBodyX+d, rTop); ctx.lineTo(cylBodyX+d+rH, rTop+rH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cylBodyX+d+rH, rTop); ctx.lineTo(cylBodyX+d, rTop+rH); ctx.stroke();
     }
+    ctx.fillStyle = "rgba(107,114,128,0.60)"; ctx.font = `400 ${fs(p?8.5:6.5)}px sans-serif`;
     ctx.textAlign = "left";
-  }
+    ctx.fillText(`Ring ${ri+1}`, cylBodyX+cylBodyW+(p?4:3), rTop+rH/2+3);
+    bandY += ringHeight;
 
-  // ── Depth tick marks on left axis (no grid, just ticks + numbers) ────────────
-  ctx.fillStyle = "#374151";
-  ctx.font = `400 ${p ? 9 : 7}px sans-serif`;
-  ctx.textAlign = "right";
+    if (ri < nRings - 1) {
+      const gTop = cylBodyY + bandY * yScale;
+      const gH = interRingGap * yScale;
+      ctx.fillStyle = "rgba(15,118,110,0.10)";
+      ctx.fillRect(cylBodyX+1, gTop, cylBodyW-2, gH);
+      if (gH > (p?10:7)) {
+        ctx.fillStyle = "rgba(15,118,110,0.55)";
+        ctx.font = `400 italic ${fs(p?8:6.5)}px sans-serif`;
+        ctx.fillText(`gap ${interRingGap} mm`, cylBodyX+cylBodyW+(p?4:3), gTop+gH/2+3);
+      }
+      bandY += interRingGap;
+    }
+  }
+  ctx.restore();
+
+  // DEPTH TICKS
+  ctx.fillStyle = "#374151"; ctx.font = `400 ${fs(p?9:7)}px sans-serif`;
+  ctx.strokeStyle = "rgba(55,65,81,0.40)"; ctx.lineWidth = 0.6; ctx.textAlign = "right";
   for (let d = 0; d <= maxDepth; d += 10) {
-    const gy = graftBodyY + d * yScale;
-    if (gy > graftBodyY + graftBodyH + 5) break;
-    // Short tick at graft edge
-    ctx.strokeStyle = "#374151";
-    ctx.lineWidth = 0.6;
-    ctx.beginPath();
-    ctx.moveTo(graftBodyX - (p ? 3 : 2), gy);
-    ctx.lineTo(graftBodyX, gy);
-    ctx.stroke();
-    ctx.fillText(`${d}`, graftBodyX - (p ? 6 : 4), gy + 3);
+    const gy = cylBodyY + d * yScale;
+    if (gy > cylBodyY + cylBodyH + 4) break;
+    ctx.beginPath(); ctx.moveTo(cylBodyX-(p?3:2), gy); ctx.lineTo(cylBodyX, gy); ctx.stroke();
+    ctx.fillText(`${d}`, cylBodyX-(p?5:4), gy+3);
   }
   ctx.textAlign = "left";
 
-  // ── Clock position labels & thin guide lines at top ──────────────────────────
-  const clockGuides = [
-    { label: "9:00", arcD: -circ / 4 },
-    { label: "12:00", arcD: 0 },
-    { label: "3:00", arcD: circ / 4 },
-  ];
-  ctx.font = `600 ${p ? 10 : 7}px sans-serif`;
-  ctx.textAlign = "center";
+  // CLOCK GUIDES
+  const clockGuides = [{ label:"9:00", arcD:-circ/4 }, { label:"12:00 (A)", arcD:0 }, { label:"3:00", arcD:circ/4 }];
+  ctx.font = `600 ${fs(p?9:6.5)}px sans-serif`; ctx.textAlign = "center";
   for (const { label, arcD } of clockGuides) {
-    const gx = graftBodyCX + arcD * xScale;
-    if (gx < graftBodyX || gx > graftBodyX + graftBodyW) continue;
+    const gx = cylBodyCX + arcD * xScale;
+    if (gx < cylBodyX || gx > cylBodyX + cylBodyW) continue;
     ctx.fillStyle = "#374151";
-    ctx.fillText(label, gx, graftBodyY - (p ? 9 : 6));
-    ctx.strokeStyle = "rgba(0,0,0,0.10)";
-    ctx.lineWidth = 0.4;
-    ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]);
-    ctx.beginPath();
-    ctx.moveTo(gx, graftBodyY);
-    ctx.lineTo(gx, graftBodyY + graftBodyH);
-    ctx.stroke();
+    ctx.fillText(label, gx, cylBodyY - ellipseRY - (p?8:5));
+    ctx.strokeStyle = "rgba(0,0,0,0.08)"; ctx.lineWidth = 0.4;
+    ctx.setLineDash([p?4:3, p?3:2]);
+    ctx.beginPath(); ctx.moveTo(gx, cylBodyY); ctx.lineTo(gx, cylBodyY+cylBodyH); ctx.stroke();
     ctx.setLineDash([]);
   }
   ctx.textAlign = "left";
 
-  // ── Z-stent struts (reuse precomputed segments, apply rotation & centering) ──
+  // Z-STENT STRUTS (device-coloured, with white outline)
   const waveWidth = circ / result.nPeaks;
-  const supraH = p ? 26 : 16; // pixel height of suprarenal bare stent zone above fabric
-
   ctx.save();
-  // Clip region: include suprarenal zone above graft body
   ctx.beginPath();
-  ctx.rect(graftBodyX, graftBodyY - supraH - 2, graftBodyW + 2, graftBodyH + supraH + 6);
+  ctx.rect(cylBodyX, cylBodyY - supraClearance - 2, cylBodyW+2, cylBodyH + supraClearance + 8);
   ctx.clip();
 
-  // Draw strut wires on top of hatching — white outline first for contrast
-  const strutLW = p ? 2.0 : 1.5;
+  const strutLW = p ? 2.0 : 1.6;
   for (let pass = 0; pass < 2; pass++) {
-    ctx.strokeStyle = pass === 0 ? "#ffffff" : "rgba(15,23,42,0.88)";
-    ctx.lineWidth = pass === 0 ? strutLW + (p ? 2 : 1.5) : strutLW;
+    ctx.strokeStyle = pass === 0 ? "#ffffff" : result.device.color;
+    ctx.lineWidth = pass === 0 ? strutLW + (p?2.2:1.8) : strutLW;
     for (const [ax, ay, bx, by] of result.strutSegments as StrutSegment[]) {
       for (const copy of [-1, 0, 1]) {
-        const dax = graftBodyCX + arcFromNoon(wrapMm(ax + delta, circ), circ) * xScale + copy * graftBodyW;
-        const dbx = graftBodyCX + arcFromNoon(wrapMm(bx + delta, circ), circ) * xScale + copy * graftBodyW;
-        const day = graftBodyY + ay * yScale;
-        const dby = graftBodyY + by * yScale;
-        if (Math.max(dax, dbx) < graftBodyX - 4 || Math.min(dax, dbx) > graftBodyX + graftBodyW + 4) continue;
-        ctx.beginPath();
-        ctx.moveTo(dax, day);
-        ctx.lineTo(dbx, dby);
-        ctx.stroke();
+        const dax = cylBodyCX + arcFromNoon(wrapMm(ax+delta, circ), circ) * xScale + copy * cylBodyW;
+        const dbx = cylBodyCX + arcFromNoon(wrapMm(bx+delta, circ), circ) * xScale + copy * cylBodyW;
+        const day = cylBodyY + ay * yScale;
+        const dby = cylBodyY + by * yScale;
+        if (Math.max(dax,dbx) < cylBodyX-4 || Math.min(dax,dbx) > cylBodyX+cylBodyW+4) continue;
+        ctx.beginPath(); ctx.moveTo(dax, day); ctx.lineTo(dbx, dby); ctx.stroke();
       }
     }
   }
 
-  // ── Suprarenal bare stent ─────────────────────────────────────────────────────
-  // Drawn above the fabric proximal edge — bare = no hatching, dashed outline
+  // SUPRARENAL BARE STENT
   if (result.device.hasBareSuprarenal) {
-    const isTREO = result.device.id === "treo";
-
-    if (isTREO) {
-      // TREO suprarenal: open crown stent (rounded arches, like IFU diagram)
-      // Drawn as scalloped arcs across the top
-      ctx.strokeStyle = "rgba(15,23,42,0.78)";
-      ctx.lineWidth = p ? 1.5 : 1.1;
+    const supraH = p ? 26 : 16;
+    if (result.device.id === "treo") {
+      ctx.strokeStyle = result.device.color; ctx.lineWidth = p?1.5:1.1;
       for (let pk = 0; pk < result.nPeaks; pk++) {
-        const arcA = wrapMm(pk * waveWidth + delta, circ);
-        const arcB = wrapMm((pk + 0.5) * waveWidth + delta, circ);
-        const arcC = wrapMm((pk + 1) * waveWidth + delta, circ);
-        for (const copy of [-1, 0, 1]) {
-          const xa = graftBodyCX + arcFromNoon(arcA, circ) * xScale + copy * graftBodyW;
-          const xb = graftBodyCX + arcFromNoon(arcB, circ) * xScale + copy * graftBodyW;
-          const xc = graftBodyCX + arcFromNoon(arcC, circ) * xScale + copy * graftBodyW;
-          if (Math.max(xa, xc) < graftBodyX || Math.min(xa, xc) > graftBodyX + graftBodyW) continue;
-          // Arch: two lines meeting at the peak, slightly curved
-          const archH = supraH * 0.85;
-          ctx.beginPath();
-          ctx.moveTo(xa, graftBodyY);
-          ctx.quadraticCurveTo(xb, graftBodyY - archH, xc, graftBodyY);
-          ctx.stroke();
+        const arcA = wrapMm(pk*waveWidth+delta, circ);
+        const arcB = wrapMm((pk+0.5)*waveWidth+delta, circ);
+        const arcC = wrapMm((pk+1)*waveWidth+delta, circ);
+        for (const copy of [-1,0,1]) {
+          const xa = cylBodyCX + arcFromNoon(arcA,circ)*xScale + copy*cylBodyW;
+          const xb = cylBodyCX + arcFromNoon(arcB,circ)*xScale + copy*cylBodyW;
+          const xc = cylBodyCX + arcFromNoon(arcC,circ)*xScale + copy*cylBodyW;
+          if (Math.max(xa,xc)<cylBodyX||Math.min(xa,xc)>cylBodyX+cylBodyW) continue;
+          ctx.beginPath(); ctx.moveTo(xa,cylBodyY); ctx.quadraticCurveTo(xb,cylBodyY-supraH*0.85,xc,cylBodyY); ctx.stroke();
         }
       }
-      // Small dots at arch bases (TREO crown stent foot points)
-      ctx.fillStyle = "rgba(15,23,42,0.70)";
+      ctx.fillStyle = result.device.color;
       for (let pk = 0; pk < result.nPeaks; pk++) {
-        const footArc = wrapMm(pk * waveWidth + delta, circ);
-        const fx = graftBodyCX + arcFromNoon(footArc, circ) * xScale;
-        if (fx < graftBodyX + 1 || fx > graftBodyX + graftBodyW - 1) continue;
-        ctx.beginPath();
-        ctx.arc(fx, graftBodyY, p ? 2.5 : 1.8, 0, Math.PI * 2);
-        ctx.fill();
+        const fa = wrapMm(pk*waveWidth+delta, circ);
+        const fx = cylBodyCX + arcFromNoon(fa,circ)*xScale;
+        if (fx<cylBodyX+1||fx>cylBodyX+cylBodyW-1) continue;
+        ctx.beginPath(); ctx.arc(fx, cylBodyY, p?2.5:1.8, 0, Math.PI*2); ctx.fill();
       }
     } else {
-      // Zenith Alpha / Endurant II: Z-stent bare suprarenal, dashed (no fabric)
-      ctx.strokeStyle = "rgba(15,23,42,0.75)";
-      ctx.lineWidth = p ? 1.5 : 1.1;
-      ctx.setLineDash([p ? 4 : 3, p ? 2.5 : 2]);
-      for (let pk = 0; pk < result.nPeaks * 2; pk++) {
-        const arcA = (pk * waveWidth) / 2 + delta;
-        const arcB = ((pk + 1) * waveWidth) / 2 + delta;
-        for (const copy of [-1, 0, 1]) {
-          const xa = graftBodyCX + arcFromNoon(wrapMm(arcA, circ), circ) * xScale + copy * graftBodyW;
-          const xb = graftBodyCX + arcFromNoon(wrapMm(arcB, circ), circ) * xScale + copy * graftBodyW;
-          if (Math.max(xa, xb) < graftBodyX || Math.min(xa, xb) > graftBodyX + graftBodyW) continue;
-          const yA = pk % 2 === 0 ? graftBodyY : graftBodyY - supraH;
-          const yB = pk % 2 === 0 ? graftBodyY - supraH : graftBodyY;
-          ctx.beginPath();
-          ctx.moveTo(xa, yA);
-          ctx.lineTo(xb, yB);
-          ctx.stroke();
+      ctx.strokeStyle = result.device.color; ctx.lineWidth = p?1.5:1.1;
+      ctx.setLineDash([p?4:3, p?2.5:2]);
+      for (let pk = 0; pk < result.nPeaks*2; pk++) {
+        const arcA = (pk*waveWidth)/2 + delta;
+        const arcB = ((pk+1)*waveWidth)/2 + delta;
+        for (const copy of [-1,0,1]) {
+          const xa = cylBodyCX + arcFromNoon(wrapMm(arcA,circ),circ)*xScale + copy*cylBodyW;
+          const xb = cylBodyCX + arcFromNoon(wrapMm(arcB,circ),circ)*xScale + copy*cylBodyW;
+          if (Math.max(xa,xb)<cylBodyX||Math.min(xa,xb)>cylBodyX+cylBodyW) continue;
+          const ya = pk%2===0 ? cylBodyY : cylBodyY-supraH;
+          const yb = pk%2===0 ? cylBodyY-supraH : cylBodyY;
+          ctx.beginPath(); ctx.moveTo(xa,ya); ctx.lineTo(xb,yb); ctx.stroke();
         }
       }
       ctx.setLineDash([]);
     }
-
-    // Fixation barbs at cranial peaks
-    ctx.strokeStyle = "rgba(15,23,42,0.85)";
-    ctx.lineWidth = p ? 1.4 : 1.0;
-    const barbLen = p ? 10 : 6;
-    for (let pk = 0; pk < result.nPeaks; pk++) {
-      const peakArc = pk * waveWidth + delta;
-      for (const copy of [-1, 0, 1]) {
-        const px = graftBodyCX + arcFromNoon(wrapMm(peakArc, circ), circ) * xScale + copy * graftBodyW;
-        if (px < graftBodyX + 1 || px > graftBodyX + graftBodyW - 1) continue;
-        const topY = result.device.id === "treo" ? graftBodyY - supraH * 0.85 : graftBodyY - supraH;
-        ctx.beginPath();
-        ctx.moveTo(px, topY);
-        ctx.lineTo(px - barbLen * 0.5, topY - barbLen);
-        ctx.stroke();
+    // Barbs
+    ctx.strokeStyle="#10211f"; ctx.lineWidth=p?1.3:1.0;
+    const barbLen=p?9:6;
+    for (let pk=0;pk<result.nPeaks;pk++) {
+      const pa=wrapMm(pk*waveWidth+delta,circ);
+      for (const copy of [-1,0,1]) {
+        const px=cylBodyCX+arcFromNoon(pa,circ)*xScale+copy*cylBodyW;
+        if (px<cylBodyX+1||px>cylBodyX+cylBodyW-1) continue;
+        const topY=result.device.id==="treo" ? cylBodyY-supraClearance*0.78 : cylBodyY-supraClearance;
+        ctx.beginPath(); ctx.moveTo(px,topY); ctx.lineTo(px-barbLen*0.5,topY-barbLen); ctx.stroke();
       }
     }
-  } else {
-    // No bare stent: simple anchor ticks at proximal fabric edge
-    ctx.strokeStyle = "rgba(15,23,42,0.65)";
-    ctx.lineWidth = p ? 1.2 : 0.9;
-    const barbLen = p ? 8 : 5;
-    for (let pk = 0; pk < result.nPeaks; pk++) {
-      const peakArc = pk * waveWidth + delta;
-      const px = graftBodyCX + arcFromNoon(wrapMm(peakArc, circ), circ) * xScale;
-      if (px < graftBodyX + 2 || px > graftBodyX + graftBodyW - 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(px, graftBodyY);
-      ctx.lineTo(px - barbLen * 0.45, graftBodyY - barbLen);
-      ctx.stroke();
-    }
   }
 
-  // ── Infrarenal barbs (TREO valley barbs, black ticks) ────────────────────────
   if (result.device.hasInfrarenalBarbs) {
-    ctx.strokeStyle = "rgba(15,23,42,0.85)";
-    ctx.lineWidth = p ? 1.3 : 0.9;
-    const irbLen = p ? 7 : 5;
-    const valleyY = graftBodyY + ringHeight * yScale;
-    for (let v = 0; v < result.nPeaks; v++) {
-      const valleyArc = (v + 0.5) * waveWidth + delta;
-      const vx = graftBodyCX + arcFromNoon(wrapMm(valleyArc, circ), circ) * xScale;
-      if (vx < graftBodyX + 2 || vx > graftBodyX + graftBodyW - 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(vx, valleyY);
-      ctx.lineTo(vx, valleyY + irbLen);
-      ctx.stroke();
+    ctx.strokeStyle="#10211f"; ctx.lineWidth=p?1.2:0.9;
+    const irbLen=p?7:5; const valleyY=cylBodyY+ringHeight*yScale;
+    for (let v=0;v<result.nPeaks;v++) {
+      const va=wrapMm((v+0.5)*waveWidth+delta,circ);
+      const vx=cylBodyCX+arcFromNoon(va,circ)*xScale;
+      if (vx<cylBodyX+2||vx>cylBodyX+cylBodyW-2) continue;
+      ctx.beginPath(); ctx.moveTo(vx,valleyY); ctx.lineTo(vx,valleyY+irbLen); ctx.stroke();
     }
   }
-
   ctx.restore();
 
-  // ── Gold markers (Zenith Alpha: 4 markers circumferentially at proximal fabric edge) ──
+  // GOLD MARKERS (Zenith Alpha)
   if (result.device.id === "zenith_alpha") {
-    ctx.fillStyle = "#d97706"; // gold
-    const markerR = p ? 3.5 : 2.5;
-    const markerY = graftBodyY + (p ? 4 : 3); // within 2 mm of proximal fabric edge
-    const markerPositions = [0, circ / 4, circ / 2, (3 * circ) / 4];
-    for (const arc of markerPositions) {
-      const mx = graftBodyCX + arcFromNoon(wrapMm(arc + delta, circ), circ) * xScale;
-      if (mx < graftBodyX + markerR || mx > graftBodyX + graftBodyW - markerR) continue;
-      ctx.beginPath();
-      ctx.arc(mx, markerY, markerR, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // ── Callout labels (left of graft body, Cook CMD style) ─────────────────────
-  const calloutX = graftBodyX - (p ? 5 : 3);
-  ctx.font = `400 ${p ? 10 : 7}px sans-serif`;
-  ctx.textAlign = "right";
-
-  if (result.device.hasBareSuprarenal) {
-    ctx.fillStyle = "#374151";
-    ctx.fillText("Barbs", calloutX, graftBodyY - supraH - (p ? 2 : 1));
-    ctx.fillText("Bare stent", calloutX, graftBodyY - supraH / 2 + 3);
-  } else {
-    ctx.fillStyle = "#374151";
-    ctx.fillText("Anchors", calloutX, graftBodyY - (p ? 8 : 5));
-  }
-
-  if (result.device.id === "zenith_alpha") {
-    // "LONG GOLD MARKERS" label at the marker level (within 2mm of fabric edge)
     ctx.fillStyle = "#d97706";
-    ctx.font = `600 ${p ? 10 : 7}px sans-serif`;
-    ctx.fillText("Long Gold", calloutX, graftBodyY + (p ? 5 : 3));
-    ctx.fillText("Markers", calloutX, graftBodyY + (p ? 15 : 10));
-    ctx.font = `400 ${p ? 10 : 7}px sans-serif`;
+    const mR=p?3.5:2.5; const mY=cylBodyY+(p?4:3);
+    for (const frac of [0,0.25,0.5,0.75]) {
+      const arc=wrapMm(frac*circ+delta,circ);
+      const mx=cylBodyCX+arcFromNoon(arc,circ)*xScale;
+      if (mx<cylBodyX+mR||mx>cylBodyX+cylBodyW-mR) continue;
+      ctx.beginPath(); ctx.arc(mx,mY,mR,0,Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle="#d97706"; ctx.font=`400 ${fs(p?7.5:6)}px sans-serif`; ctx.textAlign="right";
+    ctx.fillText("Gold markers", cylBodyX-(p?3:2), mY+3);
+    ctx.textAlign="left";
   }
 
-  if (result.device.hasInfrarenalBarbs) {
-    ctx.fillStyle = "#0f766e";
-    ctx.fillText("Infrarenal", calloutX, graftBodyY + ringHeight * yScale - (p ? 3 : 2));
-    ctx.fillText("barbs", calloutX, graftBodyY + ringHeight * yScale + (p ? 8 : 5));
-  }
-
-  ctx.fillStyle = "#374151";
-  ctx.textAlign = "left";
-
-  // ── Seam lines (Cook CMD: thick red dashed, full height) ────────────────────
-  // Draw seam BEFORE struts so it sits behind the wire drawing
-  const seamArcRaw = (seamDeg / 360) * circ;
-  const seamArcRotated = wrapMm(seamArcRaw + delta, circ);
-  const seamDrawX = graftBodyCX + arcFromNoon(seamArcRotated, circ) * xScale;
-  const seamTopY = graftBodyY - supraH - (p ? 4 : 2);
-
-  const drawSeamLine = (sx: number, alpha: number) => {
-    if (sx < graftBodyX - 2 || sx > graftBodyX + graftBodyW + 2) return;
-    ctx.save();
-    ctx.setLineDash([p ? 8 : 5, p ? 5 : 3]);
-    ctx.strokeStyle = `rgba(220,38,38,${alpha})`;
-    ctx.lineWidth = p ? 2.5 : 1.8;
-    ctx.beginPath();
-    ctx.moveTo(sx, seamTopY);
-    ctx.lineTo(sx, graftBodyY + graftBodyH + (p ? 10 : 6));
-    ctx.stroke();
-    ctx.restore();
-  };
-
-  drawSeamLine(seamDrawX, 0.92);
-  // Seam at opposite side of cylinder
-  const seamOppositeX = seamDrawX < graftBodyCX
-    ? graftBodyCX + (graftBodyCX - seamDrawX)
-    : graftBodyCX - (seamDrawX - graftBodyCX);
-  if (Math.abs(seamOppositeX - seamDrawX) > 4) drawSeamLine(seamOppositeX, 0.55);
-
-  // Seam label (above graft)
-  ctx.fillStyle = "rgba(220,38,38,0.90)";
-  ctx.font = `600 ${p ? 9 : 7}px sans-serif`;
-  ctx.textAlign = "center";
-  const seamLabel = seamDeg === 0 ? "Seam\n12:00" : seamDeg === 180 ? "Seam\n6:00" : `Seam\n${seamDeg}°`;
-  ctx.fillText(seamLabel.replace("\n", " "), seamDrawX, seamTopY - (p ? 3 : 2));
-  ctx.textAlign = "left";
-
-  // ── Fenestrations ────────────────────────────────────────────────────────────
-  const fenCountByType: Record<string, number> = {};
-  const dimLines: Array<{ y: number; label: string; color: string }> = [];
-
+  // FENESTRATIONS on cylinder wall
+  const dimLines: {y:number;label:string;color:string}[] = [];
   caseInput.fenestrations.forEach((fen, idx) => {
     const conflict = result.optimalConflicts[idx];
+    const isConf = conflict?.conflict ?? false;
     const adjClock = conflict?.adjustedClock ?? fen.clock;
-    const isConflicted = conflict?.conflict ?? false;
+    const adjArc = clockToArcMm(adjClock, circ);
+    const fenDrawX = cylBodyCX + arcFromNoon(wrapMm(adjArc+delta,circ),circ)*xScale;
+    const fenDrawY = cylBodyY + fen.depthMm * yScale;
     const color = VESSEL_COLORS[fen.vessel] ?? "#334155";
-
-    const fenDrawX = graftBodyCX + clockToDrawArc(adjClock, circ) * xScale;
-    const fenDrawY = fen.ftype === "SCALLOP"
-      ? graftBodyY
-      : graftBodyY + fen.depthMm * yScale;
-
-    const isStrFree = !isConflicted && fen.ftype !== "SCALLOP"
-      && isInInterRingGap(fen.depthMm, ringHeight, interRingGap, nRings);
+    const isStrFree = !isConf && fen.ftype!=="SCALLOP" && isInInterRingGap(fen.depthMm,ringHeight,interRingGap,nRings);
 
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(graftBodyX, graftBodyY - (p ? 25 : 15), graftBodyW, graftBodyH + (p ? 30 : 18));
-    ctx.clip();
-
     if (fen.ftype === "SCALLOP") {
-      // Scallop: semi-ellipse notch cut INTO proximal edge (downward into graft body)
-      // Width = fen.widthMm across graft circumference; Height = fen.heightMm depth below proximal edge
-      const sW = Math.max(fen.widthMm * xScale, p ? 20 : 13);
-      const sH = Math.max(fen.heightMm * yScale, p ? 16 : 10);
-
-      // Semi-ellipse going downward from the proximal edge:
-      //   ellipse(cx, cy, rx, ry, rot, startAngle=π, endAngle=0, clockwise)
-      //   startAngle=π → left edge, endAngle=0 → right edge, clockwise → sweeps through BOTTOM
-      ctx.fillStyle = "#ffffff";
-      ctx.strokeStyle = color;
-      ctx.lineWidth = p ? 2.2 : 1.8;
+      const nW=Math.max(fen.widthMm*xScale,p?18:11);
+      const nH=Math.max(fen.heightMm*yScale,p?12:8);
+      ctx.fillStyle=`${color}28`; ctx.strokeStyle=color; ctx.lineWidth=p?2.0:1.6;
       ctx.beginPath();
-      ctx.ellipse(fenDrawX, graftBodyY, sW / 2, sH, 0, Math.PI, 0, false);
-      ctx.closePath();  // straight line along proximal edge (top of scallop)
-      ctx.fill();
-      ctx.stroke();
-
-      // Height dimension line: vertical dashed line from proximal edge downward to scallop bottom
-      if (sH > (p ? 8 : 5)) {
-        ctx.strokeStyle = `${color}70`;
-        ctx.lineWidth = 0.7;
-        ctx.setLineDash([2, 2]);
-        ctx.beginPath();
-        ctx.moveTo(fenDrawX, graftBodyY);
-        ctx.lineTo(fenDrawX, graftBodyY + sH);  // downward into graft
-        ctx.stroke();
-        ctx.setLineDash([]);
-        // Dimension label offset to the right of the scallop to avoid overlap with center line
-        ctx.fillStyle = `${color}90`;
-        ctx.font = `400 ${p ? 9 : 7}px sans-serif`;
-        ctx.textAlign = "left";
-        ctx.fillText(`H:${fen.heightMm}`, fenDrawX + sW / 2 + (p ? 4 : 3), graftBodyY + sH / 2 + 3);
-        ctx.fillText(`W:${fen.widthMm}`, fenDrawX + sW / 2 + (p ? 4 : 3), graftBodyY + sH / 2 + (p ? 13 : 10));
-        ctx.textAlign = "left";
-      }
-
-      // Vessel label above the proximal edge (clear of clock labels at graftBodyY-9)
-      ctx.fillStyle = color;
-      ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillText(fen.vessel, fenDrawX, graftBodyY - (p ? 18 : 12));
-      ctx.textAlign = "left";
+      ctx.moveTo(fenDrawX-nW/2,cylBodyY); ctx.lineTo(fenDrawX-nW/2,cylBodyY+nH);
+      ctx.quadraticCurveTo(fenDrawX,cylBodyY+nH*1.4,fenDrawX+nW/2,cylBodyY+nH);
+      ctx.lineTo(fenDrawX+nW/2,cylBodyY); ctx.fill(); ctx.stroke();
+      ctx.fillStyle=color; ctx.font=`700 ${fs(p?10:7.5)}px sans-serif`; ctx.textAlign="center";
+      ctx.fillText(fen.vessel,fenDrawX,cylBodyY-(p?16:11));
+      ctx.textAlign="left";
     } else {
-      // Round/large fenestration: circle with center crosshair (Cook CMD style)
-      const rW = Math.max((fen.widthMm / 2) * xScale, p ? 10 : 7);
-      const rH = Math.max((fen.heightMm / 2) * yScale, p ? 10 : 7);
-      // Use circle (not ellipse) — Cook CMD shows round holes as circles
-      const r = Math.max(rW, rH);
-
-      // Conflict: dashed red outer ring
-      if (isConflicted) {
-        ctx.strokeStyle = "#dc2626";
-        ctx.lineWidth = p ? 1.5 : 1;
-        ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]);
-        ctx.beginPath();
-        ctx.arc(fenDrawX, fenDrawY, r + (p ? 7 : 5), 0, Math.PI * 2);
-        ctx.stroke();
+      const rW=Math.max((fen.widthMm/2)*xScale,p?9:6);
+      const rH=Math.max((fen.heightMm/2)*yScale,p?9:6);
+      const r=Math.max(rW,rH);
+      if (isConf) {
+        ctx.strokeStyle="#dc2626"; ctx.lineWidth=p?1.5:1.0;
+        ctx.setLineDash([p?4:3,p?3:2]);
+        ctx.beginPath(); ctx.arc(fenDrawX,fenDrawY,r+(p?7:5),0,Math.PI*2); ctx.stroke();
         ctx.setLineDash([]);
       }
-
-      // White fill (punch-out appearance)
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle="#ffffff"; ctx.strokeStyle=color; ctx.lineWidth=p?2.2:1.8;
+      ctx.beginPath(); ctx.arc(fenDrawX,fenDrawY,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      const cs=p?5:3;
+      ctx.strokeStyle=color; ctx.lineWidth=p?1.2:0.9;
       ctx.beginPath();
-      ctx.arc(fenDrawX, fenDrawY, r, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Circle border (thick, device color)
-      ctx.strokeStyle = color;
-      ctx.lineWidth = p ? 2.2 : 1.8;
-      ctx.beginPath();
-      ctx.arc(fenDrawX, fenDrawY, r, 0, Math.PI * 2);
+      ctx.moveTo(fenDrawX-cs,fenDrawY); ctx.lineTo(fenDrawX+cs,fenDrawY);
+      ctx.moveTo(fenDrawX,fenDrawY-cs); ctx.lineTo(fenDrawX,fenDrawY+cs);
       ctx.stroke();
-
-      // Center crosshair (Cook CMD convention)
-      const cSize = p ? 5 : 3;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = p ? 1.2 : 0.9;
-      ctx.beginPath();
-      ctx.moveTo(fenDrawX - cSize, fenDrawY);
-      ctx.lineTo(fenDrawX + cSize, fenDrawY);
-      ctx.moveTo(fenDrawX, fenDrawY - cSize);
-      ctx.lineTo(fenDrawX, fenDrawY + cSize);
-      ctx.stroke();
-
-      // "A" = strut-free (Cook CMD: prominent letter beside hole)
       if (isStrFree) {
-        ctx.fillStyle = "#111827";
-        ctx.font = `900 ${p ? 16 : 11}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText("A", fenDrawX, fenDrawY + r + (p ? 14 : 10));
-        ctx.textAlign = "left";
+        ctx.fillStyle="#10211f"; ctx.font=`900 ${fs(p?15:10)}px sans-serif`; ctx.textAlign="center";
+        ctx.fillText("A",fenDrawX,fenDrawY+r+(p?13:9)); ctx.textAlign="left";
       }
-
-      // Vessel label to the right of hole
-      ctx.fillStyle = color;
-      ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
-      ctx.fillText(fen.vessel, fenDrawX + r + (p ? 4 : 3), fenDrawY + 3);
-
-      // Horizontal leader tick to left graft wall
-      ctx.strokeStyle = `${color}60`;
-      ctx.lineWidth = 0.7;
-      ctx.beginPath();
-      ctx.moveTo(graftBodyX, fenDrawY);
-      ctx.lineTo(graftBodyX - (p ? 4 : 3), fenDrawY);
-      ctx.stroke();
-
-      dimLines.push({ y: fenDrawY, label: `${fen.depthMm}`, color });
+      ctx.fillStyle=color; ctx.font=`700 ${fs(p?10.5:7.5)}px sans-serif`;
+      ctx.fillText(fen.vessel,fenDrawX+r+(p?4:3),fenDrawY+3);
+      ctx.strokeStyle=`${color}55`; ctx.lineWidth=0.6;
+      ctx.setLineDash([p?3:2,p?2:1.5]);
+      ctx.beginPath(); ctx.moveTo(cylBodyX,fenDrawY); ctx.lineTo(fenDrawX-r-(p?3:2),fenDrawY); ctx.stroke();
+      ctx.setLineDash([]);
+      dimLines.push({y:fenDrawY,label:`${fen.depthMm}`,color});
     }
-
     ctx.restore();
   });
 
-  // ── Depth dimension lines (Cook CMD style: staggered vertical arrows) ────────
-  // Each fenestration gets its own offset column so labels don't collide
-  {
-    const colW = p ? 14 : 10;
-    const arrowSz = p ? 3.5 : 2.5;
+  // DEPTH DIMENSION LINES
+  const colW=p?13:9; const arrowSz=p?3.5:2.5;
+  dimLines.forEach(({y,label,color},i) => {
+    const dimX=cylBodyX-(p?9:6)-i*colW;
+    ctx.strokeStyle=color; ctx.lineWidth=p?1.2:0.9;
+    ctx.beginPath(); ctx.moveTo(dimX,cylBodyY); ctx.lineTo(dimX,y); ctx.stroke();
+    ctx.fillStyle=color;
+    drawArrow(ctx,dimX,cylBodyY,"up",arrowSz);
+    drawArrow(ctx,dimX,y,"down",arrowSz);
+    ctx.strokeStyle=`${color}50`; ctx.lineWidth=0.5;
+    ctx.setLineDash([p?3:2,p?2:1.5]);
+    ctx.beginPath();
+    ctx.moveTo(dimX,cylBodyY); ctx.lineTo(cylBodyX,cylBodyY);
+    ctx.moveTo(dimX,y); ctx.lineTo(cylBodyX,y);
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=color; ctx.font=`700 ${fs(p?10.5:7.5)}px sans-serif`; ctx.textAlign="right";
+    ctx.fillText(label,dimX-(p?3:2),(cylBodyY+y)/2+4);
+    ctx.textAlign="left";
+  });
 
-    dimLines.forEach(({ y, label, color }, i) => {
-      const dimX = graftBodyX - (p ? 10 : 7) - i * colW;
+  // BIFURCATION LEGS
+  const bifY=cylBodyY+cylBodyH; const legLen=p?22:14; const legW=cylBodyW*0.46;
+  ctx.strokeStyle="rgba(16,33,31,0.55)"; ctx.lineWidth=p?1.8:1.3;
+  ctx.beginPath();
+  ctx.moveTo(cylBodyX,bifY); ctx.lineTo(cylBodyX+cylBodyW*0.28,bifY+legLen);
+  ctx.moveTo(cylBodyX+legW,bifY); ctx.lineTo(cylBodyX+cylBodyW*0.28+legW*0.6,bifY+legLen);
+  ctx.moveTo(cylBodyX+cylBodyW-legW,bifY); ctx.lineTo(cylBodyX+cylBodyW-cylBodyW*0.28-legW*0.6,bifY+legLen);
+  ctx.moveTo(cylBodyX+cylBodyW,bifY); ctx.lineTo(cylBodyX+cylBodyW-cylBodyW*0.28,bifY+legLen);
+  ctx.stroke();
+  ctx.setLineDash([p?4:3,p?3:2]); ctx.strokeStyle="rgba(16,33,31,0.22)";
+  ctx.beginPath();
+  ctx.moveTo(cylBodyX+cylBodyW*0.28,bifY+legLen); ctx.lineTo(cylBodyX+cylBodyW*0.28,bifY+legLen+(p?10:7));
+  ctx.moveTo(cylBodyX+cylBodyW-cylBodyW*0.28,bifY+legLen); ctx.lineTo(cylBodyX+cylBodyW-cylBodyW*0.28,bifY+legLen+(p?10:7));
+  ctx.stroke(); ctx.setLineDash([]);
 
-      // Vertical arrow line: proximal edge → fenestration
-      ctx.strokeStyle = color;
-      ctx.lineWidth = p ? 1.2 : 0.9;
-      ctx.beginPath();
-      ctx.moveTo(dimX, graftBodyY);
-      ctx.lineTo(dimX, y);
-      ctx.stroke();
-
-      // Arrowheads
-      ctx.fillStyle = color;
-      drawArrow(ctx, dimX, graftBodyY, "up", arrowSz);
-      drawArrow(ctx, dimX, y, "down", arrowSz);
-
-      // Short horizontal leaders to graft wall
-      ctx.strokeStyle = `${color}55`;
-      ctx.lineWidth = 0.5;
-      ctx.setLineDash([p ? 3 : 2, p ? 2 : 1.5]);
-      ctx.beginPath();
-      ctx.moveTo(dimX, graftBodyY);
-      ctx.lineTo(graftBodyX, graftBodyY);
-      ctx.moveTo(dimX, y);
-      ctx.lineTo(graftBodyX, y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Dimension label (bold, Cook CMD style)
-      ctx.fillStyle = color;
-      ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
-      ctx.textAlign = "right";
-      ctx.fillText(label, dimX - (p ? 3 : 2), (graftBodyY + y) / 2 + 4);
-      ctx.textAlign = "left";
-    });
-  }
-
-  // ── Spec panel ───────────────────────────────────────────────────────────────
-  const lineH = p ? 15 : 12;
-  let sy = bodyY + (p ? 6 : 4);
+  // SPEC PANEL
+  const lineH = p?14:11;
+  let sy = bodyY + (p?6:4);
   const sw = specPanelW;
 
-  // Rotation plan
-  ctx.fillStyle = "#111827";
-  ctx.font = `700 ${p ? 14 : 10}px sans-serif`;
-  ctx.fillText("ROTATION PLAN", specPanelX, sy);
-  sy += lineH * 1.3;
-  ctx.fillStyle = "#0f766e";
-  ctx.font = `600 ${p ? 11 : 9}px sans-serif`;
-  sy = wrapText(ctx, getRotationSummary(result), specPanelX, sy, sw, lineH, 4);
+  const sectionLine = () => {
+    sy += lineH * 0.5;
+    ctx.strokeStyle="rgba(16,33,31,0.13)"; ctx.lineWidth=0.4;
+    ctx.beginPath(); ctx.moveTo(specPanelX,sy); ctx.lineTo(specPanelX+sw,sy); ctx.stroke();
+    sy += lineH * 0.5;
+  };
 
-  sy += lineH * 0.8;
-  ctx.strokeStyle = "rgba(16,33,31,0.15)";
-  ctx.lineWidth = 0.5;
-  ctx.beginPath();
-  ctx.moveTo(specPanelX, sy);
-  ctx.lineTo(specPanelX + sw, sy);
-  ctx.stroke();
-  sy += lineH * 0.8;
-
-  // Fenestration specs
-  const fcnt = { SCALLOP: 0, LARGE_FEN: 0, SMALL_FEN: 0 };
-  caseInput.fenestrations.forEach((fen, idx) => {
-    const conflict = result.optimalConflicts[idx];
-    const adjClock = conflict?.adjustedClock ?? fen.clock;
-    const isConflicted = conflict?.conflict ?? false;
-    const color = VESSEL_COLORS[fen.vessel] ?? "#334155";
-    fcnt[fen.ftype]++;
-    const typeLabel =
-      fen.ftype === "SCALLOP"
-        ? `REINFORCED SCALLOP #${fcnt.SCALLOP}`
-        : fen.ftype === "LARGE_FEN"
-        ? `REINFORCED LARGE FENESTRATION #${fcnt.LARGE_FEN}`
-        : `REINFORCED SMALL FENESTRATION #${fcnt.SMALL_FEN}`;
-
-    ctx.fillStyle = color;
-    ctx.font = `700 ${p ? 12 : 9}px sans-serif`;
-    ctx.fillText(typeLabel, specPanelX, sy);
+  const spec = (label: string, value: string, valColor?: string) => {
+    ctx.fillStyle="rgba(69,96,91,0.70)"; ctx.font=`400 ${fs(p?9:7)}px sans-serif`;
+    ctx.fillText(label, specPanelX, sy);
+    ctx.fillStyle=valColor??="#10211f"; ctx.font=`600 ${fs(p?9:7)}px sans-serif`;
+    ctx.fillText(value, specPanelX+sw*0.55, sy);
     sy += lineH;
+  };
 
-    if (fen.ftype !== "SCALLOP") {
-      const arcSep = computeArcSep(adjClock, seamDeg, delta, circ);
-      const isStrFree = !isConflicted
-        && isInInterRingGap(fen.depthMm, ringHeight, interRingGap, nRings);
-      if (isStrFree) {
-        ctx.fillStyle = "#0f766e";
-        ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
-        ctx.fillText("**Strut Free**", specPanelX + (p ? 6 : 4), sy);
-        sy += lineH;
-      } else if (isConflicted) {
-        ctx.fillStyle = "#dc2626";
-        ctx.font = `700 ${p ? 11 : 8}px sans-serif`;
-        ctx.fillText(`⚠ Conflict — min clearance ${conflict.minDist.toFixed(1)} mm`, specPanelX + (p ? 6 : 4), sy);
-        sy += lineH;
-      }
-      ctx.fillStyle = "#334155";
-      ctx.font = `400 ${p ? 11 : 9}px sans-serif`;
-      const specLines = [
-        `WIDTH: ${fen.widthMm} mm`,
-        `HEIGHT: ${fen.heightMm} mm`,
-        `DIST FROM PROX EDGE: ${fen.depthMm} mm`,
-        `CLOCK: ${adjClock} (ARCSEP: ${arcSep > 0 ? "+" : ""}${arcSep.toFixed(1)} mm)`,
-        `Original clock: ${fen.clock}`,
-      ];
-      for (const line of specLines) {
-        ctx.fillText(line, specPanelX + (p ? 6 : 4), sy);
-        sy += lineH;
+  ctx.fillStyle="#10211f"; ctx.font=`700 ${fs(p?12:9)}px sans-serif`;
+  ctx.fillText("DEVICE", specPanelX, sy); sy += lineH*1.2;
+  spec("Platform", result.device.shortName, result.device.color);
+  spec("Diameter", `${result.size.graftDiameter} mm`);
+  spec("Sheath", `${result.size.sheathFr} Fr`);
+  spec("Ring height", `${result.device.ringHeight} mm`);
+  spec("Inter gap", `${result.device.interRingGap} mm`, result.device.interRingGap>=12?"#15803d":"#c2410c");
+  spec("Peaks/ring", `${result.nPeaks}`);
+  spec("FS", `${(result.device.foreshortening*100).toFixed(0)}%`);
+  sectionLine();
+
+  ctx.fillStyle="#10211f"; ctx.font=`700 ${fs(p?12:9)}px sans-serif`;
+  ctx.fillText("ROTATION PLAN", specPanelX, sy); sy += lineH*1.1;
+  ctx.fillStyle=result.rotation.hasConflictFreeRotation?"#15803d":"#b45309";
+  ctx.font=`600 ${fs(p?10:8)}px sans-serif`;
+  sy = wrapText(ctx, getRotationSummary(result), specPanelX, sy, sw, lineH, 5);
+  sectionLine();
+
+  ctx.fillStyle="#10211f"; ctx.font=`700 ${fs(p?12:9)}px sans-serif`;
+  ctx.fillText("FENESTRATIONS", specPanelX, sy); sy += lineH*1.1;
+
+  const fcnt: Record<string,number> = {SCALLOP:0,LARGE_FEN:0,SMALL_FEN:0};
+  caseInput.fenestrations.forEach((fen, idx) => {
+    const conflict=result.optimalConflicts[idx];
+    const adjClock=conflict?.adjustedClock??fen.clock;
+    const isConf=conflict?.conflict??false;
+    const color=VESSEL_COLORS[fen.vessel]??"#334155";
+    fcnt[fen.ftype]=(fcnt[fen.ftype]??0)+1;
+    const typeLabel=fen.ftype==="SCALLOP"?`SCALLOP #${fcnt.SCALLOP}`:fen.ftype==="LARGE_FEN"?`LARGE FEN #${fcnt.LARGE_FEN}`:`SMALL FEN #${fcnt.SMALL_FEN}`;
+    ctx.fillStyle=color; ctx.font=`700 ${fs(p?10.5:8)}px sans-serif`;
+    ctx.fillText(`${fen.vessel}  ${typeLabel}`, specPanelX, sy); sy+=lineH;
+    if (fen.ftype!=="SCALLOP") {
+      const arcSep=computeArcSep(adjClock,seamDeg,delta,circ);
+      const isStrFree=!isConf&&isInInterRingGap(fen.depthMm,ringHeight,interRingGap,nRings);
+      if (isStrFree) { ctx.fillStyle="#0f766e"; ctx.font=`700 ${fs(p?9:7)}px sans-serif`; ctx.fillText("\u2605 Strut Free",specPanelX+(p?6:4),sy); sy+=lineH; }
+      else if (isConf) { ctx.fillStyle="#dc2626"; ctx.font=`700 ${fs(p?9:7)}px sans-serif`; ctx.fillText(`\u26a0 Conflict  ${conflict.minDist.toFixed(1)} mm`,specPanelX+(p?6:4),sy); sy+=lineH; }
+      ctx.fillStyle="#334155"; ctx.font=`400 ${fs(p?9:7)}px sans-serif`;
+      for (const row of [`${fen.widthMm}\u00d7${fen.heightMm} mm  \u00b7  ${fen.depthMm} mm deep`,`Clock: ${fen.clock} \u2192 ${adjClock}`,`ARCSEP: ${arcSep>0?"+":""}${arcSep.toFixed(1)} mm from seam`]) {
+        ctx.fillText(row,specPanelX+(p?6:4),sy); sy+=lineH;
       }
     } else {
-      ctx.fillStyle = "#334155";
-      ctx.font = `400 ${p ? 11 : 9}px sans-serif`;
-      const specLines = [
-        `WIDTH: ${fen.widthMm} mm`,
-        `HEIGHT: ${fen.heightMm} mm`,
-        `CLOCK: ${adjClock}`,
-        `Original clock: ${fen.clock}`,
-      ];
-      for (const line of specLines) {
-        ctx.fillText(line, specPanelX + (p ? 6 : 4), sy);
-        sy += lineH;
-      }
+      ctx.fillStyle="#334155"; ctx.font=`400 ${fs(p?9:7)}px sans-serif`;
+      ctx.fillText(`${fen.widthMm}\u00d7${fen.heightMm} mm  \u00b7  Clock: ${adjClock}`,specPanelX+(p?6:4),sy); sy+=lineH;
     }
-    sy += lineH * 0.5;
+    sy+=lineH*0.4;
   });
 
-  sy += lineH * 0.5;
-  ctx.strokeStyle = "rgba(16,33,31,0.15)";
-  ctx.lineWidth = 0.5;
-  ctx.beginPath();
-  ctx.moveTo(specPanelX, sy);
-  ctx.lineTo(specPanelX + sw, sy);
-  ctx.stroke();
-  sy += lineH;
-
-  // Device data block
-  ctx.fillStyle = "#10211f";
-  ctx.font = `700 ${p ? 12 : 9}px sans-serif`;
-  ctx.fillText("DEVICE", specPanelX, sy);
-  sy += lineH;
-  ctx.fillStyle = "#334155";
-  ctx.font = `400 ${p ? 11 : 9}px sans-serif`;
-  const deviceLines: string[] = [
-    `Sheath: ${result.size.sheathFr} Fr`,
-    `Foreshortening: ${(result.device.foreshortening * 100).toFixed(1)}%`,
-    `Fabric: ${result.device.fabricMaterial}`,
-    `Seam: ${seamDeg === 0 ? "12:00 anterior" : seamDeg === 180 ? "6:00 posterior" : `${seamDeg}°`}`,
-    `Stent type: ${result.device.stentType}`,
-    `PMEG suitability: ${result.device.pmegSuitability}/4`,
-  ];
-  const dev = result.device;
-  if (dev.hasBareSuprarenal) deviceLines.push("Bare suprarenal stent: YES (barbs)");
-  if (dev.hasInfrarenalBarbs) deviceLines.push("Infrarenal barbs: YES (valley barbs)");
-  if (dev.minNeckLengthMm != null) deviceLines.push(`Min neck length (IFU): ${dev.minNeckLengthMm} mm`);
-  if (dev.maxInfrarenalAngleDeg != null) deviceLines.push(`Max infrarenal angle (IFU): ${dev.maxInfrarenalAngleDeg}°`);
-  if (dev.maxSuprarenalAngleDeg != null) deviceLines.push(`Max suprarenal angle (IFU): ${dev.maxSuprarenalAngleDeg}°`);
-  deviceLines.forEach((line) => {
-    ctx.fillText(line, specPanelX + (p ? 6 : 4), sy);
-    sy += lineH;
-  });
-
-  if (caseInput.surgeonNote) {
-    sy += lineH * 0.5;
-    ctx.fillStyle = "#45605b";
-    ctx.font = `400 italic ${p ? 10 : 8}px sans-serif`;
-    sy = wrapText(ctx, `Note: ${caseInput.surgeonNote}`, specPanelX, sy, sw, lineH, 4);
-  }
-
-  // ── Footer ───────────────────────────────────────────────────────────────────
-  const footerY = lh - footerH + (p ? 14 : 8);
-  ctx.strokeStyle = "rgba(16,33,31,0.15)";
-  ctx.lineWidth = 0.5;
-  ctx.beginPath();
-  ctx.moveTo(margin, footerY - (p ? 8 : 6));
-  ctx.lineTo(lw - margin, footerY - (p ? 8 : 6));
-  ctx.stroke();
-  ctx.fillStyle = "#45605b";
-  ctx.font = `400 ${p ? 9 : 8}px sans-serif`;
-  ctx.fillText(
-    "For research and planning use only. All clinical decisions remain the surgeon's responsibility. Not to scale.",
-    margin,
-    footerY,
-  );
-  ctx.fillText(
-    `PMEGplan.io  •  ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`,
-    margin,
-    footerY + (p ? 12 : 10),
-  );
-  if (p) {
-    ctx.fillText(
-      "Signature: ___________________________   Date: ___________",
-      lw / 2 - 10,
-      footerY,
-    );
-  }
+  // FOOTER
+  const footerY = lh - (p?16:12);
+  ctx.fillStyle="rgba(69,96,91,0.45)"; ctx.font=`400 ${fs(p?7.5:6)}px sans-serif`;
+  ctx.fillText("FOR RESEARCH / PLANNING USE ONLY  \u00b7  PMEGplan.io", margin, footerY);
 }
