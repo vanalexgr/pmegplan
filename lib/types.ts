@@ -103,6 +103,11 @@ export interface RotationScanPoint {
   deltaDeg: number;
   distPerFen: number[];
   allClear: boolean;
+  withinTorqueLimit: boolean;
+  excludedByTorqueCap: boolean;
+  deploymentTorqueDeg: number;
+  deploymentTorqueDirection: "clockwise" | "counter-clockwise" | "none";
+  targetAlignmentDeg: number;
 }
 
 export interface RotationResult {
@@ -113,6 +118,9 @@ export interface RotationResult {
   bestCompromiseMm: number;
   bestCompromiseDeg: number;
   scanData: RotationScanPoint[];
+  hasTorqueExcludedConflictFreeSolution: boolean;
+  bestTorqueExcludedConflictFreeAlignmentDeg?: number;
+  bestTorqueExcludedConflictFreeTorqueDeg?: number;
 }
 
 export interface RobustnessSummary {

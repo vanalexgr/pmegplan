@@ -12,6 +12,32 @@ import type {
   StrutSegment,
 } from "@/lib/types";
 
+
+export const MAX_DEPLOYMENT_TORQUE_DEG = 60;
+export const HIGH_DEPLOYMENT_TORQUE_WARNING_DEG = 45;
+
+function getDeploymentTorqueInfo(deltaDeg: number) {
+  const normalized = ((deltaDeg % 360) + 360) % 360;
+  let burden = normalized;
+  let direction: "clockwise" | "counter-clockwise" | "none" = "none";
+
+  if (normalized === 0) {
+    burden = 0;
+  } else if (normalized > 180) {
+    burden = 360 - normalized;
+    direction = "counter-clockwise"; // e.g. 340 deg target = 20 deg CCW
+  } else {
+    burden = normalized;
+    direction = "clockwise";
+  }
+
+  return {
+    deploymentTorqueDeg: burden,
+    deploymentTorqueDirection: direction,
+    targetAlignmentDeg: normalized,
+  };
+}
+
 export function optimiseRotation(
   fenestrations: Fenestration[],
   segs: StrutSegment[],
@@ -39,20 +65,38 @@ export function optimiseRotation(
           deltaDeg: 0,
           distPerFen: [],
           allClear: true,
+          withinTorqueLimit: true,
+          excludedByTorqueCap: false,
+          deploymentTorqueDeg: 0,
+          deploymentTorqueDirection: "none",
+          targetAlignmentDeg: 0,
         },
       ],
+      hasTorqueExcludedConflictFreeSolution: false,
     };
   }
 
   const scanData: RotationScanPoint[] = [];
-  let bestConflictFreeDelta: number | null = null;
-  let bestConflictFreeClearance = Number.NEGATIVE_INFINITY;
-  let bestCompromiseDelta = 0;
-  let bestCompromiseClearance = Number.NEGATIVE_INFINITY;
+  
+  // Track the best options that are actually deployable
+  let bestConflictFreeDeployableDelta: number | null = null;
+  let bestConflictFreeDeployableClearance = Number.NEGATIVE_INFINITY;
+  let bestCompromiseDeployableDelta = 0;
+  let bestCompromiseDeployableClearance = Number.NEGATIVE_INFINITY;
+
+  // Track the absolute best options ignoring deployability, just to know if we missed something good
+  let bestConflictFreeExcludedDelta: number | null = null;
+  let bestConflictFreeExcludedClearance = Number.NEGATIVE_INFINITY;
+  let bestConflictFreeExcludedTorqueDeg: number | null = null;
+
   const steps = Math.ceil(circ / stepMm);
 
   for (let stepIndex = 0; stepIndex <= steps; stepIndex += 1) {
     const delta = Math.min(stepIndex * stepMm, circ);
+    const deltaDeg = (delta / circ) * 360;
+    const { deploymentTorqueDeg, deploymentTorqueDirection, targetAlignmentDeg } = getDeploymentTorqueInfo(deltaDeg);
+    const withinTorqueLimit = deploymentTorqueDeg <= MAX_DEPLOYMENT_TORQUE_DEG;
+
     const distPerFen = roundFenestrations.map((fenestration) => {
       const cx = wrapMm(clockToArc(fenestration.clock, circ) + delta, circ);
       return minDistToStruts(cx, fenestration.depthMm, segs, circ);
@@ -61,26 +105,45 @@ export function optimiseRotation(
     const thresholds = roundFenestrations.map((fenestration) =>
       getSafeThreshold(fenestration, wireRadius),
     );
-    const allClear = distPerFen.every(
+    const geometryClear = distPerFen.every(
       (distance, index) => distance >= thresholds[index],
     );
     const minClearance = Math.min(...distPerFen);
+    
+    // allClear denotes whether it's truly a usable conflict-free point
+    const allClear = geometryClear && withinTorqueLimit;
+    const excludedByTorqueCap = geometryClear && !withinTorqueLimit;
 
     scanData.push({
       deltaMm: delta,
-      deltaDeg: (delta / circ) * 360,
+      deltaDeg,
       distPerFen,
       allClear,
+      withinTorqueLimit,
+      excludedByTorqueCap,
+      deploymentTorqueDeg,
+      deploymentTorqueDirection,
+      targetAlignmentDeg,
     });
 
-    if (allClear && minClearance > bestConflictFreeClearance) {
-      bestConflictFreeClearance = minClearance;
-      bestConflictFreeDelta = delta;
+    if (geometryClear) {
+      if (withinTorqueLimit) {
+        if (minClearance > bestConflictFreeDeployableClearance) {
+          bestConflictFreeDeployableClearance = minClearance;
+          bestConflictFreeDeployableDelta = delta;
+        }
+      } else {
+        if (minClearance > bestConflictFreeExcludedClearance) {
+          bestConflictFreeExcludedClearance = minClearance;
+          bestConflictFreeExcludedDelta = delta;
+          bestConflictFreeExcludedTorqueDeg = deploymentTorqueDeg;
+        }
+      }
     }
 
-    if (minClearance > bestCompromiseClearance) {
-      bestCompromiseClearance = minClearance;
-      bestCompromiseDelta = delta;
+    if (withinTorqueLimit && minClearance > bestCompromiseDeployableClearance) {
+      bestCompromiseDeployableClearance = minClearance;
+      bestCompromiseDeployableDelta = delta;
     }
   }
 
@@ -117,16 +180,19 @@ export function optimiseRotation(
   }
 
   const optimalDeltaMm =
-    bestConflictFreeDelta === null ? bestCompromiseDelta : bestConflictFreeDelta;
+    bestConflictFreeDeployableDelta === null ? bestCompromiseDeployableDelta : bestConflictFreeDeployableDelta;
 
   return {
     optimalDeltaMm,
     optimalDeltaDeg: (optimalDeltaMm / circ) * 360,
     validWindows,
-    hasConflictFreeRotation: bestConflictFreeDelta !== null,
-    bestCompromiseMm: bestCompromiseDelta,
-    bestCompromiseDeg: (bestCompromiseDelta / circ) * 360,
+    hasConflictFreeRotation: bestConflictFreeDeployableDelta !== null,
+    bestCompromiseMm: bestCompromiseDeployableDelta,
+    bestCompromiseDeg: (bestCompromiseDeployableDelta / circ) * 360,
     scanData,
+    hasTorqueExcludedConflictFreeSolution: bestConflictFreeDeployableDelta === null && bestConflictFreeExcludedDelta !== null,
+    bestTorqueExcludedConflictFreeAlignmentDeg: bestConflictFreeExcludedDelta !== null ? (bestConflictFreeExcludedDelta / circ) * 360 : undefined,
+    bestTorqueExcludedConflictFreeTorqueDeg: bestConflictFreeExcludedTorqueDeg !== null ? bestConflictFreeExcludedTorqueDeg : undefined,
   };
 }
 
@@ -140,4 +206,3 @@ export function baselineConflictSummary(
     checkConflict(fenestration, segs, circ, wireRadius, 0),
   );
 }
-

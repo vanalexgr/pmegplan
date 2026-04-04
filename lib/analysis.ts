@@ -229,17 +229,38 @@ export function normalizeRotationDeltaDeg(rotationDeg: number): number {
   return normalized > 180 ? 360 - normalized : normalized;
 }
 
+export function getDeploymentTorqueInfo(deltaDeg: number) {
+  const normalized = ((deltaDeg % 360) + 360) % 360;
+  let burden = normalized;
+  let direction: "clockwise" | "counter-clockwise" | "none" = "none";
+
+  if (normalized === 0) {
+    burden = 0;
+  } else if (normalized > 180) {
+    burden = 360 - normalized;
+    direction = "counter-clockwise";
+  } else {
+    burden = normalized;
+    direction = "clockwise";
+  }
+
+  return {
+    deploymentTorqueDeg: burden,
+    deploymentTorqueDirection: direction,
+    targetAlignmentDeg: normalized,
+  };
+}
+
 export function getRotationBurdenDeg(
   rotation: Pick<
     DeviceAnalysisResult["rotation"],
     "optimalDeltaDeg" | "bestCompromiseDeg"
   >,
 ): number {
-  return normalizeRotationDeltaDeg(
-    Number.isFinite(rotation.optimalDeltaDeg)
-      ? rotation.optimalDeltaDeg
-      : rotation.bestCompromiseDeg,
-  );
+  const alignDeg = Number.isFinite(rotation.optimalDeltaDeg)
+    ? rotation.optimalDeltaDeg
+    : rotation.bestCompromiseDeg;
+  return getDeploymentTorqueInfo(alignDeg).deploymentTorqueDeg;
 }
 
 function getRotationBurdenScore(
@@ -347,6 +368,7 @@ function analyseDevice(
         bestCompromiseMm: 0,
         bestCompromiseDeg: 0,
         scanData: [],
+        hasTorqueExcludedConflictFreeSolution: false,
       },
       minClearanceAtOptimal: 0,
       totalValidWindowMm: 0,
@@ -537,16 +559,27 @@ export function getRotationSummary(result: DeviceAnalysisResult) {
     return "No compatible graft size for this anatomy.";
   }
 
-  if (result.rotation.hasConflictFreeRotation) {
-    const primaryWindow = result.rotation.validWindows[0];
-    return `Conflict-free rotation: +${result.rotation.optimalDeltaDeg.toFixed(1)}° (${result.rotation.optimalDeltaMm.toFixed(1)} mm)${
-      primaryWindow
-        ? `, window ${primaryWindow.startDeg.toFixed(1)}°–${primaryWindow.endDeg.toFixed(1)}°`
-        : ""
-    }.`;
+  const { rotation } = result;
+  
+  if (rotation.hasConflictFreeRotation) {
+    const info = getDeploymentTorqueInfo(rotation.optimalDeltaDeg);
+    const category = info.deploymentTorqueDeg <= 45 ? "low" : "high";
+    const dirString = info.deploymentTorqueDirection !== "none" ? ` ${info.deploymentTorqueDirection}` : "";
+    
+    return `Conflict-free deployable alignment found.\nTarget alignment: ${info.targetAlignmentDeg.toFixed(1)}°.\nDeployment torque: ${info.deploymentTorqueDeg.toFixed(1)}°${dirString}.\nTorque category: ${category}.`;
   }
 
-  return `No conflict-free rotation. Best compromise: +${result.rotation.bestCompromiseDeg.toFixed(1)}° (${result.rotation.bestCompromiseMm.toFixed(1)} mm).`;
+  const info = getDeploymentTorqueInfo(rotation.bestCompromiseDeg);
+  const category = info.deploymentTorqueDeg <= 45 ? "low" : "high";
+  const dirString = info.deploymentTorqueDirection !== "none" ? ` ${info.deploymentTorqueDirection}` : "";
+  
+  let baseString = `No conflict-free alignment within the deployment-torque limit.\nBest compromise selected within deployable range.\nTarget alignment: ${info.targetAlignmentDeg.toFixed(1)}°.\nDeployment torque: ${info.deploymentTorqueDeg.toFixed(1)}°${dirString}.\nTorque category: ${category}.`;
+  
+  if (rotation.hasTorqueExcludedConflictFreeSolution) {
+    baseString += `\n*A conflict-free alignment existed outside the torque limit and was excluded.`;
+  }
+  
+  return baseString;
 }
 
 export function getConflictCount(results: ConflictResult[]) {
