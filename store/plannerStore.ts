@@ -3,6 +3,7 @@
 import { create } from "zustand";
 
 import { analyseCase } from "@/lib/analysis";
+import { normalizeCaseInput } from "@/lib/caseInput";
 import { ALL_DEVICES } from "@/lib/devices";
 import type { SavedPlannerProject } from "@/lib/planning/persistence";
 import { createPlanningProjectFromCaseInput } from "@/lib/planning/project";
@@ -45,9 +46,11 @@ interface PlannerStore {
 const defaultDeviceIds = ALL_DEVICES.map((device) => device.id);
 
 function cloneCaseInput(caseInput: CaseInput): CaseInput {
+  const normalized = normalizeCaseInput(caseInput);
+
   return {
-    ...caseInput,
-    fenestrations: caseInput.fenestrations.map((fenestration) => ({
+    ...normalized,
+    fenestrations: normalized.fenestrations.map((fenestration) => ({
       ...fenestration,
     })),
   };
@@ -66,14 +69,15 @@ function buildPlannerSnapshot(
   selectedDeviceIds: string[],
   projectId?: string,
 ) {
-  const results = analyseCase(caseInput, selectedDeviceIds);
+  const normalizedCaseInput = normalizeCaseInput(caseInput);
+  const results = analyseCase(normalizedCaseInput, selectedDeviceIds);
   const preferredDeviceId =
     results.find((result) => result.size)?.device.id ?? selectedDeviceIds[0] ?? null;
 
   return {
     results,
     planningProject: createPlanningProjectFromCaseInput(
-      caseInput,
+      normalizedCaseInput,
       preferredDeviceId,
       projectId,
     ),
@@ -85,8 +89,10 @@ function buildSnapshot(
   selectedDeviceIds: string[],
   projectId: string,
 ): PlannerSnapshot {
+  const normalizedCaseInput = cloneCaseInput(caseInput);
+
   return {
-    caseInput: cloneCaseInput(caseInput),
+    caseInput: normalizedCaseInput,
     selectedDeviceIds: [...selectedDeviceIds],
     projectId,
   };

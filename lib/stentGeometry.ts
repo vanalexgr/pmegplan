@@ -225,3 +225,91 @@ export function getSealZoneHeightMm(device: DeviceGeometry) {
     Math.max(0, device.nRings - 1) * device.interRingGap
   );
 }
+
+// ── Sinusoidal ring segments ─────────────────────────────────────────────────
+//
+// Endurant II and Gore Excluder use smooth sinusoidal ring frames rather than
+// sharp Z-stent zigzags. We approximate each ring with dense piecewise-linear
+// segments so both rendering and conflict detection see the same wire path.
+const N_SINUS = 12; // samples per half-period (per peak)
+
+export function buildSinusoidalStrutSegments(
+  circ: number,
+  ringHeight: number,
+  gapHeight: number,
+  nRings: number,
+  nPeaks: number,
+): StrutSegment[] {
+  const segments: StrutSegment[] = [];
+  const totalPoints = nPeaks * N_SINUS * 2;
+  const dx = circ / totalPoints;
+
+  for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
+    const z0 = ringIndex * (ringHeight + gapHeight);
+    const phaseOffset = (ringIndex % 2) * (circ / (2 * nPeaks));
+    const ringPoints: Array<[number, number]> = [];
+
+    for (let i = 0; i <= totalPoints; i += 1) {
+      const x = (i * dx + phaseOffset) % circ;
+      const xRaw = i * dx + phaseOffset;
+      const y =
+        z0 +
+        (ringHeight / 2) *
+          (1 - Math.cos((2 * Math.PI * nPeaks * xRaw) / circ));
+      ringPoints.push([x, y]);
+    }
+
+    for (let i = 0; i < ringPoints.length - 1; i += 1) {
+      const [ax, ay] = ringPoints[i];
+      const [bx, by] = ringPoints[i + 1];
+      segments.push([ax, ay, bx, by]);
+    }
+  }
+
+  return segments;
+}
+
+// ── Device-aware router ─────────────────────────────────────────────────────
+//
+// The current device database still uses "M-stent" for Endurant, but for
+// planning and rendering we want the smooth sinusoidal family of curves rather
+// than a sharp zigzag approximation.
+export function buildStrutSegmentsForDevice(
+  device: Pick<DeviceGeometry, "stentType">,
+  circ: number,
+  ringHeight: number,
+  gapHeight: number,
+  nRings: number,
+  nPeaks: number,
+): StrutSegment[] {
+  if (
+    device.stentType === "sinusoidal" ||
+    device.stentType === "helical" ||
+    device.stentType === "M-stent"
+  ) {
+    return buildSinusoidalStrutSegments(
+      circ,
+      ringHeight,
+      gapHeight,
+      nRings,
+      nPeaks,
+    );
+  }
+
+  const ringSpan = ringHeight + gapHeight;
+  const segments: StrutSegment[] = [];
+
+  for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
+    const ringSegments = buildZigZagRingSegments({
+      circumferenceMm: circ,
+      yTopMm: ringIndex * ringSpan,
+      ringHeightMm: ringHeight,
+      nPeaks,
+      phaseFraction: ringIndex % 2 === 0 ? 0 : 0.5,
+    });
+
+    segments.push(...ringSegments);
+  }
+
+  return segments;
+}

@@ -13,7 +13,10 @@ export const fenestrationSchema = z.object({
   depthMm: z.number().min(0).max(200),
   widthMm: z.number().min(4).max(25),
   heightMm: z.number().min(4).max(20),
-});
+}).transform((fenestration) => ({
+  ...fenestration,
+  depthMm: fenestration.ftype === "SCALLOP" ? 0 : fenestration.depthMm,
+}));
 
 export const caseSchema = z.object({
   neckDiameterMm: z.number().min(16).max(40),

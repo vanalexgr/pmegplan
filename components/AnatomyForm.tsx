@@ -25,36 +25,36 @@ import { caseSchema, type CaseFormValues } from "@/lib/validation";
 function getDefaultFenestration(nextIndex: number): Fenestration {
   const defaults: Fenestration[] = [
     {
-      vessel: "SMA",
+      vessel: "CELIAC",
       ftype: "SCALLOP",
-      clock: "12:30",
-      depthMm: 22,
+      clock: "12:00",
+      depthMm: 0,
       widthMm: 20,
       heightMm: 20,
     },
     {
-      vessel: "LRA",
-      ftype: "SMALL_FEN",
-      clock: "3:45",
-      depthMm: 36,
-      widthMm: 6,
-      heightMm: 6,
+      vessel: "SMA",
+      ftype: "LARGE_FEN",
+      clock: "12:30",
+      depthMm: 12,
+      widthMm: 8,
+      heightMm: 8,
     },
     {
       vessel: "RRA",
       ftype: "SMALL_FEN",
-      clock: "9:45",
-      depthMm: 38,
+      clock: "9:30",
+      depthMm: 33,
       widthMm: 6,
       heightMm: 6,
     },
     {
-      vessel: "CELIAC",
-      ftype: "LARGE_FEN",
-      clock: "12:00",
-      depthMm: 16,
-      widthMm: 10,
-      heightMm: 10,
+      vessel: "LRA",
+      ftype: "SMALL_FEN",
+      clock: "2:30",
+      depthMm: 35,
+      widthMm: 6,
+      heightMm: 8,
     },
   ];
 
@@ -188,6 +188,7 @@ export function AnatomyForm({
           <div className="space-y-4">
             {fields.map((field, index) => {
               const currentType = watchedFenestrations?.[index]?.ftype ?? field.ftype;
+              const isScallop = currentType === "SCALLOP";
               const clockField = register(`fenestrations.${index}.clock`);
               return (
                 <div
@@ -248,6 +249,11 @@ export function AnatomyForm({
                             nextDimensions.heightMm,
                             { shouldValidate: true },
                           );
+                          if (nextType === "SCALLOP") {
+                            setValue(`fenestrations.${index}.depthMm`, 0, {
+                              shouldValidate: true,
+                            });
+                          }
                         }}
                       >
                         <option value="SCALLOP">Scallop</option>
@@ -269,19 +275,28 @@ export function AnatomyForm({
                         message={errors.fenestrations?.[index]?.clock?.message}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label>Depth from proximal edge (mm)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        {...register(`fenestrations.${index}.depthMm`, {
-                          valueAsNumber: true,
-                        })}
-                      />
-                      <FieldError
-                        message={errors.fenestrations?.[index]?.depthMm?.message}
-                      />
-                    </div>
+                    {isScallop ? (
+                      <div className="space-y-2">
+                        <Label>Depth from proximal edge (mm)</Label>
+                        <div className="flex h-11 items-center rounded-2xl border border-[color:var(--border)] bg-[rgba(255,255,255,0.72)] px-4 text-sm text-[color:var(--muted-foreground)]">
+                          Scallops sit at the proximal edge by definition: 0.0 mm
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label>Depth from proximal edge (mm)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          {...register(`fenestrations.${index}.depthMm`, {
+                            valueAsNumber: true,
+                          })}
+                        />
+                        <FieldError
+                          message={errors.fenestrations?.[index]?.depthMm?.message}
+                        />
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <Label>Width (mm)</Label>
                       <Input

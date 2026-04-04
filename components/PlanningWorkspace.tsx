@@ -32,6 +32,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { GraftSketchCanvas } from "@/components/GraftSketchCanvas";
 import { Planning3DPreview } from "@/components/Planning3DPreview";
 import { isValidClockText, normalizeClockText } from "@/lib/planning/clock";
 import {
@@ -116,7 +117,7 @@ function toEditDraft(fenestration: Fenestration): FenestrationEditDraft {
     vessel: fenestration.vessel,
     ftype: fenestration.ftype,
     clock: fenestration.clock,
-    depthMm: String(fenestration.depthMm),
+    depthMm: String(fenestration.ftype === "SCALLOP" ? 0 : fenestration.depthMm),
     widthMm: String(fenestration.widthMm),
     heightMm: String(fenestration.heightMm),
   };
@@ -480,11 +481,12 @@ export function PlanningWorkspace({
       return;
     }
 
-    const depthMm = Number(editDraft.depthMm);
+    const isScallop = editDraft.ftype === "SCALLOP";
+    const depthMm = isScallop ? 0 : Number(editDraft.depthMm);
     const widthMm = Number(editDraft.widthMm);
     const heightMm = Number(editDraft.heightMm);
 
-    if (!Number.isFinite(depthMm) || depthMm < 0 || depthMm > 200) {
+    if (!isScallop && (!Number.isFinite(depthMm) || depthMm < 0 || depthMm > 200)) {
       setEditorStatus("Depth must be between 0 and 200 mm.");
       return;
     }
@@ -783,6 +785,40 @@ export function PlanningWorkspace({
               })}
             </svg>
           </div>
+
+          {overlayResult?.size ? (
+            <div className="mt-6 rounded-[28px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.9)] p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-[color:var(--brand)]">
+                    <Orbit className="size-4" />
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em]">
+                      Interactive 3D view
+                    </p>
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-[color:var(--foreground)]">
+                    Device sketch for {overlayResult.device.shortName}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[color:var(--muted-foreground)]">
+                    Use this as the main device-specific review view. Switch between
+                    rotate and move, use the zoom controls, and inspect strut windows
+                    before dropping back to the summary cards.
+                  </p>
+                </div>
+                <Badge className="bg-white text-[color:var(--foreground)]">
+                  {overlayResult.size.graftDiameter} mm graft
+                </Badge>
+              </div>
+
+              <div className="mt-4">
+                <GraftSketchCanvas
+                  result={overlayResult}
+                  caseInput={caseInput}
+                  height={520}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-5 p-4">
@@ -1072,11 +1108,18 @@ export function PlanningWorkspace({
                       value={editDraft.ftype}
                       onChange={(event) => {
                         const nextType = event.target.value as Fenestration["ftype"];
+                        const defaults = getDimensionsForType(nextType);
                         setEditDraft((current) =>
                           current
                             ? {
                                 ...current,
                                 ftype: nextType,
+                                depthMm:
+                                  nextType === "SCALLOP"
+                                    ? "0"
+                                    : current.depthMm,
+                                widthMm: String(defaults.widthMm),
+                                heightMm: String(defaults.heightMm),
                               }
                             : current,
                         );
@@ -1118,20 +1161,29 @@ export function PlanningWorkspace({
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="workspace-depth">Depth from proximal edge (mm)</Label>
-                    <Input
-                      id="workspace-depth"
-                      type="number"
-                      step="0.1"
-                      value={editDraft.depthMm}
-                      onChange={(event) =>
-                        setEditDraft((current) =>
-                          current ? { ...current, depthMm: event.target.value } : current,
-                        )
-                      }
-                    />
-                  </div>
+                  {editDraft.ftype === "SCALLOP" ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="workspace-depth">Depth from proximal edge (mm)</Label>
+                      <div className="flex h-11 items-center rounded-2xl border border-[color:var(--border)] bg-[rgba(255,255,255,0.72)] px-4 text-sm text-[color:var(--muted-foreground)]">
+                        Scallops are fixed at the proximal edge: 0.0 mm
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="workspace-depth">Depth from proximal edge (mm)</Label>
+                      <Input
+                        id="workspace-depth"
+                        type="number"
+                        step="0.1"
+                        value={editDraft.depthMm}
+                        onChange={(event) =>
+                          setEditDraft((current) =>
+                            current ? { ...current, depthMm: event.target.value } : current,
+                          )
+                        }
+                      />
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label htmlFor="workspace-width">Width (mm)</Label>
@@ -1174,6 +1226,8 @@ export function PlanningWorkspace({
                         current
                           ? {
                               ...current,
+                              depthMm:
+                                current.ftype === "SCALLOP" ? "0" : current.depthMm,
                               widthMm: String(defaults.widthMm),
                               heightMm: String(defaults.heightMm),
                             }

@@ -7,7 +7,7 @@ import {
   wrapMm,
 } from "@/lib/conflictDetection";
 import { optimiseRotation } from "@/lib/rotationOptimizer";
-import { buildStrutSegments } from "@/lib/stentGeometry";
+import { buildStrutSegmentsForDevice } from "@/lib/stentGeometry";
 import type {
   CaseInput,
   ConflictResult,
@@ -266,16 +266,13 @@ function buildConflictResult(
     conflict,
     minDist,
     safeThreshold: getSafeThreshold(fenestration, device.wireRadius),
-    adjustedClock:
-      fenestration.ftype === "SCALLOP"
-        ? fenestration.clock
-        : arcToClockString(
-            wrapMm(
-              clockToArc(fenestration.clock, circumferenceMm) + deltaMm,
-              circumferenceMm,
-            ),
-            circumferenceMm,
-          ),
+    adjustedClock: arcToClockString(
+      wrapMm(
+        clockToArc(fenestration.clock, circumferenceMm) + deltaMm,
+        circumferenceMm,
+      ),
+      circumferenceMm,
+    ),
     deltaMm,
   };
 }
@@ -315,10 +312,12 @@ function analyseDevice(
 
   const circumferenceMm = Math.PI * size.graftDiameter;
   const nPeaks = getNPeaks(device, size.graftDiameter);
-  const strutSegments = buildStrutSegments(
+  const strutSegments = buildStrutSegmentsForDevice(
     device,
     circumferenceMm,
-    size.graftDiameter,
+    device.ringHeight,
+    device.interRingGap,
+    device.nRings,
     nPeaks,
   );
   const rotation = optimiseRotation(

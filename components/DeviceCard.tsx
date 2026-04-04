@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Eye, LayoutTemplate, LineChart as LineChartIcon } from "lucide-react";
+import { Download, Eye, LineChart as LineChartIcon } from "lucide-react";
 
-import { GraftSketchCanvas } from "@/components/GraftSketchCanvas";
 import { PunchCardCanvas } from "@/components/PunchCardCanvas";
 import { RecommendationBadge } from "@/components/RecommendationBadge";
 import { RotationChart } from "@/components/RotationChart";
@@ -34,7 +33,6 @@ export function DeviceCard({
   rank: number;
 }) {
   const [showChart, setShowChart] = useState(false);
-  const [showSketch, setShowSketch] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const baselineCount = getConflictCount(result.baselineConflicts);
   const optimalCount = getConflictCount(result.optimalConflicts);
@@ -230,16 +228,9 @@ export function DeviceCard({
                 <LineChartIcon className="mr-2 size-4" />
                 {showChart ? "Hide rotation analysis" : "Show rotation analysis"}
               </Button>
-              <Button variant="ghost" onClick={() => setShowSketch((current) => !current)}>
-                <LayoutTemplate className="mr-2 size-4" />
-                {showSketch ? "Hide graft sketch" : "Show graft sketch"}
-              </Button>
             </div>
 
             {showChart ? <RotationChart result={result} caseInput={caseInput} /> : null}
-            {showSketch ? (
-              <GraftSketchCanvas result={result} caseInput={caseInput} height={520} />
-            ) : null}
           </>
         ) : null}
       </CardContent>

@@ -1,4 +1,5 @@
 import { getDeviceById, getNPeaks, selectSize } from "@/lib/devices";
+import { normalizeCaseInput } from "@/lib/caseInput";
 import type { CaseInput, DeviceGeometry, Fenestration } from "@/lib/types";
 import { normalizeClockText, parseClockFraction } from "@/lib/planning/clock";
 import type {
@@ -86,7 +87,7 @@ function toPlanningFenestration(
     kind: fenestrationTypeToKind(fenestration.ftype),
     clockText: normalizedClock,
     clockFraction: parseClockFraction(normalizedClock),
-    distanceMm: fenestration.depthMm,
+    distanceMm: fenestration.ftype === "SCALLOP" ? 0 : fenestration.depthMm,
     widthMm: fenestration.widthMm,
     heightMm: fenestration.heightMm,
   };
@@ -135,32 +136,33 @@ export function createPlanningProjectFromCaseInput(
   deviceId?: string | null,
   projectId?: string,
 ): PlanningProject {
+  const normalizedCaseInput = normalizeCaseInput(caseInput);
   const selectedDevice = deviceId ? getDeviceById(deviceId) : null;
   const deviceProfileId = selectedDevice?.id ?? null;
   const selectedSize = selectedDevice
-    ? selectSize(selectedDevice, caseInput.neckDiameterMm)
+    ? selectSize(selectedDevice, normalizedCaseInput.neckDiameterMm)
     : null;
 
   return {
     schemaVersion: 1,
-    projectId: projectId ?? createProjectId(caseInput, deviceProfileId),
+    projectId: projectId ?? createProjectId(normalizedCaseInput, deviceProfileId),
     patient: {
-      displayName: caseInput.patientId?.trim() || "Untitled PMEG case",
-      patientId: caseInput.patientId,
-      surgeonName: caseInput.surgeonName,
-      note: caseInput.surgeonNote,
+      displayName: normalizedCaseInput.patientId?.trim() || "Untitled PMEG case",
+      patientId: normalizedCaseInput.patientId,
+      surgeonName: normalizedCaseInput.surgeonName,
+      note: normalizedCaseInput.surgeonNote,
     },
     graft: {
       deviceProfileId,
       configuration: "bifurcated",
-      neckDiameterMm: caseInput.neckDiameterMm,
+      neckDiameterMm: normalizedCaseInput.neckDiameterMm,
       selectedGraftDiameterMm:
-        selectedSize?.graftDiameter ?? caseInput.neckDiameterMm,
-      templateHeightMm: estimateTemplateHeightMm(caseInput),
+        selectedSize?.graftDiameter ?? normalizedCaseInput.neckDiameterMm,
+      templateHeightMm: estimateTemplateHeightMm(normalizedCaseInput),
       baselineMode: "top",
       secondaryBaselineMm: null,
       xAdjustMm: 0,
     },
-    fenestrations: caseInput.fenestrations.map(toPlanningFenestration),
+    fenestrations: normalizedCaseInput.fenestrations.map(toPlanningFenestration),
   };
 }
