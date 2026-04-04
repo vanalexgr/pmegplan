@@ -1,8 +1,12 @@
 import type { Fenestration, StrutSegment } from "@/lib/types";
+import {
+  arcMmToClockText,
+  clockTextToArcMm,
+} from "@/lib/planning/clock";
+import { wrapMm as wrapPlanarMm } from "@/lib/planning/geometry";
 
 export function wrapMm(value: number, circ: number) {
-  const result = value % circ;
-  return result < 0 ? result + circ : result;
+  return wrapPlanarMm(value, circ);
 }
 
 function pointToSegmentDistLinear(
@@ -61,23 +65,14 @@ export function minDistToStruts(
 }
 
 export function clockToArc(clock: string, circ: number) {
-  const [rawHours, rawMinutes] = clock.split(":").map(Number);
-  const hours = Number.isFinite(rawHours) ? rawHours : 0;
-  const minutes = Number.isFinite(rawMinutes) ? rawMinutes : 0;
-  const totalMinutes = (hours % 12) * 60 + minutes;
-  const deg = (totalMinutes / 720) * 360;
-  return (deg / 360) * circ;
+  return clockTextToArcMm(clock, circ);
 }
 
 export function arcToClockString(arcMm: number, circ: number) {
-  const wrappedArc = wrapMm(arcMm, circ);
-  // Round to nearest 5 minutes (720 clock-minutes = full circumference).
-  const roundedMinutes = Math.round(((wrappedArc / circ) * 720) / 5) * 5;
-  const totalMinutes = ((roundedMinutes % 720) + 720) % 720;
-  const hours = Math.floor(totalMinutes / 60) % 12;
-  const minutes = totalMinutes % 60;
-  const displayHour = hours === 0 ? 12 : hours;
-  return `${displayHour}:${minutes.toString().padStart(2, "0")}`;
+  return arcMmToClockText(arcMm, circ, {
+    separator: ":",
+    padHour: false,
+  });
 }
 
 export function getSafeThreshold(fenestration: Fenestration, wireRadius: number) {
@@ -105,4 +100,3 @@ export function checkConflict(
   const safeThreshold = getSafeThreshold(fen, wireRadius);
   return { conflict: minDist < safeThreshold, minDist };
 }
-
