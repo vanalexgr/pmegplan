@@ -10,8 +10,8 @@
  *
  * Each Z-stent ring is built as 3-D surface points on the cylinder, then
  * projected to 2-D with hidden-line removal:
- *   - segments facing viewer  -> solid, device colour
- *   - segments facing away    -> dashed, faded
+ *   - segments facing viewer  → solid, device colour
+ *   - segments facing away    → dashed, faded
  *
  * Everything else (spec panel, ARCSEP, footer, imports) is unchanged from v1.
  */
@@ -20,13 +20,13 @@ import { clockToArc, wrapMm } from "@/lib/conflictDetection";
 import { getRotationSummary } from "@/lib/analysis";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
-// -- Vessel colour map (unchanged) --------------------------------------------
+// ── Vessel colour map (unchanged) ─────────────────────────────────────────────
 const VESSEL_COLORS: Record<string, string> = {
   SMA: "#b45309", LRA: "#1d4ed8", RRA: "#6d28d9",
   CELIAC: "#b91c1c", LMA: "#0f766e", CUSTOM: "#334155",
 };
 
-// -- Helpers preserved from v1 (used by spec panel) ---------------------------
+// ── Helpers preserved from v1 (used by spec panel) ───────────────────────────
 
 function arcFromNoon(arcPos: number, circ: number): number {
   const w = wrapMm(arcPos, circ);
@@ -45,9 +45,13 @@ function computeArcSep(
 }
 
 function isInInterRingGap(
-  depthMm: number, ringHeight: number, interRingGap: number, nRings: number,
+  depthMm: number,
+  ringHeight: number,
+  interRingGap: number,
+  nRings: number,
+  startOffset = 0,
 ): boolean {
-  let y = 0;
+  let y = startOffset;
   for (let i = 0; i < nRings - 1; i++) {
     y += ringHeight;
     if (depthMm >= y && depthMm <= y + interRingGap) return true;
@@ -86,14 +90,14 @@ function wrapText(
   return y;
 }
 
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
 // 3-D PROJECTION ENGINE
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
 //
 // Coordinate system:
 //   The graft long axis is Z (0 = proximal, positive = distal).
 //   The cross-section lies in XY:  X = sin(theta), Y = cos(theta)
-//     so theta = 0 -> 12:00 (anterior), theta = pi/2 -> 3:00 (patient left).
+//     so theta = 0 → 12:00 (anterior), theta = pi/2 → 3:00 (patient left).
 //
 // Projection (simplified rigid body, Zheng et al. project3D22D principle):
 //   az  = azimuth  — viewer rotates around Z-axis (radians)
@@ -121,16 +125,43 @@ function project3D(
   };
 }
 
-// -- Build Z-stent ring as 3-D surface points --------------------------------
-// Zigzag wave: nPeaks peaks, each consisting of an ascending limb (z0 -> z0+ringH)
-// and a descending limb (z0+ringH -> z0). Alternate rings are phase-shifted by half
+function projectSurfacePoint(
+  arcMm: number,
+  depthMm: number,
+  circ: number,
+  R: number,
+  az: number,
+  el: number,
+  ox: number,
+  oy: number,
+  scale: number,
+): SurfaceProj3D {
+  const theta = (wrapMm(arcMm, circ) / circ) * 2 * Math.PI;
+  const px = R * Math.sin(theta);
+  const py = R * Math.cos(theta);
+  const ca = Math.cos(az);
+  const sa = Math.sin(az);
+  const face = -px * sa + py * ca;
+  const projected = project3D(px, py, depthMm, az, el, ox, oy, scale);
+
+  return {
+    ...projected,
+    face,
+    front: face >= 0,
+  };
+}
+
+// ── Build Z-stent ring as 3-D surface points ──────────────────────────────────
+// Zigzag wave: nPeaks peaks, each consisting of an ascending limb (z0 → z0+ringH)
+// and a descending limb (z0+ringH → z0). Alternate rings are phase-shifted by half
 // a wave width to produce the interlocking Z-stent pattern.
 function buildRingPts(
   R: number, nPeaks: number, ringH: number, z0: number,
   ringIdx: number, delta: number, circ: number, N = 10,
+  phaseFraction = (ringIdx % 2) * 0.5,
 ): Pt3D[] {
   const dt     = (2 * Math.PI) / nPeaks;
-  const phase  = ((ringIdx % 2) * dt) / 2;
+  const phase  = phaseFraction * dt;
   const dTheta = (delta / circ) * 2 * Math.PI;
   const pts: Pt3D[] = [];
 
@@ -139,12 +170,12 @@ function buildRingPts(
     const tm = dTheta + phase + (i + 0.5) * dt;
     const t1 = dTheta + phase + (i + 1) * dt;
 
-    // Ascending limb: peak -> trough
+    // Ascending limb: peak → trough
     for (let s = 0; s <= N; s++) {
       const f = s / N;
       pts.push({ x: R * Math.sin(t0 + f * (tm - t0)), y: R * Math.cos(t0 + f * (tm - t0)), z: z0 + f * ringH });
     }
-    // Descending limb: trough -> next peak
+    // Descending limb: trough → next peak
     for (let s = 1; s <= N; s++) {
       const f = s / N;
       pts.push({ x: R * Math.sin(tm + f * (t1 - tm)), y: R * Math.cos(tm + f * (t1 - tm)), z: z0 + ringH * (1 - f) });
@@ -164,10 +195,11 @@ function buildSinusoidalRingPts3D(
   delta: number,
   circ: number,
   N = 14,
+  phaseFraction = (ringIdx % 2) * 0.5,
 ): Pt3D[] {
   const total = nPeaks * N;
   const dTheta = (2 * Math.PI) / total;
-  const phaseOffset = (ringIdx % 2) * (Math.PI / nPeaks);
+  const phaseOffset = phaseFraction * ((2 * Math.PI) / nPeaks);
   const deltaTheta = (delta / circ) * 2 * Math.PI;
   const pts: Pt3D[] = [];
 
@@ -176,14 +208,72 @@ function buildSinusoidalRingPts3D(
     const zz =
       z0 +
       (ringH / 2) *
-        (1 - Math.cos(nPeaks * (i / total) * 2 * Math.PI + phaseOffset));
+        (1 -
+          Math.cos(
+            nPeaks * (i / total) * 2 * Math.PI + phaseOffset,
+          ));
     pts.push({ x: R * Math.sin(theta), y: R * Math.cos(theta), z: zz });
   }
 
   return pts;
 }
 
+function buildMShapedRingPts3D(
+  R: number,
+  nPeaks: number,
+  ringH: number,
+  z0: number,
+  delta: number,
+  circ: number,
+  phaseFraction = 0,
+  shoulderRatio = 0.46,
+  N = 24,
+): Pt3D[] {
+  const total = nPeaks * N;
+  const deltaTheta = (delta / circ) * 2 * Math.PI;
+  const phaseOffset = phaseFraction * ((2 * Math.PI) / nPeaks);
+  const shoulderZ = ringH * shoulderRatio;
+  const pts: Pt3D[] = [];
+
+  for (let i = 0; i <= total; i += 1) {
+    const progress = i / total;
+    const theta = deltaTheta + phaseOffset + progress * 2 * Math.PI;
+    const wavePosition = progress * nPeaks;
+    const local = wavePosition - Math.floor(wavePosition);
+    let ringZ = 0;
+
+    if (local < 0.25) {
+      ringZ = (local / 0.25) * ringH;
+    } else if (local < 0.5) {
+      ringZ = ringH + ((local - 0.25) / 0.25) * (shoulderZ - ringH);
+    } else if (local < 0.75) {
+      ringZ = shoulderZ + ((local - 0.5) / 0.25) * (ringH - shoulderZ);
+    } else {
+      ringZ = ringH + ((local - 0.75) / 0.25) * (0 - ringH);
+    }
+
+    pts.push({ x: R * Math.sin(theta), y: R * Math.cos(theta), z: z0 + ringZ });
+  }
+
+  return pts;
+}
+
+function getRingPhaseFraction(deviceId: string, ringIdx: number): number {
+  switch (deviceId) {
+    case "treo":
+      return [0, 0.5, 0, 0.5][ringIdx] ?? 0.5;
+    case "endurant_ii":
+      return [0, 0.18, 0.36, 0.18, 0][ringIdx] ?? 0;
+    case "gore_excluder":
+      return ringIdx % 2 === 0 ? 0 : 0.5;
+    case "zenith_alpha":
+    default:
+      return ringIdx % 2 === 0 ? 0 : 0.5;
+  }
+}
+
 function buildRingPtsForDevice(
+  deviceId: string,
   stentType: string,
   R: number,
   nPeaks: number,
@@ -193,11 +283,22 @@ function buildRingPtsForDevice(
   delta: number,
   circ: number,
 ): Pt3D[] {
-  if (
-    stentType === "sinusoidal" ||
-    stentType === "helical" ||
-    stentType === "M-stent"
-  ) {
+  const phaseFraction = getRingPhaseFraction(deviceId, ringIdx);
+
+  if (stentType === "M-stent") {
+    return buildMShapedRingPts3D(
+      R,
+      nPeaks,
+      ringH,
+      z0,
+      delta,
+      circ,
+      phaseFraction,
+      0.46,
+    );
+  }
+
+  if (stentType === "sinusoidal" || stentType === "helical") {
     return buildSinusoidalRingPts3D(
       R,
       nPeaks,
@@ -206,13 +307,25 @@ function buildRingPtsForDevice(
       ringIdx,
       delta,
       circ,
+      14,
+      phaseFraction,
     );
   }
 
-  return buildRingPts(R, nPeaks, ringH, z0, ringIdx, delta, circ);
+  return buildRingPts(
+    R,
+    nPeaks,
+    ringH,
+    z0,
+    ringIdx,
+    delta,
+    circ,
+    10,
+    phaseFraction,
+  );
 }
 
-// -- Draw ring with front/back hidden-line removal ----------------------------
+// ── Draw ring with front/back hidden-line removal ─────────────────────────────
 function drawRing3D(
   ctx: CanvasRenderingContext2D, pts: Pt3D[],
   az: number, el: number, ox: number, oy: number, scale: number,
@@ -241,46 +354,10 @@ function drawRing3D(
   ctx.restore();
 }
 
-function projectSurfacePoint(
-  arcMm: number,
-  depthMm: number,
-  circ: number,
-  R: number,
-  az: number,
-  el: number,
-  ox: number,
-  oy: number,
-  scale: number,
-): SurfaceProj3D {
-  const theta = (wrapMm(arcMm, circ) / circ) * 2 * Math.PI;
-  const px = R * Math.sin(theta);
-  const py = R * Math.cos(theta);
-  const ca = Math.cos(az);
-  const sa = Math.sin(az);
-  const face = -px * sa + py * ca;
-  const projected = project3D(
-    px,
-    py,
-    depthMm,
-    az,
-    el,
-    ox,
-    oy,
-    scale,
-  );
-
-  return {
-    ...projected,
-    face,
-    front: face >= 0,
-  };
-}
-
-function drawSurfaceSegments3D(
+function drawSegment3D(
   ctx: CanvasRenderingContext2D,
-  segments: DeviceAnalysisResult["strutSegments"],
-  circ: number,
-  R: number,
+  start: Pt3D,
+  end: Pt3D,
   az: number,
   el: number,
   ox: number,
@@ -288,39 +365,38 @@ function drawSurfaceSegments3D(
   scale: number,
   color: string,
   lw: number,
+  backDash: number[] = [3, 4],
 ): void {
-  const front = new Path2D();
-  const back = new Path2D();
-
-  for (const [ax, ay, bx, by] of segments) {
-    const a = projectSurfacePoint(ax, ay, circ, R, az, el, ox, oy, scale);
-    const b = projectSurfacePoint(bx, by, circ, R, az, el, ox, oy, scale);
-
-    if ((a.face + b.face) / 2 >= 0) {
-      front.moveTo(a.sx, a.sy);
-      front.lineTo(b.sx, b.sy);
-    } else {
-      back.moveTo(a.sx, a.sy);
-      back.lineTo(b.sx, b.sy);
-    }
-  }
+  const a = project3D(start.x, start.y, start.z, az, el, ox, oy, scale);
+  const b = project3D(end.x, end.y, end.z, az, el, ox, oy, scale);
 
   ctx.save();
-  ctx.setLineDash([3, 4]);
-  ctx.strokeStyle = color + "30";
-  ctx.lineWidth = lw * 0.55;
-  ctx.stroke(back);
-  ctx.setLineDash([]);
-  ctx.strokeStyle = "rgba(255,255,255,0.82)";
-  ctx.lineWidth = lw + 1.9;
-  ctx.stroke(front);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = lw;
-  ctx.stroke(front);
+  if ((a.d + b.d) / 2 >= 0) {
+    ctx.strokeStyle = "rgba(255,255,255,0.82)";
+    ctx.lineWidth = lw + 1.9;
+    ctx.beginPath();
+    ctx.moveTo(a.sx, a.sy);
+    ctx.lineTo(b.sx, b.sy);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(a.sx, a.sy);
+    ctx.lineTo(b.sx, b.sy);
+    ctx.stroke();
+  } else {
+    ctx.setLineDash(backDash);
+    ctx.strokeStyle = color + "35";
+    ctx.lineWidth = lw * 0.55;
+    ctx.beginPath();
+    ctx.moveTo(a.sx, a.sy);
+    ctx.lineTo(b.sx, b.sy);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
-// -- Cylinder body shading (subtle 3-D depth) --------------------------------
+// ── Cylinder body shading (subtle 3-D depth) ──────────────────────────────────
 function drawCylinderBody(
   ctx: CanvasRenderingContext2D,
   ox: number, topY: number, botY: number, cylW: number, rimRY: number,
@@ -347,17 +423,18 @@ function drawCylinderBody(
   ctx.restore();
 }
 
-// -- Ring zone tints clipped to cylinder width -------------------------------
+// ── Ring zone tints clipped to cylinder width ─────────────────────────────────
 function drawZoneTints(
   ctx: CanvasRenderingContext2D,
   ox: number, topY: number, cylW: number, scale: number,
   ringH: number, gapH: number, nRings: number, el: number, p: boolean,
+  startOffset = 0,
 ): void {
   const cosEl = Math.cos(el);
   ctx.save();
   ctx.beginPath(); ctx.rect(ox - cylW, topY, cylW * 2, 9999); ctx.clip();
 
-  let bZ = 0;
+  let bZ = startOffset;
   for (let r = 0; r < nRings; r++) {
     // Ring band (danger - light red)
     const rTop = topY + bZ * cosEl * scale;
@@ -384,19 +461,42 @@ function drawZoneTints(
   ctx.restore();
 }
 
-// -- Suprarenal stent (device-specific) --------------------------------------
+// ── Suprarenal stent (device-specific) ───────────────────────────────────────
 function drawSuprarenal(
   ctx: CanvasRenderingContext2D,
   R: number, nPeaks: number, delta: number, circ: number,
   az: number, el: number, ox: number, oy: number, scale: number,
-  color: string, suprType: "crown" | "zstent" | "none",
+  color: string, suprType: "crown" | "zstent" | "cook_lattice" | "none",
+  suprarenalHeightMm = 18,
 ): void {
   if (suprType === "none") return;
-  const SUPRA_Z = -18;
+  const SUPRA_Z = -suprarenalHeightMm;
   const dt      = (2 * Math.PI) / nPeaks;
   const dTheta  = (delta / circ) * 2 * Math.PI;
 
-  if (suprType === "crown") {
+  if (suprType === "cook_lattice") {
+    ctx.save();
+    for (let i = 0; i < nPeaks; i += 1) {
+      const thetaA = dTheta + i * dt;
+      const thetaB = dTheta + (i + 1) * dt;
+      const thetaMid = dTheta + (i + 0.5) * dt;
+      const topA: Pt3D = { x: R * Math.sin(thetaA), y: R * Math.cos(thetaA), z: SUPRA_Z };
+      const topB: Pt3D = { x: R * Math.sin(thetaB), y: R * Math.cos(thetaB), z: SUPRA_Z };
+      const mid: Pt3D = {
+        x: R * Math.sin(thetaMid),
+        y: R * Math.cos(thetaMid),
+        z: SUPRA_Z * 0.52,
+      };
+      const baseA: Pt3D = { x: R * Math.sin(thetaA), y: R * Math.cos(thetaA), z: 0 };
+      const baseB: Pt3D = { x: R * Math.sin(thetaB), y: R * Math.cos(thetaB), z: 0 };
+
+      drawSegment3D(ctx, topA, mid, az, el, ox, oy, scale, color + "cc", 1.2);
+      drawSegment3D(ctx, topB, mid, az, el, ox, oy, scale, color + "cc", 1.2);
+      drawSegment3D(ctx, mid, baseA, az, el, ox, oy, scale, color + "cc", 1.2);
+      drawSegment3D(ctx, mid, baseB, az, el, ox, oy, scale, color + "cc", 1.2);
+    }
+    ctx.restore();
+  } else if (suprType === "crown") {
     // TREO: parabolic arches above fabric
     ctx.save(); ctx.strokeStyle = color + "cc"; ctx.lineWidth = 1.3;
     for (let i = 0; i < nPeaks; i++) {
@@ -423,17 +523,7 @@ function drawSuprarenal(
   } else {
     // Zenith Alpha / Endurant: dashed Z-stent ring above fabric
     ctx.save(); ctx.setLineDash([3.5, 2.5]);
-    drawRing3D(
-      ctx,
-      buildRingPtsForDevice("Z-stent", R, nPeaks, Math.abs(SUPRA_Z), SUPRA_Z, 0, delta, circ),
-      az,
-      el,
-      ox,
-      oy,
-      scale,
-      color + "80",
-      1.1,
-    );
+    drawRing3D(ctx, buildRingPts(R, nPeaks, Math.abs(SUPRA_Z), SUPRA_Z, 0, delta, circ), az, el, ox, oy, scale, color + "80", 1.1);
     ctx.setLineDash([]); ctx.restore();
   }
 
@@ -450,12 +540,12 @@ function drawSuprarenal(
   ctx.restore();
 }
 
-// -- Fenestration on cylinder surface ----------------------------------------
+// ── Fenestration on cylinder surface ─────────────────────────────────────────
 function drawFenestration3D(
   ctx: CanvasRenderingContext2D,
   R: number, clockDeg: number, depthMm: number, widthMm: number, heightMm: number,
   vessel: string, ftype: string, isConflicted: boolean, minDist: number, isStrFree: boolean,
-  circ: number, az: number, el: number, ox: number, oy: number, scale: number, p: boolean,
+  _delta: number, circ: number, az: number, el: number, ox: number, oy: number, scale: number, p: boolean,
 ): { sy: number; label: string; color: string } | null {
   const color  = VESSEL_COLORS[vessel] ?? "#334155";
   const arcMm = (clockDeg / 360) * circ;
@@ -601,92 +691,9 @@ function drawFenestration3D(
   return { sy: q.sy, label: `${depthMm}`, color };
 }
 
-function drawFenestrationGhost3D(
-  ctx: CanvasRenderingContext2D,
-  R: number,
-  clockDeg: number,
-  depthMm: number,
-  _widthMm: number,
-  _heightMm: number,
-  vessel: string,
-  circ: number,
-  az: number,
-  el: number,
-  ox: number,
-  oy: number,
-  scale: number,
-  p: boolean,
-): void {
-  const color = VESSEL_COLORS[vessel] ?? "#334155";
-  const arcMm = (clockDeg / 360) * circ;
-  const q = projectSurfacePoint(arcMm, depthMm, circ, R, az, el, ox, oy, scale);
-  const markerR = p ? 4.2 : 2.8;
-  const guideLen = p ? 10 : 7;
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(q.sx, q.sy, markerR, 0, 2 * Math.PI);
-  ctx.setLineDash([p ? 5 : 4, p ? 4 : 3]);
-  ctx.strokeStyle = q.front ? color + "55" : color + "35";
-  ctx.lineWidth = p ? 1.5 : 1.1;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  ctx.beginPath();
-  ctx.arc(q.sx, q.sy, Math.max(p ? 1.7 : 1.2, markerR * 0.42), 0, 2 * Math.PI);
-  ctx.fillStyle = q.front ? color + "65" : color + "40";
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(q.sx, q.sy - markerR - 1);
-  ctx.lineTo(q.sx, q.sy - markerR - guideLen);
-  ctx.strokeStyle = q.front ? color + "45" : color + "30";
-  ctx.setLineDash([p ? 3 : 2, p ? 3 : 2]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-}
-
-function drawScallopGhost3D(
-  ctx: CanvasRenderingContext2D,
-  R: number,
-  clockDeg: number,
-  widthMm: number,
-  heightMm: number,
-  vessel: string,
-  circ: number,
-  az: number,
-  el: number,
-  ox: number,
-  oy: number,
-  scale: number,
-  p: boolean,
-): void {
-  const color = VESSEL_COLORS[vessel] ?? "#334155";
-  const arcMm = (clockDeg / 360) * circ;
-  const qRim = projectSurfacePoint(arcMm, 0, circ, R, az, el, ox, oy, scale);
-  const guideTopY = qRim.sy - (p ? 16 : 11);
-  const guideBottomY = qRim.sy + (p ? 3 : 2);
-  const guideDotR = p ? 2.6 : 1.9;
-
-  ctx.save();
-  ctx.setLineDash([p ? 5 : 4, p ? 4 : 3]);
-  ctx.strokeStyle = qRim.front ? color + "55" : color + "35";
-  ctx.lineWidth = p ? 1.6 : 1.1;
-  ctx.beginPath();
-  ctx.moveTo(qRim.sx, guideTopY);
-  ctx.lineTo(qRim.sx, guideBottomY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.arc(qRim.sx, guideTopY, guideDotR, 0, 2 * Math.PI);
-  ctx.fillStyle = qRim.front ? color + "70" : color + "40";
-  ctx.fill();
-  ctx.restore();
-}
-
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
 // PUBLIC INTERFACE  —  SAME SIGNATURE AS v1, NO CHANGES IN COMPONENTS
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
 
 export interface GraftSketchOptions {
   ctx:       CanvasRenderingContext2D;
@@ -697,9 +704,9 @@ export interface GraftSketchOptions {
   mode?:     "preview" | "print";
   az?:       number;
   el?:       number;
-  viewScale?: number;
-  viewOffsetX?: number;
-  viewOffsetY?: number;
+  zoom?:     number;
+  panX?:     number;
+  panY?:     number;
 }
 
 export function renderGraftSketch({
@@ -711,9 +718,9 @@ export function renderGraftSketch({
   mode = "preview",
   az = 0.28,
   el = 0.17,
-  viewScale = 1,
-  viewOffsetX = 0,
-  viewOffsetY = 0,
+  zoom = 1,
+  panX = 0,
+  panY = 0,
 }: GraftSketchOptions): void {
 
   ctx.clearRect(0, 0, width, height);
@@ -747,29 +754,30 @@ export function renderGraftSketch({
   const bodyY      = margin + headerH;
   const bodyH      = lh - bodyY - footerH - margin;
 
-  // -- Header (unchanged from v1) ------------------------------------------
+  // ── Header (unchanged from v1) ───────────────────────────────────────────
   ctx.fillStyle = "#10211f"; ctx.font = `700 ${p ? 20 : 13}px sans-serif`;
   ctx.fillText(result.device.name, margin, margin + (p ? 22 : 14));
   ctx.fillStyle = "#45605b"; ctx.font = `400 ${p ? 12 : 9}px sans-serif`;
   ctx.fillText(
-    `${result.size.graftDiameter} mm · ${result.nPeaks} peaks · ${result.size.sheathFr} Fr · ${result.device.fabricMaterial} · Foreshortening ${(result.device.foreshortening * 100).toFixed(0)}%`,
+    `${result.size.graftDiameter} mm \u00b7 ${result.nPeaks} peaks \u00b7 ${result.size.sheathFr} Fr \u00b7 ${result.device.fabricMaterial} \u00b7 Foreshortening ${(result.device.foreshortening * 100).toFixed(0)}%`,
     margin, margin + (p ? 38 : 24),
   );
   if (caseInput.patientId ?? caseInput.surgeonName) {
     ctx.fillText(
-      `Patient: ${caseInput.patientId ?? "—"}   Surgeon: ${caseInput.surgeonName ?? "—"}`,
+      `Patient: ${caseInput.patientId ?? "\u2014"}   Surgeon: ${caseInput.surgeonName ?? "\u2014"}`,
       margin, margin + (p ? 52 : 34),
     );
   }
 
-  // -- 3-D cylinder setup --------------------------------------------------
+  // ── 3-D cylinder setup ───────────────────────────────────────────────────
   const { ringHeight, interRingGap, nRings, seamDeg } = result.device;
   const circ    = result.circumferenceMm;
   const R       = result.size.graftDiameter / 2;
   const delta   = result.rotation.optimalDeltaMm;
+  const proximalRingOffset = result.device.proximalRingOffsetMm ?? 0;
 
   const maxDepth    = Math.max(
-    nRings * ringHeight + (nRings - 1) * interRingGap + 16,
+    proximalRingOffset + nRings * ringHeight + (nRings - 1) * interRingGap + 16,
     ...caseInput.fenestrations.map((f) => f.depthMm + 22),
   );
   const annotW      = p ? 68 : 34;
@@ -777,40 +785,39 @@ export function renderGraftSketch({
   const supraClear  = p ? 40 : 24;
   const availH      = bodyH - supraClear - (p ? 30 : 20);
 
-  const scale = Math.min(
+  const baseScale = Math.min(
     cylBodyW / (2 * R),
     p ? availH / (maxDepth * Math.cos(el)) : Math.min(availH / (maxDepth * Math.cos(el)), 3.0),
   );
+  const scale = baseScale * zoom;
 
-  const originX = margin + annotW + cylBodyW / 2;
-  const originY = bodyY + supraClear;
+  const originX = margin + annotW + cylBodyW / 2 + panX;
+  const originY = bodyY + supraClear + panY;
   const cylW    = R * scale;
   const rimRY   = Math.max(cylW * Math.abs(Math.sin(el)), 2.5);
   const rimTopY = originY;
   const rimBotY = originY + maxDepth * Math.cos(el) * scale;
-  const viewBoxX = margin;
-  const viewBoxY = bodyY;
-  const viewBoxW = drawPanelW;
-  const viewBoxH = bodyH;
-  const viewCenterX = viewBoxX + viewBoxW / 2;
-  const viewCenterY = viewBoxY + viewBoxH / 2;
 
-  // -- Cylinder body -------------------------------------------------------
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(viewBoxX, viewBoxY, viewBoxW, viewBoxH);
-  ctx.clip();
-  ctx.translate(viewCenterX + viewOffsetX, viewCenterY + viewOffsetY);
-  ctx.scale(viewScale, viewScale);
-  ctx.translate(-viewCenterX, -viewCenterY);
-
+  // ── Cylinder body ────────────────────────────────────────────────────────
   drawCylinderBody(ctx, originX, rimTopY, rimBotY, cylW, rimRY);
   ctx.font = `400 ${p ? 8.5 : 6.5}px sans-serif`;
-  drawZoneTints(ctx, originX, rimTopY, cylW, scale, ringHeight, interRingGap, nRings, el, p);
+  drawZoneTints(
+    ctx,
+    originX,
+    rimTopY,
+    cylW,
+    scale,
+    ringHeight,
+    interRingGap,
+    nRings,
+    el,
+    p,
+    proximalRingOffset,
+  );
 
   // Ring labels on right
   {
-    let bZ = 0;
+    let bZ = proximalRingOffset;
     ctx.fillStyle = "rgba(107,114,128,0.65)"; ctx.textAlign = "left";
     for (let r = 0; r < nRings; r++) {
       ctx.fillText(`Ring ${r + 1}`, originX + cylW + (p ? 4 : 3), rimTopY + bZ * Math.cos(el) * scale + ringHeight * Math.cos(el) * scale / 2 + 3);
@@ -842,33 +849,57 @@ export function renderGraftSketch({
   ctx.beginPath(); ctx.ellipse(originX, rimBotY, cylW, rimRY, 0, Math.PI, 2 * Math.PI); ctx.stroke();
   ctx.restore();
 
-  // -- Covered stent rings -------------------------------------------------
+  // ── Stent rings (Z-stent or sinusoidal depending on device) ─────────────
   const strutLW = p ? 2.0 : 1.6;
-  drawSurfaceSegments3D(
-    ctx,
-    result.strutSegments,
-    circ,
-    R,
-    az,
-    el,
-    originX,
-    originY,
-    scale,
-    result.device.color,
-    strutLW,
-  );
+  let ringZ     = proximalRingOffset;
+  for (let r = 0; r < nRings; r++) {
+    drawRing3D(
+      ctx,
+      buildRingPtsForDevice(
+        result.device.id,
+        result.device.stentType,
+        R,
+        result.nPeaks,
+        ringHeight,
+        ringZ,
+        r,
+        delta,
+        circ,
+      ),
+      az,
+      el,
+      originX,
+      originY,
+      scale,
+      result.device.color,
+      strutLW,
+    );
+    ringZ += ringHeight + interRingGap;
+  }
 
-  // -- Suprarenal stent ----------------------------------------------------
+  // ── Suprarenal stent ─────────────────────────────────────────────────────
+  const supraH =
+    result.device.suprarenalHeightMm ??
+    (result.device.hasBareSuprarenal ? 18 : 0);
+  const treoLarge = result.device.id === "treo" && result.size.graftDiameter >= 30;
+
   drawSuprarenal(
-    ctx, R, result.nPeaks, 0, circ, az, el, originX, originY, scale,
+    ctx, R, result.nPeaks, delta, circ, az, el, originX, originY, scale,
     result.device.color,
-    result.device.id === "treo" ? "crown" : result.device.hasBareSuprarenal ? "zstent" : "none",
+    result.device.id === "treo"
+      ? "crown"
+      : result.device.id === "zenith_alpha"
+        ? "cook_lattice"
+        : result.device.hasBareSuprarenal
+          ? "zstent"
+          : "none",
+    treoLarge ? supraH + 2 : supraH,
   );
 
-  // -- Infrarenal barbs (TREO valley barbs) --------------------------------
+  // ── Infrarenal barbs (TREO valley barbs) ─────────────────────────────────
   if (result.device.hasInfrarenalBarbs) {
     const dt = (2 * Math.PI) / result.nPeaks;
-    const dTheta = 0;
+    const dTheta = (delta / circ) * 2 * Math.PI;
     ctx.save(); ctx.strokeStyle = "#222"; ctx.lineWidth = 0.9;
     const bLen = 3 * scale / 26;
     for (let i = 0; i < result.nPeaks; i++) {
@@ -880,9 +911,9 @@ export function renderGraftSketch({
     ctx.restore();
   }
 
-  // -- Gold radiopaque markers (Zenith Alpha) -------------------------------
+  // ── Gold radiopaque markers (Zenith Alpha) ────────────────────────────────
   if (result.device.id === "zenith_alpha") {
-    const dTheta = 0;
+    const dTheta = (delta / circ) * 2 * Math.PI;
     ctx.save(); ctx.fillStyle = "#d97706";
     for (const frac of [0, 0.25, 0.5, 0.75]) {
       const theta = dTheta + frac * 2 * Math.PI;
@@ -893,7 +924,7 @@ export function renderGraftSketch({
     ctx.restore();
   }
 
-  // -- Diameter callout ----------------------------------------------------
+  // ── Diameter callout ──────────────────────────────────────────────────────
   const diaY = rimTopY - rimRY - (p ? 18 : 12);
   ctx.strokeStyle = "#10211f"; ctx.lineWidth = p ? 1.4 : 1.0;
   ctx.beginPath();
@@ -902,13 +933,13 @@ export function renderGraftSketch({
   ctx.moveTo(originX + cylW, diaY - (p?5:3)); ctx.lineTo(originX + cylW, diaY + (p?5:3));
   ctx.stroke();
   ctx.fillStyle = "#10211f"; ctx.font = `700 ${p ? 13 : 9}px sans-serif`; ctx.textAlign = "center";
-  ctx.fillText(`Ø ${result.size.graftDiameter} mm`, originX, diaY - (p ? 7 : 4));
+  ctx.fillText(`\u00d8 ${result.size.graftDiameter} mm`, originX, diaY - (p ? 7 : 4));
   ctx.textAlign = "left";
 
-  // -- Clock guide labels at proximal rim ----------------------------------
+  // ── Clock guide labels at proximal rim ───────────────────────────────────
   ctx.font = `600 ${p ? 9 : 6.5}px sans-serif`; ctx.textAlign = "center";
   for (const [label, deg] of [["12:00 (A)", 0], ["3:00", 90], ["9:00", 270]] as [string, number][]) {
-    const theta = (deg / 360) * 2 * Math.PI;
+    const theta = ((delta / circ) + deg / 360) * 2 * Math.PI;
     const q = project3D(R * Math.sin(theta), R * Math.cos(theta), 0, az, el, originX, originY, scale);
     if (q.d < 0) continue;
     ctx.fillStyle = "#374151";
@@ -919,63 +950,31 @@ export function renderGraftSketch({
   }
   ctx.textAlign = "left";
 
-  // -- Fenestrations --------------------------------------------------------
+  // ── Fenestrations ─────────────────────────────────────────────────────────
   const dimLines: { sy: number; label: string; color: string }[] = [];
   caseInput.fenestrations.forEach((fen, idx) => {
     const conflict    = result.optimalConflicts[idx];
     const isConflict  = conflict?.conflict ?? false;
     const adjClock    = conflict?.adjustedClock ?? fen.clock;
-    const originalClockDeg = (clockToArc(fen.clock, circ) / circ) * 360;
     const clockDeg    = (clockToArc(adjClock, circ) / circ) * 360;
     const isStrFree   = !isConflict && fen.ftype !== "SCALLOP"
-      && isInInterRingGap(fen.depthMm, ringHeight, interRingGap, nRings);
-
-    if (adjClock !== fen.clock) {
-      if (fen.ftype === "SCALLOP") {
-        drawScallopGhost3D(
-          ctx,
-          R,
-          originalClockDeg,
-          fen.widthMm,
-          fen.heightMm,
-          fen.vessel,
-          circ,
-          az,
-          el,
-          originX,
-          originY,
-          scale,
-          p,
-        );
-      } else {
-        drawFenestrationGhost3D(
-          ctx,
-          R,
-          originalClockDeg,
-          fen.depthMm,
-          fen.widthMm,
-          fen.heightMm,
-          fen.vessel,
-          circ,
-          az,
-          el,
-          originX,
-          originY,
-          scale,
-          p,
-        );
-      }
-    }
+      && isInInterRingGap(
+        fen.depthMm,
+        ringHeight,
+        interRingGap,
+        nRings,
+        proximalRingOffset,
+      );
 
     const dl = drawFenestration3D(
       ctx, R, clockDeg, fen.depthMm, fen.widthMm, fen.heightMm,
       fen.vessel, fen.ftype, isConflict, conflict?.minDist ?? 0, isStrFree,
-      circ, az, el, originX, originY, scale, p,
+      delta, circ, az, el, originX, originY, scale, p,
     );
     if (dl) dimLines.push(dl);
   });
 
-  // -- Depth dimension lines (Cook CMD style) -------------------------------
+  // ── Depth dimension lines (Cook CMD style) ───────────────────────────────
   {
     const colW = p ? 14 : 10, arrowSz = p ? 3.5 : 2.5;
     dimLines.forEach(({ sy, label, color }, i) => {
@@ -996,7 +995,7 @@ export function renderGraftSketch({
     });
   }
 
-  // -- Bifurcation hint ----------------------------------------------------
+  // ── Bifurcation hint ─────────────────────────────────────────────────────
   {
     const legLen = Math.min(p ? 22 : 14, lh - rimBotY - 12);
     if (legLen > 4) {
@@ -1008,7 +1007,7 @@ export function renderGraftSketch({
     }
   }
 
-  // -- Depth axis ----------------------------------------------------------
+  // ── Depth axis ───────────────────────────────────────────────────────────
   ctx.fillStyle = "#374151"; ctx.font = `400 ${p?9:7}px sans-serif`;
   ctx.strokeStyle = "rgba(55,65,81,0.40)"; ctx.lineWidth = 0.6; ctx.textAlign = "right";
   for (let d = 0; d <= maxDepth; d += 10) {
@@ -1024,11 +1023,10 @@ export function renderGraftSketch({
   ctx.fillStyle = "#374151"; ctx.textAlign = "center";
   ctx.fillText("Distance from proximal edge (mm)", 0, 0);
   ctx.restore();
-  ctx.restore();
 
-  // ==========================================================================
+  // ══════════════════════════════════════════════════════════════════════════
   // SPEC PANEL — exact copy from v1, no changes
-  // ==========================================================================
+  // ══════════════════════════════════════════════════════════════════════════
 
   const lineH = p ? 15 : 12;
   let sy      = bodyY + (p ? 6 : 4);
@@ -1039,17 +1037,6 @@ export function renderGraftSketch({
   ctx.fillStyle = "#0f766e"; ctx.font = `600 ${p?11:9}px sans-serif`;
   sy = wrapText(ctx, getRotationSummary(result), specPanelX, sy, sw, lineH, 4);
   sy += lineH * 0.8;
-  ctx.fillStyle = "#45605b"; ctx.font = `400 ${p?10:8}px sans-serif`;
-  sy = wrapText(
-    ctx,
-    "Colored footprint outlines show the current punch size. Small dashed targets mark the original anatomy positions when rotation shifts a fenestration.",
-    specPanelX,
-    sy,
-    sw,
-    lineH,
-    4,
-  );
-  sy += lineH * 0.5;
   ctx.strokeStyle = "rgba(16,33,31,0.15)"; ctx.lineWidth = 0.5;
   ctx.beginPath(); ctx.moveTo(specPanelX, sy); ctx.lineTo(specPanelX + sw, sy); ctx.stroke();
   sy += lineH * 0.8;
@@ -1078,7 +1065,7 @@ export function renderGraftSketch({
         ctx.fillText("**Strut Free**", specPanelX + (p?6:4), sy); sy += lineH;
       } else if (isConflicted) {
         ctx.fillStyle = "#dc2626"; ctx.font = `700 ${p?11:8}px sans-serif`;
-        ctx.fillText(`⚠ Conflict — min clearance ${conflict.minDist.toFixed(1)} mm`, specPanelX + (p?6:4), sy); sy += lineH;
+        ctx.fillText(`\u26a0 Conflict \u2014 min clearance ${conflict.minDist.toFixed(1)} mm`, specPanelX + (p?6:4), sy); sy += lineH;
       }
       ctx.fillStyle = "#334155"; ctx.font = `400 ${p?11:9}px sans-serif`;
       for (const line of [
@@ -1109,16 +1096,16 @@ export function renderGraftSketch({
     `Sheath: ${result.size.sheathFr} Fr`,
     `Foreshortening: ${(result.device.foreshortening * 100).toFixed(1)}%`,
     `Fabric: ${result.device.fabricMaterial}`,
-    `Seam: ${seamDeg === 0 ? "12:00 anterior" : seamDeg === 180 ? "6:00 posterior" : `${seamDeg}°`}`,
+    `Seam: ${seamDeg === 0 ? "12:00 anterior" : seamDeg === 180 ? "6:00 posterior" : `${seamDeg}\u00b0`}`,
     `Stent type: ${result.device.stentType}`,
     `PMEG suitability: ${result.device.pmegSuitability}/4`,
   ];
   const dev = result.device;
-  if (dev.hasBareSuprarenal) deviceLines.push("Bare suprarenal stent: YES (barbs)");
-  if (dev.hasInfrarenalBarbs) deviceLines.push("Infrarenal barbs: YES (valley barbs)");
+  if (dev.hasBareSuprarenal)          deviceLines.push("Bare suprarenal stent: YES (barbs)");
+  if (dev.hasInfrarenalBarbs)         deviceLines.push("Infrarenal barbs: YES (valley barbs)");
   if (dev.minNeckLengthMm      != null) deviceLines.push(`Min neck length (IFU): ${dev.minNeckLengthMm} mm`);
-  if (dev.maxInfrarenalAngleDeg != null) deviceLines.push(`Max infrarenal angle (IFU): ${dev.maxInfrarenalAngleDeg}°`);
-  if (dev.maxSuprarenalAngleDeg != null) deviceLines.push(`Max suprarenal angle (IFU): ${dev.maxSuprarenalAngleDeg}°`);
+  if (dev.maxInfrarenalAngleDeg != null) deviceLines.push(`Max infrarenal angle (IFU): ${dev.maxInfrarenalAngleDeg}\u00b0`);
+  if (dev.maxSuprarenalAngleDeg != null) deviceLines.push(`Max suprarenal angle (IFU): ${dev.maxSuprarenalAngleDeg}\u00b0`);
   for (const line of deviceLines) { ctx.fillText(line, specPanelX + (p?6:4), sy); sy += lineH; }
 
   if (caseInput.surgeonNote) {
@@ -1127,13 +1114,13 @@ export function renderGraftSketch({
     sy = wrapText(ctx, `Note: ${caseInput.surgeonNote}`, specPanelX, sy, sw, lineH, 4);
   }
 
-  // -- Footer (unchanged from v1) -------------------------------------------
+  // ── Footer (unchanged from v1) ────────────────────────────────────────────
   const footerY = lh - footerH + (p ? 14 : 8);
   ctx.strokeStyle = "rgba(16,33,31,0.15)"; ctx.lineWidth = 0.5;
   ctx.beginPath(); ctx.moveTo(margin, footerY - (p?8:6)); ctx.lineTo(lw - margin, footerY - (p?8:6)); ctx.stroke();
   ctx.fillStyle = "#45605b"; ctx.font = `400 ${p?9:8}px sans-serif`;
-  ctx.fillText("For research and planning use only. All clinical decisions remain the surgeon’s responsibility. Not to scale.", margin, footerY);
-  ctx.fillText(`PMEGplan.io  •  ${new Date().toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" })}`, margin, footerY + (p?12:10));
+  ctx.fillText("For research and planning use only. All clinical decisions remain the surgeon\u2019s responsibility. Not to scale.", margin, footerY);
+  ctx.fillText(`PMEGplan.io  \u2022  ${new Date().toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" })}`, margin, footerY + (p?12:10));
   if (p) {
     ctx.fillText("Signature: ___________________________   Date: ___________", lw / 2 - 10, footerY);
   }

@@ -6,30 +6,27 @@ import { renderGraftSketch } from "@/lib/graftSketchRenderer";
 import { cn } from "@/lib/utils";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
-// Default projection angles (same as the fixed values in renderer v2)
-const AZ_DEFAULT = 0.28;   // azimuth  — viewer ~16° clockwise of 12:00
-const EL_DEFAULT = 0.17;   // elevation — ~10° top-down tilt
+const AZ_DEFAULT = 0.28;
+const EL_DEFAULT = 0.17;
+const ZOOM_DEFAULT = 1.24;
+const ZOOM_MIN = 0.75;
+const ZOOM_MAX = 2.4;
+const PAN_Y_DEFAULT_RATIO = -0.11;
 
-// Clamp elevation so the graft never flips upside-down
 const EL_MIN = -0.48;
-const EL_MAX =  0.55;
-const ZOOM_DEFAULT = 1;
-const ZOOM_MIN = 0.8;
-const ZOOM_MAX = 1.8;
-const ZOOM_STEP = 0.15;
+const EL_MAX = 0.55;
+
 type InteractionMode = "rotate" | "move";
 
-function limitPan(value: number, axisSize: number, zoom: number): number {
-  const slack = Math.max(0, zoom - 1);
-  const limit = axisSize * (0.14 + slack * 0.7);
-  return Math.max(-limit, Math.min(limit, value));
+interface GraftSketchCanvasProps {
+  result: DeviceAnalysisResult;
+  caseInput: CaseInput;
+  height?: number;
+  className?: string;
 }
 
-interface GraftSketchCanvasProps {
-  result:    DeviceAnalysisResult;
-  caseInput: CaseInput;
-  height?:   number;
-  className?: string;
+function clampZoom(value: number) {
+  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
 }
 
 export function GraftSketchCanvas({
@@ -38,64 +35,66 @@ export function GraftSketchCanvas({
   height = 480,
   className,
 }: GraftSketchCanvasProps) {
-  const frameRef  = useRef<HTMLDivElement>(null);
+  const defaultPanY = Math.round(height * PAN_Y_DEFAULT_RATIO);
+  const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [width, setWidth] = useState(0);
-  const [zoomLevel, setZoomLevel] = useState(ZOOM_DEFAULT);
-  const [interactionMode, setInteractionMode] = useState<InteractionMode>("rotate");
+  const [mode, setMode] = useState<InteractionMode>("rotate");
+  const [zoomDisplay, setZoomDisplay] = useState(Math.round(ZOOM_DEFAULT * 100));
 
-  // Projection angles — updated by drag interaction
   const azRef = useRef(AZ_DEFAULT);
   const elRef = useRef(EL_DEFAULT);
   const zoomRef = useRef(ZOOM_DEFAULT);
   const panXRef = useRef(0);
-  const panYRef = useRef(0);
-  const interactionModeRef = useRef<InteractionMode>("rotate");
+  const panYRef = useRef(defaultPanY);
 
-  // Drag tracking (refs to avoid stale closures in event listeners)
-  const dragging = useRef(false);
-  const lastX    = useRef(0);
-  const lastY    = useRef(0);
+  const draggingRef = useRef(false);
+  const activeModeRef = useRef<InteractionMode>("rotate");
+  const lastXRef = useRef(0);
+  const lastYRef = useRef(0);
+  const pinchDistanceRef = useRef(0);
+  const pinchCenterRef = useRef({ x: 0, y: 0 });
 
-  // -- Resize observer ------------------------------------------------------
   useEffect(() => {
-    const el = frameRef.current;
-    if (!el) return;
+    const element = frameRef.current;
+    if (!element) return;
+
     const observer = new ResizeObserver(([entry]) => {
       setWidth(entry.contentRect.width);
     });
-    observer.observe(el);
+
+    observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
-  // -- Core render function -------------------------------------------------
+  const syncZoomDisplay = useCallback(() => {
+    setZoomDisplay(Math.round(zoomRef.current * 100));
+  }, []);
+
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || width === 0) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    // Only resize the backing store if dimensions actually changed
-    const targetW = Math.floor(width * dpr);
-    const targetH = Math.floor(height * dpr);
-    if (canvas.width !== targetW || canvas.height !== targetH) {
-      canvas.width  = targetW;
-      canvas.height = targetH;
-      canvas.style.width  = `${width}px`;
+    const targetWidth = Math.floor(width * dpr);
+    const targetHeight = Math.floor(height * dpr);
+
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
     }
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
 
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.scale(dpr, dpr);
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.scale(dpr, dpr);
 
     renderGraftSketch({
-      ctx,
+      ctx: context,
       width,
       height,
       result,
@@ -103,120 +102,191 @@ export function GraftSketchCanvas({
       mode: "preview",
       az: azRef.current,
       el: elRef.current,
-      viewScale: zoomRef.current,
-      viewOffsetX: panXRef.current,
-      viewOffsetY: panYRef.current,
+      zoom: zoomRef.current,
+      panX: panXRef.current,
+      panY: panYRef.current,
     });
   }, [caseInput, height, result, width]);
 
-  // Re-render when data or size changes
-  useEffect(() => { paint(); }, [paint]);
-
-  // -- Drag handlers (mouse) ------------------------------------------------
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    dragging.current = true;
-    lastX.current = e.clientX;
-    lastY.current = e.clientY;
-    e.preventDefault();
-  }, []);
-
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!dragging.current) return;
-      const dx = e.clientX - lastX.current;
-      const dy = e.clientY - lastY.current;
-      lastX.current = e.clientX;
-      lastY.current = e.clientY;
-      if (interactionModeRef.current === "move") {
-        panXRef.current = limitPan(panXRef.current + dx, width, zoomRef.current);
-        panYRef.current = limitPan(panYRef.current + dy, height, zoomRef.current);
-      } else {
-        azRef.current += dx * 0.008;
-        elRef.current  = Math.max(EL_MIN, Math.min(EL_MAX, elRef.current + dy * 0.005));
-      }
-      paint();
-    };
-    const onUp = () => { dragging.current = false; };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup",   onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup",   onUp);
-    };
+    paint();
   }, [paint]);
 
-  // -- Drag handlers (touch) ------------------------------------------------
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
-    dragging.current = true;
-    lastX.current = e.touches[0].clientX;
-    lastY.current = e.touches[0].clientY;
-    e.preventDefault();
+  const applyRotateDelta = useCallback((dx: number, dy: number) => {
+    azRef.current += dx * 0.008;
+    elRef.current = Math.max(
+      EL_MIN,
+      Math.min(EL_MAX, elRef.current + dy * 0.005),
+    );
   }, []);
+
+  const applyMoveDelta = useCallback((dx: number, dy: number) => {
+    panXRef.current += dx;
+    panYRef.current += dy;
+  }, []);
+
+  const handlePointerStart = useCallback((clientX: number, clientY: number) => {
+    draggingRef.current = true;
+    activeModeRef.current = mode;
+    lastXRef.current = clientX;
+    lastYRef.current = clientY;
+  }, [mode]);
+
+  const onMouseDown = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+    handlePointerStart(event.clientX, event.clientY);
+    event.preventDefault();
+  }, [handlePointerStart]);
+
+  const onWheel = useCallback((event: React.WheelEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? 1.1 : 0.9;
+    zoomRef.current = clampZoom(zoomRef.current * factor);
+    syncZoomDisplay();
+    paint();
+  }, [paint, syncZoomDisplay]);
+
+  useEffect(() => {
+    const onMove = (event: MouseEvent) => {
+      if (!draggingRef.current) return;
+
+      const dx = event.clientX - lastXRef.current;
+      const dy = event.clientY - lastYRef.current;
+      lastXRef.current = event.clientX;
+      lastYRef.current = event.clientY;
+
+      if (activeModeRef.current === "move") {
+        applyMoveDelta(dx, dy);
+      } else {
+        applyRotateDelta(dx, dy);
+      }
+
+      paint();
+    };
+
+    const onUp = () => {
+      draggingRef.current = false;
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [applyMoveDelta, applyRotateDelta, paint]);
+
+  const onTouchStart = useCallback((event: React.TouchEvent<HTMLCanvasElement>) => {
+    if (event.touches.length >= 2) {
+      const firstTouch = event.touches[0];
+      const secondTouch = event.touches[1];
+      pinchDistanceRef.current = Math.hypot(
+        secondTouch.clientX - firstTouch.clientX,
+        secondTouch.clientY - firstTouch.clientY,
+      );
+      pinchCenterRef.current = {
+        x: (firstTouch.clientX + secondTouch.clientX) / 2,
+        y: (firstTouch.clientY + secondTouch.clientY) / 2,
+      };
+      draggingRef.current = false;
+      event.preventDefault();
+      return;
+    }
+
+    handlePointerStart(event.touches[0].clientX, event.touches[0].clientY);
+    event.preventDefault();
+  }, [handlePointerStart]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const onMove = (e: TouchEvent) => {
-      if (!dragging.current) return;
-      const dx = e.touches[0].clientX - lastX.current;
-      const dy = e.touches[0].clientY - lastY.current;
-      lastX.current = e.touches[0].clientX;
-      lastY.current = e.touches[0].clientY;
-      if (interactionModeRef.current === "move") {
-        panXRef.current = limitPan(panXRef.current + dx, width, zoomRef.current);
-        panYRef.current = limitPan(panYRef.current + dy, height, zoomRef.current);
-      } else {
-        azRef.current += dx * 0.008;
-        elRef.current  = Math.max(EL_MIN, Math.min(EL_MAX, elRef.current + dy * 0.005));
+    const onMove = (event: TouchEvent) => {
+      if (event.touches.length >= 2) {
+        const firstTouch = event.touches[0];
+        const secondTouch = event.touches[1];
+        const nextDistance = Math.hypot(
+          secondTouch.clientX - firstTouch.clientX,
+          secondTouch.clientY - firstTouch.clientY,
+        );
+
+        if (pinchDistanceRef.current > 0) {
+          zoomRef.current = clampZoom(
+            zoomRef.current * (nextDistance / pinchDistanceRef.current),
+          );
+          syncZoomDisplay();
+        }
+
+        const nextCenter = {
+          x: (firstTouch.clientX + secondTouch.clientX) / 2,
+          y: (firstTouch.clientY + secondTouch.clientY) / 2,
+        };
+        applyMoveDelta(
+          nextCenter.x - pinchCenterRef.current.x,
+          nextCenter.y - pinchCenterRef.current.y,
+        );
+
+        pinchDistanceRef.current = nextDistance;
+        pinchCenterRef.current = nextCenter;
+        draggingRef.current = false;
+        event.preventDefault();
+        paint();
+        return;
       }
-      e.preventDefault();
+
+      if (!draggingRef.current || event.touches.length !== 1) return;
+
+      const dx = event.touches[0].clientX - lastXRef.current;
+      const dy = event.touches[0].clientY - lastYRef.current;
+      lastXRef.current = event.touches[0].clientX;
+      lastYRef.current = event.touches[0].clientY;
+
+      if (activeModeRef.current === "move") {
+        applyMoveDelta(dx, dy);
+      } else {
+        applyRotateDelta(dx, dy);
+      }
+
+      event.preventDefault();
       paint();
     };
-    const onEnd = () => { dragging.current = false; };
 
-    // passive: false is required so we can call preventDefault and prevent scroll
+    const onEnd = (event: TouchEvent) => {
+      if (event.touches.length === 1) {
+        handlePointerStart(event.touches[0].clientX, event.touches[0].clientY);
+      } else {
+        draggingRef.current = false;
+      }
+      pinchDistanceRef.current = 0;
+    };
+
     canvas.addEventListener("touchmove", onMove, { passive: false });
-    canvas.addEventListener("touchend",  onEnd);
+    canvas.addEventListener("touchend", onEnd);
+    canvas.addEventListener("touchcancel", onEnd);
+
     return () => {
       canvas.removeEventListener("touchmove", onMove);
-      canvas.removeEventListener("touchend",  onEnd);
+      canvas.removeEventListener("touchend", onEnd);
+      canvas.removeEventListener("touchcancel", onEnd);
     };
-  }, [paint]);
+  }, [applyMoveDelta, applyRotateDelta, handlePointerStart, paint, syncZoomDisplay]);
 
-  // -- Reset button ---------------------------------------------------------
+  const adjustZoom = useCallback((factor: number) => {
+    zoomRef.current = clampZoom(zoomRef.current * factor);
+    syncZoomDisplay();
+    paint();
+  }, [paint, syncZoomDisplay]);
+
   const resetView = useCallback(() => {
     azRef.current = AZ_DEFAULT;
     elRef.current = EL_DEFAULT;
     zoomRef.current = ZOOM_DEFAULT;
     panXRef.current = 0;
-    panYRef.current = 0;
-    interactionModeRef.current = "rotate";
-    setZoomLevel(ZOOM_DEFAULT);
-    setInteractionMode("rotate");
+    panYRef.current = defaultPanY;
+    syncZoomDisplay();
     paint();
-  }, [paint]);
+  }, [defaultPanY, paint, syncZoomDisplay]);
 
-  const adjustZoom = useCallback(
-    (direction: 1 | -1) => {
-      const nextZoom = Math.min(
-        ZOOM_MAX,
-        Math.max(ZOOM_MIN, zoomRef.current + direction * ZOOM_STEP),
-      );
-      zoomRef.current = Number(nextZoom.toFixed(2));
-      setZoomLevel(zoomRef.current);
-      paint();
-    },
-    [paint],
-  );
-
-  const setMode = useCallback((mode: InteractionMode) => {
-    interactionModeRef.current = mode;
-    setInteractionMode(mode);
-  }, []);
-
-  // -- Render ---------------------------------------------------------------
   return (
     <div ref={frameRef} className={cn("w-full select-none", className)}>
       <div className="relative">
@@ -224,15 +294,10 @@ export function GraftSketchCanvas({
           ref={canvasRef}
           onMouseDown={onMouseDown}
           onTouchStart={onTouchStart}
-          className={cn(
-            "w-full touch-none rounded-[18px] border border-[color:var(--border)]",
-            interactionMode === "move"
-              ? "cursor-move active:cursor-move"
-              : "cursor-grab active:cursor-grabbing",
-          )}
+          onWheel={onWheel}
+          className="w-full rounded-[18px] border border-[color:var(--border)] cursor-grab active:cursor-grabbing"
         />
 
-        {/* Interaction hint + reset — overlaid bottom-left */}
         <div className="absolute bottom-3 left-3 flex items-center gap-2">
           <span
             className="rounded-[10px] px-2 py-1 text-[11px] leading-none"
@@ -242,39 +307,43 @@ export function GraftSketchCanvas({
               backdropFilter: "blur(4px)",
             }}
           >
-            Drag to {interactionMode}
+            {mode === "move" ? "Drag to move" : "Drag to rotate"}
           </span>
-          <div
-            className="flex items-center gap-1 rounded-[10px] p-1"
+          <button
+            onClick={() => setMode("rotate")}
+            className="rounded-[10px] px-2 py-1 text-[11px] leading-none"
             style={{
-              background: "rgba(16,33,31,0.55)",
+              background:
+                mode === "rotate"
+                  ? "rgba(16,33,31,0.78)"
+                  : "rgba(16,33,31,0.55)",
+              color: "rgba(255,255,255,0.86)",
               backdropFilter: "blur(4px)",
+              border: "none",
+              cursor: "pointer",
             }}
           >
-            {(["rotate", "move"] as const).map((mode) => {
-              const isActive = interactionMode === mode;
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setMode(mode)}
-                  className="rounded-[8px] px-2 py-1 text-[11px] leading-none transition-opacity hover:opacity-100"
-                  style={{
-                    background: isActive ? "rgba(255,255,255,0.18)" : "transparent",
-                    color: isActive ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.72)",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  {mode === "rotate" ? "Rotate" : "Move"}
-                </button>
-              );
-            })}
-          </div>
+            Rotate
+          </button>
           <button
-            type="button"
+            onClick={() => setMode("move")}
+            className="rounded-[10px] px-2 py-1 text-[11px] leading-none"
+            style={{
+              background:
+                mode === "move"
+                  ? "rgba(16,33,31,0.78)"
+                  : "rgba(16,33,31,0.55)",
+              color: "rgba(255,255,255,0.86)",
+              backdropFilter: "blur(4px)",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Move
+          </button>
+          <button
             onClick={resetView}
-            className="rounded-[10px] px-2 py-1 text-[11px] leading-none transition-opacity hover:opacity-100 opacity-70"
+            className="rounded-[10px] px-2 py-1 text-[11px] leading-none"
             style={{
               background: "rgba(16,33,31,0.55)",
               color: "rgba(255,255,255,0.80)",
@@ -289,13 +358,11 @@ export function GraftSketchCanvas({
 
         <div className="absolute bottom-3 right-3 flex items-center gap-2">
           <button
-            type="button"
-            onClick={() => adjustZoom(-1)}
-            disabled={zoomLevel <= ZOOM_MIN}
-            className="rounded-[10px] px-2 py-1 text-[11px] leading-none transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => adjustZoom(0.9)}
+            className="rounded-[10px] px-2 py-1 text-[11px] leading-none"
             style={{
               background: "rgba(16,33,31,0.55)",
-              color: "rgba(255,255,255,0.88)",
+              color: "rgba(255,255,255,0.86)",
               backdropFilter: "blur(4px)",
               border: "none",
               cursor: "pointer",
@@ -311,16 +378,14 @@ export function GraftSketchCanvas({
               backdropFilter: "blur(4px)",
             }}
           >
-            {Math.round(zoomLevel * 100)}%
+            {zoomDisplay}%
           </span>
           <button
-            type="button"
-            onClick={() => adjustZoom(1)}
-            disabled={zoomLevel >= ZOOM_MAX}
-            className="rounded-[10px] px-2 py-1 text-[11px] leading-none transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => adjustZoom(1.1)}
+            className="rounded-[10px] px-2 py-1 text-[11px] leading-none"
             style={{
               background: "rgba(16,33,31,0.55)",
-              color: "rgba(255,255,255,0.88)",
+              color: "rgba(255,255,255,0.86)",
               backdropFilter: "blur(4px)",
               border: "none",
               cursor: "pointer",

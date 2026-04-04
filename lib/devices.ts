@@ -35,8 +35,12 @@ export const ZENITH_ALPHA: DeviceGeometry = {
   clinicalRank: 1,
   color: "#2563eb",
   waveWidthMm: 13.6,
+  // Photo/IFU appearance: short ring-free fabric collar below the proximal edge
+  // before the first covered Z-row starts.
+  proximalRingOffsetMm: 8,
   // IFU T_ZALPHA_REV5: bare suprarenal nitinol stent with fixation barbs
   hasBareSuprarenal: true,
+  suprarenalHeightMm: 18, // IFU T_ZALPHA_REV5: bare Z-stent above fabric ≈ 18 mm
   hasInfrarenalBarbs: false,
   // IFU §2: ≥15 mm non-aneurysmal neck, <60° infrarenal, <45° suprarenal
   minNeckLengthMm: 15,
@@ -106,6 +110,7 @@ export const ZENITH_ALPHA: DeviceGeometry = {
     "PMC10958111",
     "Starnes BW J Vasc Surg 2012",
     "Oderich GS Ann Vasc Surg",
+    "IFU T_ZALPHA_REV5: bare suprarenal zone about 18 mm confirmed",
   ],
 };
 
@@ -132,6 +137,7 @@ export const ENDURANT_II: DeviceGeometry = {
   waveWidthMm: 12.8,
   // IFU M985265A001DOC1: bare suprarenal nitinol stent with anchor pins
   hasBareSuprarenal: true,
+  suprarenalHeightMm: 16, // IFU M985265A001DOC1: nitinol suprarenal stent ≈ 16 mm
   hasInfrarenalBarbs: false,
   // IFU §5: ≥10 mm neck (≤60° infrarenal); ≥15 mm neck (≤75° infrarenal)
   minNeckLengthMm: 10,
@@ -183,6 +189,7 @@ export const ENDURANT_II: DeviceGeometry = {
     "Medtronic Endurant II IFU H620-3003",
     "Saratzis A et al. EJVES 2017",
     "Donas KP PMEG series",
+    "IFU M985265A001DOC1 Fig 1: M-stent style covered frame and suprarenal fixation confirmed",
   ],
 };
 
@@ -191,14 +198,9 @@ export const TREO: DeviceGeometry = {
   name: "Terumo Aortic TREO",
   shortName: "TREO",
   manufacturer: "Terumo Aortic",
-  // ringHeight = projected vertical height of each Z-stent ring (~9 mm, same Z-stent technology as Zenith).
-  // The defining PMEG advantage is interRingGap ≈ 18–20 mm (vs 6 mm for Zenith Alpha).
-  // Transrenal fixation zone (0–18 mm above fabric edge) shown as suprarenal bare stent in sketch.
-  // Working zones below fabric: Zone 1 ≈ 0–27 mm (Ring 1 + Gap 1); Zone 2 ≈ 27–54 mm (Ring 2 + Gap 2).
-  // Published inter-stent distance ≈ 20 mm (operator planning estimate, not official IFU dimension).
-  // PMEG literature describes TREO's covered body as staggered sinusoidal
-  // springs with roughly 18 mm row spacing, which creates large rectangular
-  // working windows in the proximal body.
+  // ringHeight = projected vertical height of each covered spring row.
+  // TREO's defining planning feature is the broad working window created by
+  // staggered covered wireform rows with roughly square-ish openings.
   ringHeight: 9,
   interRingGap: 9,
   nRings: 4,
@@ -209,13 +211,17 @@ export const TREO: DeviceGeometry = {
   fabricMaterial: "polyester",
   pmegSuitability: 1,
   pmegNotes:
-    "Wide longitudinal planning windows with staggered covered sinusoidal rows at roughly 18 mm row spacing, plus dual fixation (suprarenal crown and infrarenal valley barbs). Among the modeled infrarenal platforms, TREO offers the broadest clean fabric windows for PMEG-style modification.",
+    "Wide longitudinal planning windows with staggered covered sinusoidal rows at roughly 18 mm row spacing, plus dual fixation from the suprarenal crown and infrarenal valley barbs. Among the modeled infrarenal platforms, TREO offers the broadest clean fabric windows for PMEG-style modification.",
   clinicalRank: 3,
   color: "#0d9488",
   waveWidthMm: 0,
   // IFU PM-08467-ROW: suprarenal barbs (fully covered until clasp release)
   // AND infrarenal barbs in fabric "valleys" of proximal covered ring
   hasBareSuprarenal: true,
+  // IFU PM-08467-ROW: suprarenal fixation zone = 16 mm (Ø20–28 mm sizes)
+  // and 18 mm (Ø30–36 mm sizes). Use 16 mm as the device-level value;
+  // the renderer applies +2 mm for large sizes automatically.
+  suprarenalHeightMm: 16,
   hasInfrarenalBarbs: true,
   // IFU: ≥10 mm (infrarenal <60°) or ≥15 mm (infrarenal 60–75°); suprarenal ≤45°
   minNeckLengthMm: 10,
@@ -292,6 +298,7 @@ export const TREO: DeviceGeometry = {
     "TREO US IFU P190015",
     "Eagleton MJ et al. J Vasc Surg 2021",
     "PMC10958111",
+    "IFU PM-08467-ROW Fig: suprarenal zone 16 mm (Ø20–28 mm), 18 mm (Ø30–36 mm); nPeaks 5/6 confirmed; stentType Z-stent confirmed",
   ],
 };
 
@@ -366,6 +373,7 @@ export const GORE_EXCLUDER: DeviceGeometry = {
   sources: [
     "Gore Excluder C3 IFU H-G-EXLC",
     "Gore Conformable Excluder IFU",
+    "IFU H-G-EXLC Fig 1A/4: sinusoidal ring pattern confirmed; hasBareSuprarenal false confirmed",
   ],
 };
 

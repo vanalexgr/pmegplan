@@ -221,6 +221,7 @@ export function buildStrutSegments(
 
 export function getSealZoneHeightMm(device: DeviceGeometry) {
   return (
+    (device.proximalRingOffsetMm ?? 0) +
     device.nRings * device.ringHeight +
     Math.max(0, device.nRings - 1) * device.interRingGap
   );
@@ -239,13 +240,14 @@ export function buildSinusoidalStrutSegments(
   gapHeight: number,
   nRings: number,
   nPeaks: number,
+  startOffset = 0,
 ): StrutSegment[] {
   const segments: StrutSegment[] = [];
   const totalPoints = nPeaks * N_SINUS * 2;
   const dx = circ / totalPoints;
 
   for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
-    const z0 = ringIndex * (ringHeight + gapHeight);
+    const z0 = startOffset + ringIndex * (ringHeight + gapHeight);
     const phaseOffset = (ringIndex % 2) * (circ / (2 * nPeaks));
     const ringPoints: Array<[number, number]> = [];
 
@@ -275,40 +277,49 @@ export function buildSinusoidalStrutSegments(
 // planning and rendering we want the smooth sinusoidal family of curves rather
 // than a sharp zigzag approximation.
 export function buildStrutSegmentsForDevice(
-  device: Pick<DeviceGeometry, "stentType">,
+  device: Pick<DeviceGeometry, "id" | "stentType" | "proximalRingOffsetMm">,
   circ: number,
   ringHeight: number,
   gapHeight: number,
   nRings: number,
   nPeaks: number,
 ): StrutSegment[] {
-  if (
-    device.stentType === "sinusoidal" ||
-    device.stentType === "helical" ||
-    device.stentType === "M-stent"
-  ) {
-    return buildSinusoidalStrutSegments(
-      circ,
-      ringHeight,
-      gapHeight,
-      nRings,
-      nPeaks,
-    );
-  }
-
-  const ringSpan = ringHeight + gapHeight;
+  const profile = getStrutLayoutProfile(device as DeviceGeometry);
+  const startOffset = device.proximalRingOffsetMm ?? 0;
   const segments: StrutSegment[] = [];
+  let yTopMm = startOffset;
 
   for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
-    const ringSegments = buildZigZagRingSegments({
-      circumferenceMm: circ,
-      yTopMm: ringIndex * ringSpan,
-      ringHeightMm: ringHeight,
-      nPeaks,
-      phaseFraction: ringIndex % 2 === 0 ? 0 : 0.5,
-    });
+    const phaseFraction = getPhaseFraction(profile.phaseFractions, ringIndex);
+    const ringSegments =
+      profile.pattern === "mshaped"
+        ? buildMShapedRingSegments({
+            circumferenceMm: circ,
+            yTopMm,
+            ringHeightMm: ringHeight,
+            nPeaks,
+            phaseFraction,
+            shoulderRatio: profile.mShoulderRatio ?? 0.42,
+          })
+        : profile.pattern === "sinusoidal"
+          ? buildSinusoidalRingSegments({
+              circumferenceMm: circ,
+              yTopMm,
+              ringHeightMm: ringHeight,
+              nPeaks,
+              phaseFraction,
+              samplesPerWave: profile.sinusoidSamplesPerWave ?? 12,
+            })
+          : buildZigZagRingSegments({
+              circumferenceMm: circ,
+              yTopMm,
+              ringHeightMm: ringHeight,
+              nPeaks,
+              phaseFraction,
+            });
 
     segments.push(...ringSegments);
+    yTopMm += ringHeight + gapHeight;
   }
 
   return segments;

@@ -78,6 +78,11 @@ export function PlannerClient() {
     selectedDeviceIds,
     results,
     isReady,
+    isBootstrapping,
+    bootstrapProgress,
+    bootstrapLabel,
+    bootstrapCompleted,
+    bootstrapTotal,
     bootstrap,
     analyse,
     loadSampleCase,
@@ -98,7 +103,7 @@ export function PlannerClient() {
   const recommendedResult = availableResults[0] ?? null;
 
   useEffect(() => {
-    if (isReady) {
+    if (isReady || isBootstrapping) {
       return;
     }
 
@@ -123,7 +128,7 @@ export function PlannerClient() {
         globalThis.clearTimeout(timeoutId);
       }
     };
-  }, [bootstrap, isReady]);
+  }, [bootstrap, isBootstrapping, isReady]);
 
   const handleDownloadAll = async () => {
     setIsDownloadingAll(true);
@@ -133,6 +138,7 @@ export function PlannerClient() {
       setIsDownloadingAll(false);
     }
   };
+  const bootstrapPercent = Math.round(bootstrapProgress * 100);
 
   return (
     <main className="mx-auto flex w-full max-w-[1500px] flex-1 flex-col gap-10 px-4 py-8 sm:px-6 lg:px-8">
@@ -232,10 +238,31 @@ export function PlannerClient() {
           <CardHeader>
             <CardTitle>Preparing planner analysis</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm leading-6 text-[color:var(--muted-foreground)]">
-            Loading the four-device rotation and robustness comparison. The form is
-            ready now, and the heavier device analysis will appear as soon as the
-            first client-side pass completes.
+          <CardContent className="space-y-4 text-sm leading-6 text-[color:var(--muted-foreground)]">
+            <p>
+              Loading the four-device rotation and robustness comparison. The form
+              is ready now, and the heavier device analysis will appear as soon as
+              the first client-side pass completes.
+            </p>
+            <div className="space-y-2">
+              <div className="h-3 overflow-hidden rounded-full bg-[rgba(12,84,72,0.12)]">
+                <div
+                  className="h-full rounded-full bg-[color:var(--brand)] transition-[width] duration-300 ease-out"
+                  style={{ width: `${Math.max(bootstrapPercent, 6)}%` }}
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-medium uppercase tracking-[0.14em] text-[color:var(--muted-foreground)]">
+                <span>{bootstrapLabel ?? "Starting analysis..."}</span>
+                <span>
+                  {bootstrapTotal > 0
+                    ? `${bootstrapCompleted}/${bootstrapTotal} devices`
+                    : "Preparing"}
+                </span>
+              </div>
+              <p className="text-xs text-[color:var(--muted-foreground)]">
+                {bootstrapPercent}% complete
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}

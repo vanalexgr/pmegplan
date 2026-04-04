@@ -20,6 +20,14 @@ import type {
 const ROBUSTNESS_CIRCUMFERENTIAL_ERROR_MM = 0.5;
 const ROBUSTNESS_LONGITUDINAL_ERROR_MM = 1;
 
+export interface AnalysisProgress {
+  completed: number;
+  total: number;
+  fraction: number;
+  deviceId: string;
+  deviceName: string;
+}
+
 interface ScenarioEvaluation {
   conflictFree: boolean;
   minClearanceAtOptimal: number;
@@ -446,6 +454,14 @@ function analyseDevice(
   };
 }
 
+function resolveDevices(deviceIds?: string[]) {
+  return deviceIds?.length
+    ? deviceIds
+        .map((deviceId) => getDeviceById(deviceId))
+        .filter((device): device is DeviceGeometry => Boolean(device))
+    : ALL_DEVICES;
+}
+
 export function rankDevices(results: DeviceAnalysisResult[]) {
   return [...results].sort((left, right) => {
     if (!!left.size !== !!right.size) {
@@ -483,13 +499,37 @@ export function rankDevices(results: DeviceAnalysisResult[]) {
 }
 
 export function analyseCase(caseInput: CaseInput, deviceIds?: string[]) {
-  const devices = deviceIds?.length
-    ? deviceIds
-        .map((deviceId) => getDeviceById(deviceId))
-        .filter((device): device is DeviceGeometry => Boolean(device))
-    : ALL_DEVICES;
+  const devices = resolveDevices(deviceIds);
 
   return rankDevices(devices.map((device) => analyseDevice(caseInput, device)));
+}
+
+export async function analyseCaseProgressive(
+  caseInput: CaseInput,
+  deviceIds?: string[],
+  onProgress?: (progress: AnalysisProgress) => void,
+) {
+  const devices = resolveDevices(deviceIds);
+  const results: DeviceAnalysisResult[] = [];
+
+  for (const [index, device] of devices.entries()) {
+    results.push(analyseDevice(caseInput, device));
+    onProgress?.({
+      completed: index + 1,
+      total: devices.length,
+      fraction: (index + 1) / Math.max(devices.length, 1),
+      deviceId: device.id,
+      deviceName: device.shortName,
+    });
+
+    if (index < devices.length - 1) {
+      await new Promise<void>((resolve) => {
+        globalThis.setTimeout(resolve, 0);
+      });
+    }
+  }
+
+  return rankDevices(results);
 }
 
 export function getRotationSummary(result: DeviceAnalysisResult) {

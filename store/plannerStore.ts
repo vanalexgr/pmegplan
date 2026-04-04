@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 
-import { analyseCase } from "@/lib/analysis";
+import { analyseCase, analyseCaseProgressive } from "@/lib/analysis";
 import { normalizeCaseInput } from "@/lib/caseInput";
 import { ALL_DEVICES } from "@/lib/devices";
 import type { SavedPlannerProject } from "@/lib/planning/persistence";
@@ -27,6 +27,11 @@ interface PlannerStore {
   selectedDeviceIds: string[];
   results: DeviceAnalysisResult[];
   isReady: boolean;
+  isBootstrapping: boolean;
+  bootstrapProgress: number;
+  bootstrapLabel: string | null;
+  bootstrapCompleted: number;
+  bootstrapTotal: number;
   historyPast: PlannerSnapshot[];
   historyFuture: PlannerSnapshot[];
   canUndo: boolean;
@@ -152,6 +157,11 @@ function commitSnapshotChange(
   return {
     ...buildStateFromSnapshot(nextSnapshot),
     isReady: true,
+    isBootstrapping: false,
+    bootstrapProgress: 1,
+    bootstrapCompleted: nextSnapshot.selectedDeviceIds.length,
+    bootstrapTotal: nextSnapshot.selectedDeviceIds.length,
+    bootstrapLabel: null,
     historyPast: pushPast(state.historyPast, currentSnapshot),
     historyFuture: [],
     canUndo: true,
@@ -175,27 +185,109 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   selectedDeviceIds: [...initialSnapshot.selectedDeviceIds],
   results: [],
   isReady: false,
+  isBootstrapping: false,
+  bootstrapProgress: 0,
+  bootstrapLabel: null,
+  bootstrapCompleted: 0,
+  bootstrapTotal: 0,
   historyPast: [],
   historyFuture: [],
   canUndo: false,
   canRedo: false,
-  bootstrap: () =>
-    set((state) => {
-      if (state.isReady) {
-        return state;
+  bootstrap: async () => {
+    const state = get();
+    if (state.isReady || state.isBootstrapping) {
+      return;
+    }
+
+    const caseInput = cloneCaseInput(state.caseInput);
+    const selectedDeviceIds = [...state.selectedDeviceIds];
+    const projectId = state.planningProject.projectId;
+    const snapshotKey = JSON.stringify({
+      caseInput,
+      selectedDeviceIds,
+      projectId,
+    });
+
+    set({
+      isBootstrapping: true,
+      bootstrapProgress: 0,
+      bootstrapCompleted: 0,
+      bootstrapTotal: selectedDeviceIds.length,
+      bootstrapLabel:
+        selectedDeviceIds.length > 0
+          ? `Preparing device analysis (0/${selectedDeviceIds.length})`
+          : "Preparing device analysis",
+    });
+
+    const results = await analyseCaseProgressive(
+      caseInput,
+      selectedDeviceIds,
+      (progress) => {
+        set((current) => {
+          if (current.isReady) {
+            return current;
+          }
+
+          const currentKey = JSON.stringify({
+            caseInput: current.caseInput,
+            selectedDeviceIds: current.selectedDeviceIds,
+            projectId: current.planningProject.projectId,
+          });
+
+          if (currentKey !== snapshotKey) {
+            return current;
+          }
+
+          return {
+            ...current,
+            isBootstrapping: true,
+            bootstrapProgress: progress.fraction,
+            bootstrapCompleted: progress.completed,
+            bootstrapTotal: progress.total,
+            bootstrapLabel: `Analysing ${progress.deviceName} (${progress.completed}/${progress.total})`,
+          };
+        });
+      },
+    );
+
+    set((current) => {
+      if (current.isReady) {
+        return current;
       }
 
-      const derived = buildPlannerSnapshot(
-        state.caseInput,
-        state.selectedDeviceIds,
-        state.planningProject.projectId,
-      );
+      const currentKey = JSON.stringify({
+        caseInput: current.caseInput,
+        selectedDeviceIds: current.selectedDeviceIds,
+        projectId: current.planningProject.projectId,
+      });
+
+      if (currentKey !== snapshotKey) {
+        return current;
+      }
+
+      const preferredDeviceId =
+        results.find((result) => result.size)?.device.id ??
+        selectedDeviceIds[0] ??
+        null;
 
       return {
-        ...derived,
+        ...current,
+        results,
+        planningProject: createPlanningProjectFromCaseInput(
+          caseInput,
+          preferredDeviceId,
+          projectId,
+        ),
         isReady: true,
+        isBootstrapping: false,
+        bootstrapProgress: 1,
+        bootstrapCompleted: selectedDeviceIds.length,
+        bootstrapTotal: selectedDeviceIds.length,
+        bootstrapLabel: `Analysis complete (${selectedDeviceIds.length}/${selectedDeviceIds.length})`,
       };
-    }),
+    });
+  },
   analyse: (caseInput) =>
     set((state) =>
       commitSnapshotChange(
@@ -284,6 +376,12 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
 
       return {
         ...buildStateFromSnapshot(previousSnapshot),
+        isReady: true,
+        isBootstrapping: false,
+        bootstrapProgress: 1,
+        bootstrapCompleted: previousSnapshot.selectedDeviceIds.length,
+        bootstrapTotal: previousSnapshot.selectedDeviceIds.length,
+        bootstrapLabel: null,
         historyPast: nextPast,
         historyFuture: nextFuture,
         canUndo: nextPast.length > 0,
@@ -306,6 +404,12 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
 
       return {
         ...buildStateFromSnapshot(nextSnapshot),
+        isReady: true,
+        isBootstrapping: false,
+        bootstrapProgress: 1,
+        bootstrapCompleted: nextSnapshot.selectedDeviceIds.length,
+        bootstrapTotal: nextSnapshot.selectedDeviceIds.length,
+        bootstrapLabel: null,
         historyPast: nextPast,
         historyFuture: remainingFuture,
         canUndo: nextPast.length > 0,

@@ -37,8 +37,23 @@ export interface DeviceGeometry {
   waveWidthMm: number;
   sizes: DeviceSize[];
   sources: string[];
+  /**
+   * Distance from the proximal fabric edge to the first covered stent row.
+   * Used for devices such as Zenith Alpha that have a short proximal fabric collar
+   * below the suprarenal bare stent before the first covered Z-row begins.
+   */
+  proximalRingOffsetMm?: number;
   /** Device has a bare suprarenal stent with fixation barbs above the fabric. */
   hasBareSuprarenal?: boolean;
+  /**
+   * Height of the bare suprarenal fixation zone in mm (distance from proximal
+   * fabric edge to the cranial tip of the suprarenal stent).
+   * TREO: 16 mm (20-28 mm) / 18 mm (30-36 mm) — IFU PM-08467-ROW Fig.
+   * Zenith Alpha: 18 mm — IFU T_ZALPHA_REV5.
+   * Endurant II: 16 mm — IFU M985265A001DOC1.
+   * Omit for devices without a bare suprarenal stent.
+   */
+  suprarenalHeightMm?: number;
   /** Device also has infrarenal barbs (in fabric valleys of proximal covered ring). */
   hasInfrarenalBarbs?: boolean;
   /** Minimum infrarenal neck length (mm) per IFU. */

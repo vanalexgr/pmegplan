@@ -228,6 +228,8 @@ export function renderPunchCard({
 
   // Ring danger zones (light red)  and safe inter-ring zones (light green)
   let bandY = 0;
+  const proximalRingOffset = result.device.proximalRingOffsetMm ?? 0;
+  bandY = proximalRingOffset;
   for (let ri = 0; ri < result.device.nRings; ri++) {
     // Ring band
     const ringTop  = chartY + bandY * yScale;
