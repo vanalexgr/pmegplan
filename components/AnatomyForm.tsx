@@ -3,7 +3,9 @@
 import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
-import { Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, Trash2, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+
+import { useLiveConflict } from "@/lib/hooks/useLiveConflict";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -119,10 +121,11 @@ export function AnatomyForm({
     control,
     name: "fenestrations",
   });
-  const watchedFenestrations = useWatch({
+  const watchedCase = useWatch({
     control,
-    name: "fenestrations",
-  });
+  }) as CaseFormValues;
+
+  const liveConflict = useLiveConflict(watchedCase, selectedDeviceIds);
 
   const normalizeClockField = (index: number, rawValue: string) => {
     if (!isValidClockText(rawValue)) {
@@ -187,9 +190,10 @@ export function AnatomyForm({
 
           <div className="space-y-4">
             {fields.map((field, index) => {
-              const currentType = watchedFenestrations?.[index]?.ftype ?? field.ftype;
+              const currentType = watchedCase?.fenestrations?.[index]?.ftype ?? field.ftype;
               const isScallop = currentType === "SCALLOP";
               const clockField = register(`fenestrations.${index}.clock`);
+              const conflictData = liveConflict?.perFenestration?.[index];
               return (
                 <div
                   key={field.id}
@@ -262,7 +266,27 @@ export function AnatomyForm({
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Clock position</Label>
+                      <div className="flex items-center justify-between">
+                        <Label>Clock position</Label>
+                        {!isScallop && conflictData ? (
+                          conflictData.conflict ? (
+                            <span className="flex items-center text-xs conflict-indicator-conflict gap-1 font-medium">
+                              <AlertCircle className="size-3" />
+                              Strut conflict
+                            </span>
+                          ) : (
+                            <span className="flex items-center text-xs conflict-indicator-clear gap-1 font-medium">
+                              <CheckCircle2 className="size-3" />
+                              Clear
+                            </span>
+                          )
+                        ) : !isScallop && !conflictData && watchedCase?.neckDiameterMm ? (
+                          <span className="flex items-center text-xs text-muted-foreground gap-1">
+                            <Loader2 className="size-3 animate-spin" />
+                            Checking...
+                          </span>
+                        ) : null}
+                      </div>
                       <Input
                         placeholder="3:45"
                         {...clockField}

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { Download } from "lucide-react";
+import { useEffect, useState, useTransition, useCallback } from "react";
+import { Download, Share2 } from "lucide-react";
 
 import { AnatomyForm } from "@/components/AnatomyForm";
 import { DeviceCard } from "@/components/DeviceCard";
 import { PlanningWorkspace } from "@/components/PlanningWorkspace";
 import { RecommendationOverview } from "@/components/RecommendationOverview";
+import { ComparisonGrid } from "@/components/ComparisonGrid";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ALL_DEVICES } from "@/lib/devices";
@@ -101,6 +102,19 @@ export function PlannerClient() {
   const availableResults = results.filter((result) => result.size);
   const unavailableResults = results.filter((result) => !result.size);
   const recommendedResult = availableResults[0] ?? null;
+  const [hasLoadedInitialCase, setHasLoadedInitialCase] = useState(false);
+
+  const copyShareLink = useCallback(() => {
+    try {
+      const shareToken = btoa(JSON.stringify(caseInput));
+      const shareUrl = `${window.location.origin}${window.location.pathname}?case=${shareToken}`;
+      navigator.clipboard.writeText(shareUrl);
+      alert("Share link copied to clipboard!");
+    } catch (err) {
+      console.error("Failed to generate share link", err);
+      alert("Failed to generate share link.");
+    }
+  }, [caseInput]);
 
   useEffect(() => {
     if (isReady || isBootstrapping) {
@@ -111,6 +125,20 @@ export function PlannerClient() {
     let idleId: number | null = null;
 
     const runBootstrap = () => {
+      if (!hasLoadedInitialCase && typeof window !== "undefined") {
+        setHasLoadedInitialCase(true);
+        const searchParams = new URLSearchParams(window.location.search);
+        const caseParam = searchParams.get("case");
+        if (caseParam) {
+          try {
+            const decodedCase = JSON.parse(atob(caseParam));
+            analyse(decodedCase);
+            return;
+          } catch (err) {
+            console.error("Failed to parse case from URL", err);
+          }
+        }
+      }
       bootstrap();
     };
 
@@ -232,6 +260,13 @@ export function PlannerClient() {
               });
             }}
           />
+          
+          <details open className="bg-white/50 border rounded-2xl p-6 open:pb-8">
+            <summary className="cursor-pointer font-semibold mb-4 text-xl select-none text-[color:var(--brand)]">
+              Side-by-side comparison
+            </summary>
+            <ComparisonGrid results={results} caseInput={caseInput} />
+          </details>
         </>
       ) : (
         <Card>
@@ -338,13 +373,23 @@ export function PlannerClient() {
               Before clinical use, print at 100% and measure the calibration square and
               ruler on the generated punch card.
             </p>
-            <Button
-              onClick={handleDownloadAll}
-              disabled={availableResults.length === 0 || isDownloadingAll}
-            >
-              <Download className="mr-2 size-4" />
-              {isDownloadingAll ? "Building archive..." : "Download all PDFs"}
-            </Button>
+            <div className="flex gap-3">
+              <Button
+                onClick={handleDownloadAll}
+                disabled={availableResults.length === 0 || isDownloadingAll}
+              >
+                <Download className="mr-2 size-4" />
+                {isDownloadingAll ? "Building archive..." : "Download all PDFs"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={copyShareLink}
+                disabled={availableResults.length === 0}
+              >
+                <Share2 className="mr-2 size-4" />
+                Share Case
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </section>

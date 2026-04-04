@@ -53,3 +53,10 @@ a {
     background-image: none;
   }
 }
+
+.conflict-indicator-clear {
+  color: #10b981; /* Emerald-500 */
+}
+.conflict-indicator-conflict {
+  color: #ef4444; /* Red-500 */
+}

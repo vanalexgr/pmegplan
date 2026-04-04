@@ -7,6 +7,7 @@ import { normalizeCaseInput } from "@/lib/caseInput";
 import { ALL_DEVICES } from "@/lib/devices";
 import type { SavedPlannerProject } from "@/lib/planning/persistence";
 import { createPlanningProjectFromCaseInput } from "@/lib/planning/project";
+import { hashSnapshot } from "@/lib/planning/hash";
 import { sampleCase } from "@/lib/sampleCase";
 import type { CaseInput, DeviceAnalysisResult, Fenestration } from "@/lib/types";
 import type { PlanningProject } from "@/lib/planning/types";
@@ -123,7 +124,7 @@ function buildStateFromSnapshot(snapshot: PlannerSnapshot) {
 }
 
 function snapshotEquals(left: PlannerSnapshot, right: PlannerSnapshot): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return hashSnapshot(left.caseInput, left.selectedDeviceIds, left.projectId) === hashSnapshot(right.caseInput, right.selectedDeviceIds, right.projectId);
 }
 
 function pushPast(
@@ -203,11 +204,11 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
     const caseInput = cloneCaseInput(state.caseInput);
     const selectedDeviceIds = [...state.selectedDeviceIds];
     const projectId = state.planningProject.projectId;
-    const snapshotKey = JSON.stringify({
+    const snapshotKey = hashSnapshot(
       caseInput,
       selectedDeviceIds,
       projectId,
-    });
+    );
 
     set({
       isBootstrapping: true,
@@ -229,11 +230,11 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
             return current;
           }
 
-          const currentKey = JSON.stringify({
-            caseInput: current.caseInput,
-            selectedDeviceIds: current.selectedDeviceIds,
-            projectId: current.planningProject.projectId,
-          });
+          const currentKey = hashSnapshot(
+            current.caseInput,
+            current.selectedDeviceIds,
+            current.planningProject.projectId,
+          );
 
           if (currentKey !== snapshotKey) {
             return current;
@@ -256,11 +257,11 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
         return current;
       }
 
-      const currentKey = JSON.stringify({
-        caseInput: current.caseInput,
-        selectedDeviceIds: current.selectedDeviceIds,
-        projectId: current.planningProject.projectId,
-      });
+      const currentKey = hashSnapshot(
+        current.caseInput,
+        current.selectedDeviceIds,
+        current.planningProject.projectId,
+      );
 
       if (currentKey !== snapshotKey) {
         return current;

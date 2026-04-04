@@ -20,6 +20,112 @@ import { clockToArc, wrapMm } from "@/lib/conflictDetection";
 import { getRotationSummary } from "@/lib/analysis";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
+
+export interface ScaleContext {
+  isPrint: boolean;
+  v_10_7: number;
+  fontBack: number;
+  v_4_3: number;
+  fontBadge: number;
+  fontSub: number;
+  v_1_0: number;
+  v_14_9: number;
+  v_11_7: number;
+  strokeCore: number;
+  v_3_2: number;
+  fontVessel: number;
+  v_11_8: number;
+  v_7_4: number;
+  v_5_3_8: number;
+  v_10_6_8: number;
+  haloExpand: number;
+  v_1_6_1_1: number;
+  strokeGuide: number;
+  v_5_3: number;
+  v_1_2_0_9: number;
+  v_13_9: number;
+  v_1_8_1_4: number;
+  v_2_6_2: number;
+  v_7_5_6: number;
+  margin: number;
+  headerH: number;
+  footerH: number;
+  v_16_14: number;
+  fontHeader: number;
+  v_22_14: number;
+  v_38_24: number;
+  v_52_34: number;
+  v_68_34: number;
+  v_14_8: number;
+  v_40_24: number;
+  v_30_20: number;
+  v_2_0_1_5: number;
+  v_1_8_1_3: number;
+  v_1_4_1_1: number;
+  v_2_0_1_6: number;
+  v_18_12: number;
+  v_1_4_1_0: number;
+  v_9_6_5: number;
+  v_8_5: number;
+  v_3_5_2_5: number;
+  v_15_12: number;
+  v_6_4: number;
+}
+
+export function buildScaleContext(mode: "preview" | "print"): ScaleContext {
+  const isPrint = mode === "print";
+  return {
+    isPrint,
+    v_10_7: isPrint ? 10 : 7,
+    fontBack: isPrint ? 8.5 : 6.5,
+    v_4_3: isPrint ? 4 : 3,
+    fontBadge: isPrint ? 14 : 10,
+    fontSub: isPrint ? 12 : 9,
+    v_1_0: isPrint ? 1 : 0,
+    v_14_9: isPrint ? 14 : 9,
+    v_11_7: isPrint ? 11 : 7,
+    strokeCore: isPrint ? 2.2 : 1.8,
+    v_3_2: isPrint ? 3 : 2,
+    fontVessel: isPrint ? 10 : 7.5,
+    v_11_8: isPrint ? 11 : 8,
+    v_7_4: isPrint ? 7 : 4,
+    v_5_3_8: isPrint ? 5 : 3.8,
+    v_10_6_8: isPrint ? 10 : 6.8,
+    haloExpand: isPrint ? 4.5 : 3.6,
+    v_1_6_1_1: isPrint ? 1.6 : 1.1,
+    strokeGuide: isPrint ? 1.4 : 1.05,
+    v_5_3: isPrint ? 5 : 3,
+    v_1_2_0_9: isPrint ? 1.2 : 0.9,
+    v_13_9: isPrint ? 13 : 9,
+    v_1_8_1_4: isPrint ? 1.8 : 1.4,
+    v_2_6_2: isPrint ? 2.6 : 2,
+    v_7_5_6: isPrint ? 7.5 : 6,
+    margin: isPrint ? 24 : 20,
+    headerH: isPrint ? 54 : 44,
+    footerH: isPrint ? 42 : 36,
+    v_16_14: isPrint ? 16 : 14,
+    fontHeader: isPrint ? 20 : 13,
+    v_22_14: isPrint ? 22 : 14,
+    v_38_24: isPrint ? 38 : 24,
+    v_52_34: isPrint ? 52 : 34,
+    v_68_34: isPrint ? 68 : 34,
+    v_14_8: isPrint ? 14 : 8,
+    v_40_24: isPrint ? 40 : 24,
+    v_30_20: isPrint ? 30 : 20,
+    v_2_0_1_5: isPrint ? 2.0 : 1.5,
+    v_1_8_1_3: isPrint ? 1.8 : 1.3,
+    v_1_4_1_1: isPrint ? 1.4 : 1.1,
+    v_2_0_1_6: isPrint ? 2.0 : 1.6,
+    v_18_12: isPrint ? 18 : 12,
+    v_1_4_1_0: isPrint ? 1.4 : 1.0,
+    v_9_6_5: isPrint ? 9 : 6.5,
+    v_8_5: isPrint ? 8 : 5,
+    v_3_5_2_5: isPrint ? 3.5 : 2.5,
+    v_15_12: isPrint ? 15 : 12,
+    v_6_4: isPrint ? 6 : 4,
+  };
+}
+
 // ── Vessel colour map (unchanged) ─────────────────────────────────────────────
 const VESSEL_COLORS: Record<string, string> = {
   SMA: "#b45309", LRA: "#1d4ed8", RRA: "#6d28d9",
@@ -427,7 +533,7 @@ function drawCylinderBody(
 function drawZoneTints(
   ctx: CanvasRenderingContext2D,
   ox: number, topY: number, cylW: number, scale: number,
-  ringH: number, gapH: number, nRings: number, el: number, p: boolean,
+  ringH: number, gapH: number, nRings: number, el: number, sc: ScaleContext,
   startOffset = 0,
 ): void {
   const cosEl = Math.cos(el);
@@ -449,11 +555,11 @@ function drawZoneTints(
       const gH   = gapH * cosEl * scale;
       ctx.fillStyle = "rgba(15,118,110,0.11)";
       ctx.fillRect(ox - cylW, gTop, cylW * 2, gH);
-      if (gH > (p ? 10 : 7)) {
+      if (gH > (sc.v_10_7)) {
         ctx.fillStyle = "rgba(15,118,110,0.60)";
-        ctx.font      = `400 ${p ? 8.5 : 6.5}px sans-serif`;
+        ctx.font      = `400 ${sc.fontBack}px sans-serif`;
         ctx.textAlign = "left";
-        ctx.fillText(`gap ${gapH} mm`, ox + cylW + (p ? 4 : 3), gTop + gH / 2 + 3);
+        ctx.fillText(`gap ${gapH} mm`, ox + cylW + (sc.v_4_3), gTop + gH / 2 + 3);
       }
       bZ += gapH;
     }
@@ -545,27 +651,27 @@ function drawFenestration3D(
   ctx: CanvasRenderingContext2D,
   R: number, clockDeg: number, depthMm: number, widthMm: number, heightMm: number,
   vessel: string, ftype: string, isConflicted: boolean, minDist: number, isStrFree: boolean,
-  _delta: number, circ: number, az: number, el: number, ox: number, oy: number, scale: number, p: boolean,
+  _delta: number, circ: number, az: number, el: number, ox: number, oy: number, scale: number, sc: ScaleContext,
 ): { sy: number; label: string; color: string } | null {
   const color  = VESSEL_COLORS[vessel] ?? "#334155";
   const arcMm = (clockDeg / 360) * circ;
   const q = projectSurfacePoint(arcMm, depthMm, circ, R, az, el, ox, oy, scale);
   const fore = Math.max(0.25, Math.abs(q.face) / R);
-  const backLabelY = q.sy - (p ? 14 : 10);
-  const backMetaY = q.sy + (p ? 14 : 10);
-  const backTagX = q.sx + (p ? 12 : 9);
-  const backTagY = q.sy - (p ? 1 : 0);
+  const backLabelY = q.sy - (sc.fontBadge);
+  const backMetaY = q.sy + (sc.fontBadge);
+  const backTagX = q.sx + (sc.fontSub);
+  const backTagY = q.sy - (sc.v_1_0);
 
   if (ftype === "SCALLOP") {
     const qRim = projectSurfacePoint(arcMm, 0, circ, R, az, el, ox, oy, scale);
-    const nW   = Math.max(widthMm * scale * 0.30 * fore, p ? 14 : 9);
-    const nH   = Math.max(heightMm * scale * 0.32, p ? 11 : 7);
+    const nW   = Math.max(widthMm * scale * 0.30 * fore, sc.v_14_9);
+    const nH   = Math.max(heightMm * scale * 0.32, sc.v_11_7);
     ctx.save();
     ctx.fillStyle = qRim.front ? color + "28" : color + "12";
     ctx.strokeStyle = qRim.front ? color : color + "80";
-    ctx.lineWidth = p ? 2.2 : 1.8;
+    ctx.lineWidth = sc.strokeCore;
     if (!qRim.front) {
-      ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]);
+      ctx.setLineDash([sc.v_4_3, sc.v_3_2]);
     }
     ctx.beginPath();
     ctx.moveTo(qRim.sx - nW, qRim.sy); ctx.lineTo(qRim.sx - nW, qRim.sy + nH);
@@ -573,13 +679,13 @@ function drawFenestration3D(
     ctx.lineTo(qRim.sx + nW, qRim.sy); ctx.fill(); ctx.stroke();
     ctx.setLineDash([]);
     if (qRim.front) {
-      ctx.fillStyle = color; ctx.font = `700 ${p ? 10 : 7.5}px sans-serif`; ctx.textAlign = "center";
-      ctx.fillText(vessel, qRim.sx, qRim.sy - (p ? 14 : 10));
+      ctx.fillStyle = color; ctx.font = `700 ${sc.fontVessel}px sans-serif`; ctx.textAlign = "center";
+      ctx.fillText(vessel, qRim.sx, qRim.sy - (sc.fontBadge));
     } else {
       ctx.fillStyle = color + "c0";
-      ctx.font = `700 ${p ? 8.5 : 6.5}px sans-serif`;
+      ctx.font = `700 ${sc.fontBack}px sans-serif`;
       ctx.textAlign = "center";
-      ctx.fillText(`${vessel} back`, qRim.sx, qRim.sy - (p ? 11 : 8));
+      ctx.fillText(`${vessel} back`, qRim.sx, qRim.sy - (sc.v_11_8));
     }
     ctx.textAlign = "left"; ctx.restore();
     return null;
@@ -611,77 +717,77 @@ function drawFenestration3D(
   );
   const rx = Math.max(
     Math.hypot(right.sx - left.sx, right.sy - left.sy) / 2,
-    p ? 7 : 4,
+    sc.v_7_4,
   );
   const ry = Math.max(
     Math.hypot(bottom.sx - top.sx, bottom.sy - top.sy) / 2,
-    p ? 7 : 4,
+    sc.v_7_4,
   );
   const rotation = Math.atan2(right.sy - left.sy, right.sx - left.sx);
   const guideRx = rx;
   const guideRy = ry;
-  const coreRx = Math.max(p ? 5 : 3.8, Math.min(rx * 0.54, p ? 10 : 6.8));
-  const coreRy = Math.max(p ? 5 : 3.8, Math.min(ry * 0.54, p ? 10 : 6.8));
-  const haloRx = guideRx + (p ? 4.5 : 3.6);
-  const haloRy = guideRy + (p ? 4.5 : 3.6);
+  const coreRx = Math.max(sc.v_5_3_8, Math.min(rx * 0.54, sc.v_10_6_8));
+  const coreRy = Math.max(sc.v_5_3_8, Math.min(ry * 0.54, sc.v_10_6_8));
+  const haloRx = guideRx + (sc.haloExpand);
+  const haloRy = guideRy + (sc.haloExpand);
 
   ctx.save();
   if (isConflicted) {
     ctx.beginPath(); ctx.ellipse(q.sx, q.sy, haloRx, haloRy, rotation, 0, 2 * Math.PI);
-    ctx.strokeStyle = "#dc262672"; ctx.lineWidth = p ? 1.6 : 1.1;
-    ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = "#dc262672"; ctx.lineWidth = sc.v_1_6_1_1;
+    ctx.setLineDash([sc.v_4_3, sc.v_3_2]); ctx.stroke(); ctx.setLineDash([]);
   }
   ctx.beginPath(); ctx.ellipse(q.sx, q.sy, guideRx, guideRy, rotation, 0, 2 * Math.PI);
   ctx.strokeStyle = q.front ? color + "8c" : color + "5c";
-  ctx.lineWidth = p ? 1.4 : 1.05;
-  ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]);
+  ctx.lineWidth = sc.strokeGuide;
+  ctx.setLineDash([sc.v_4_3, sc.v_3_2]);
   ctx.stroke();
   ctx.setLineDash([]);
 
   ctx.beginPath(); ctx.ellipse(q.sx, q.sy, coreRx, coreRy, rotation, 0, 2 * Math.PI);
   if (q.front) {
     ctx.fillStyle = "#ffffff"; ctx.fill();
-    ctx.strokeStyle = color; ctx.lineWidth = p ? 2.2 : 1.8; ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = sc.strokeCore; ctx.stroke();
 
-    const csx = Math.max(p ? 5 : 3, coreRx * 0.72);
-    const csy = Math.max(p ? 5 : 3, coreRy * 0.72);
-    ctx.strokeStyle = color; ctx.lineWidth = p ? 1.2 : 0.9;
+    const csx = Math.max(sc.v_5_3, coreRx * 0.72);
+    const csy = Math.max(sc.v_5_3, coreRy * 0.72);
+    ctx.strokeStyle = color; ctx.lineWidth = sc.v_1_2_0_9;
     ctx.beginPath();
     ctx.moveTo(q.sx - csx, q.sy); ctx.lineTo(q.sx + csx, q.sy);
     ctx.moveTo(q.sx, q.sy - csy); ctx.lineTo(q.sx, q.sy + csy);
     ctx.stroke();
 
     if (isStrFree) {
-      ctx.fillStyle = "#111827"; ctx.font = `900 ${p ? 14 : 10}px sans-serif`; ctx.textAlign = "center";
-      ctx.fillText("A", q.sx, q.sy + ry + (p ? 13 : 9));
+      ctx.fillStyle = "#111827"; ctx.font = `900 ${sc.fontBadge}px sans-serif`; ctx.textAlign = "center";
+      ctx.fillText("A", q.sx, q.sy + ry + (sc.v_13_9));
     }
-    ctx.fillStyle = color; ctx.font = `700 ${p ? 10 : 7.5}px sans-serif`;
-    ctx.fillText(vessel, q.sx + rx + (p ? 3 : 2), q.sy + 3);
+    ctx.fillStyle = color; ctx.font = `700 ${sc.fontVessel}px sans-serif`;
+    ctx.fillText(vessel, q.sx + rx + (sc.v_3_2), q.sy + 3);
   } else {
     ctx.fillStyle = color + "14";
     ctx.fill();
     ctx.strokeStyle = color + "c0";
-    ctx.lineWidth = p ? 1.8 : 1.4;
-    ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]);
+    ctx.lineWidth = sc.v_1_8_1_4;
+    ctx.setLineDash([sc.v_4_3, sc.v_3_2]);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.arc(q.sx, q.sy, Math.max(p ? 2.6 : 2, Math.min(rx, ry) * 0.32), 0, 2 * Math.PI);
+    ctx.arc(q.sx, q.sy, Math.max(sc.v_2_6_2, Math.min(rx, ry) * 0.32), 0, 2 * Math.PI);
     ctx.fillStyle = color + "d0";
     ctx.fill();
 
     ctx.fillStyle = color + "d0";
-    ctx.font = `700 ${p ? 8.5 : 6.5}px sans-serif`;
+    ctx.font = `700 ${sc.fontBack}px sans-serif`;
     ctx.textAlign = "center";
     ctx.fillText(vessel, q.sx, backLabelY);
 
     ctx.fillStyle = "rgba(17,24,39,0.62)";
-    ctx.font = `600 ${p ? 7.5 : 6}px sans-serif`;
+    ctx.font = `600 ${sc.v_7_5_6}px sans-serif`;
     ctx.fillText("BACK", backTagX, backTagY);
 
     if (isConflicted) {
       ctx.fillStyle = "#dc2626c8";
-      ctx.font = `600 ${p ? 7.5 : 6}px sans-serif`;
+      ctx.font = `600 ${sc.v_7_5_6}px sans-serif`;
       ctx.fillText("conflict", q.sx, backMetaY);
     }
   }
@@ -734,38 +840,38 @@ export function renderGraftSketch({
     return;
   }
 
-  const p          = mode === "print";
-  const printScale = p ? width / 600 : 1;
+  const sc = buildScaleContext(mode);
+  const printScale = sc.isPrint ? width / 600 : 1;
   const lw         = Math.round(width  / printScale);
   const lh         = Math.round(height / printScale);
 
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height);
-  if (p) ctx.scale(printScale, printScale);
+  if (sc.isPrint) ctx.scale(printScale, printScale);
 
-  const margin  = p ? 24 : 20;
-  const headerH = p ? 54 : 44;
-  const footerH = p ? 42 : 36;
+  const margin  = sc.margin;
+  const headerH = sc.headerH;
+  const footerH = sc.footerH;
 
   // Same 52/48 layout split as v1
   const totalBodyW = lw - margin * 2;
   const drawPanelW = Math.round(totalBodyW * 0.52);
-  const specPanelX = margin + drawPanelW + (p ? 16 : 14);
+  const specPanelX = margin + drawPanelW + (sc.v_16_14);
   const specPanelW = lw - specPanelX - margin;
   const bodyY      = margin + headerH;
   const bodyH      = lh - bodyY - footerH - margin;
 
   // ── Header (unchanged from v1) ───────────────────────────────────────────
-  ctx.fillStyle = "#10211f"; ctx.font = `700 ${p ? 20 : 13}px sans-serif`;
-  ctx.fillText(result.device.name, margin, margin + (p ? 22 : 14));
-  ctx.fillStyle = "#45605b"; ctx.font = `400 ${p ? 12 : 9}px sans-serif`;
+  ctx.fillStyle = "#10211f"; ctx.font = `700 ${sc.fontHeader}px sans-serif`;
+  ctx.fillText(result.device.name, margin, margin + (sc.v_22_14));
+  ctx.fillStyle = "#45605b"; ctx.font = `400 ${sc.fontSub}px sans-serif`;
   ctx.fillText(
     `${result.size.graftDiameter} mm \u00b7 ${result.nPeaks} peaks \u00b7 ${result.size.sheathFr} Fr \u00b7 ${result.device.fabricMaterial} \u00b7 Foreshortening ${(result.device.foreshortening * 100).toFixed(0)}%`,
-    margin, margin + (p ? 38 : 24),
+    margin, margin + (sc.v_38_24),
   );
   if (caseInput.patientId ?? caseInput.surgeonName) {
     ctx.fillText(
       `Patient: ${caseInput.patientId ?? "\u2014"}   Surgeon: ${caseInput.surgeonName ?? "\u2014"}`,
-      margin, margin + (p ? 52 : 34),
+      margin, margin + (sc.v_52_34),
     );
   }
 
@@ -780,14 +886,14 @@ export function renderGraftSketch({
     proximalRingOffset + nRings * ringHeight + (nRings - 1) * interRingGap + 16,
     ...caseInput.fenestrations.map((f) => f.depthMm + 22),
   );
-  const annotW      = p ? 68 : 34;
-  const cylBodyW    = drawPanelW - annotW - (p ? 14 : 8);
-  const supraClear  = p ? 40 : 24;
-  const availH      = bodyH - supraClear - (p ? 30 : 20);
+  const annotW      = sc.v_68_34;
+  const cylBodyW    = drawPanelW - annotW - (sc.v_14_8);
+  const supraClear  = sc.v_40_24;
+  const availH      = bodyH - supraClear - (sc.v_30_20);
 
   const baseScale = Math.min(
     cylBodyW / (2 * R),
-    p ? availH / (maxDepth * Math.cos(el)) : Math.min(availH / (maxDepth * Math.cos(el)), 3.0),
+    sc.isPrint ? availH / (maxDepth * Math.cos(el)) : Math.min(availH / (maxDepth * Math.cos(el)), 3.0),
   );
   const scale = baseScale * zoom;
 
@@ -800,7 +906,7 @@ export function renderGraftSketch({
 
   // ── Cylinder body ────────────────────────────────────────────────────────
   drawCylinderBody(ctx, originX, rimTopY, rimBotY, cylW, rimRY);
-  ctx.font = `400 ${p ? 8.5 : 6.5}px sans-serif`;
+  ctx.font = `400 ${sc.fontBack}px sans-serif`;
   drawZoneTints(
     ctx,
     originX,
@@ -810,8 +916,7 @@ export function renderGraftSketch({
     ringHeight,
     interRingGap,
     nRings,
-    el,
-    p,
+    el, sc,
     proximalRingOffset,
   );
 
@@ -820,20 +925,20 @@ export function renderGraftSketch({
     let bZ = proximalRingOffset;
     ctx.fillStyle = "rgba(107,114,128,0.65)"; ctx.textAlign = "left";
     for (let r = 0; r < nRings; r++) {
-      ctx.fillText(`Ring ${r + 1}`, originX + cylW + (p ? 4 : 3), rimTopY + bZ * Math.cos(el) * scale + ringHeight * Math.cos(el) * scale / 2 + 3);
+      ctx.fillText(`Ring ${r + 1}`, originX + cylW + (sc.v_4_3), rimTopY + bZ * Math.cos(el) * scale + ringHeight * Math.cos(el) * scale / 2 + 3);
       bZ += ringHeight + interRingGap;
     }
   }
 
   // Cylinder walls
-  ctx.strokeStyle = "#10211f"; ctx.lineWidth = p ? 2.0 : 1.5;
+  ctx.strokeStyle = "#10211f"; ctx.lineWidth = sc.v_2_0_1_5;
   ctx.beginPath();
   ctx.moveTo(originX - cylW, rimTopY); ctx.lineTo(originX - cylW, rimBotY);
   ctx.moveTo(originX + cylW, rimTopY); ctx.lineTo(originX + cylW, rimBotY);
   ctx.stroke();
 
   // Proximal rim ellipse
-  ctx.strokeStyle = "#10211f"; ctx.lineWidth = p ? 1.8 : 1.3;
+  ctx.strokeStyle = "#10211f"; ctx.lineWidth = sc.v_1_8_1_3;
   ctx.beginPath(); ctx.ellipse(originX, rimTopY, cylW, rimRY, 0, 0, 2 * Math.PI); ctx.stroke();
   // Interior gradient fill (3-D depth effect)
   ctx.save();
@@ -843,14 +948,14 @@ export function renderGraftSketch({
   ctx.fillStyle = rimGrad; ctx.fill(); ctx.restore();
 
   // Distal rim (lower half solid, upper dashed)
-  ctx.strokeStyle = "#333"; ctx.lineWidth = p ? 1.4 : 1.1;
+  ctx.strokeStyle = "#333"; ctx.lineWidth = sc.v_1_4_1_1;
   ctx.beginPath(); ctx.ellipse(originX, rimBotY, cylW, rimRY, 0, 0, Math.PI); ctx.stroke();
-  ctx.save(); ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]); ctx.strokeStyle = "rgba(51,51,51,0.28)";
+  ctx.save(); ctx.setLineDash([sc.v_4_3, sc.v_3_2]); ctx.strokeStyle = "rgba(51,51,51,0.28)";
   ctx.beginPath(); ctx.ellipse(originX, rimBotY, cylW, rimRY, 0, Math.PI, 2 * Math.PI); ctx.stroke();
   ctx.restore();
 
   // ── Stent rings (Z-stent or sinusoidal depending on device) ─────────────
-  const strutLW = p ? 2.0 : 1.6;
+  const strutLW = sc.v_2_0_1_6;
   let ringZ     = proximalRingOffset;
   for (let r = 0; r < nRings; r++) {
     drawRing3D(
@@ -925,26 +1030,26 @@ export function renderGraftSketch({
   }
 
   // ── Diameter callout ──────────────────────────────────────────────────────
-  const diaY = rimTopY - rimRY - (p ? 18 : 12);
-  ctx.strokeStyle = "#10211f"; ctx.lineWidth = p ? 1.4 : 1.0;
+  const diaY = rimTopY - rimRY - (sc.v_18_12);
+  ctx.strokeStyle = "#10211f"; ctx.lineWidth = sc.v_1_4_1_0;
   ctx.beginPath();
   ctx.moveTo(originX - cylW, diaY); ctx.lineTo(originX + cylW, diaY);
-  ctx.moveTo(originX - cylW, diaY - (p?5:3)); ctx.lineTo(originX - cylW, diaY + (p?5:3));
-  ctx.moveTo(originX + cylW, diaY - (p?5:3)); ctx.lineTo(originX + cylW, diaY + (p?5:3));
+  ctx.moveTo(originX - cylW, diaY - (sc.isPrint ? 5 : 3)); ctx.lineTo(originX - cylW, diaY + (sc.isPrint ? 5 : 3));
+  ctx.moveTo(originX + cylW, diaY - (sc.isPrint ? 5 : 3)); ctx.lineTo(originX + cylW, diaY + (sc.isPrint ? 5 : 3));
   ctx.stroke();
-  ctx.fillStyle = "#10211f"; ctx.font = `700 ${p ? 13 : 9}px sans-serif`; ctx.textAlign = "center";
-  ctx.fillText(`\u00d8 ${result.size.graftDiameter} mm`, originX, diaY - (p ? 7 : 4));
+  ctx.fillStyle = "#10211f"; ctx.font = `700 ${sc.v_13_9}px sans-serif`; ctx.textAlign = "center";
+  ctx.fillText(`\u00d8 ${result.size.graftDiameter} mm`, originX, diaY - (sc.v_7_4));
   ctx.textAlign = "left";
 
   // ── Clock guide labels at proximal rim ───────────────────────────────────
-  ctx.font = `600 ${p ? 9 : 6.5}px sans-serif`; ctx.textAlign = "center";
+  ctx.font = `600 ${sc.v_9_6_5}px sans-serif`; ctx.textAlign = "center";
   for (const [label, deg] of [["12:00 (A)", 0], ["3:00", 90], ["9:00", 270]] as [string, number][]) {
     const theta = ((delta / circ) + deg / 360) * 2 * Math.PI;
     const q = project3D(R * Math.sin(theta), R * Math.cos(theta), 0, az, el, originX, originY, scale);
     if (q.d < 0) continue;
     ctx.fillStyle = "#374151";
-    ctx.fillText(label, q.sx, rimTopY - rimRY - (p ? 8 : 5));
-    ctx.strokeStyle = "rgba(0,0,0,0.08)"; ctx.lineWidth = 0.4; ctx.setLineDash([p?4:3, p?3:2]);
+    ctx.fillText(label, q.sx, rimTopY - rimRY - (sc.v_8_5));
+    ctx.strokeStyle = "rgba(0,0,0,0.08)"; ctx.lineWidth = 0.4; ctx.setLineDash([sc.isPrint ? 4 : 3, sc?3:2]);
     ctx.beginPath(); ctx.moveTo(q.sx, rimTopY); ctx.lineTo(q.sx, rimBotY); ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -969,37 +1074,37 @@ export function renderGraftSketch({
     const dl = drawFenestration3D(
       ctx, R, clockDeg, fen.depthMm, fen.widthMm, fen.heightMm,
       fen.vessel, fen.ftype, isConflict, conflict?.minDist ?? 0, isStrFree,
-      delta, circ, az, el, originX, originY, scale, p,
+      delta, circ, az, el, originX, originY, scale, sc,
     );
     if (dl) dimLines.push(dl);
   });
 
   // ── Depth dimension lines (Cook CMD style) ───────────────────────────────
   {
-    const colW = p ? 14 : 10, arrowSz = p ? 3.5 : 2.5;
+    const colW = sc.fontBadge, arrowSz = sc.v_3_5_2_5;
     dimLines.forEach(({ sy, label, color }, i) => {
-      const dimX = originX - cylW - (p ? 10 : 7) - i * colW;
-      ctx.strokeStyle = color; ctx.lineWidth = p ? 1.2 : 0.9;
+      const dimX = originX - cylW - (sc.v_10_7) - i * colW;
+      ctx.strokeStyle = color; ctx.lineWidth = sc.v_1_2_0_9;
       ctx.beginPath(); ctx.moveTo(dimX, rimTopY); ctx.lineTo(dimX, sy); ctx.stroke();
       ctx.fillStyle = color;
       drawArrow(ctx, dimX, rimTopY, "up",   arrowSz);
       drawArrow(ctx, dimX, sy,      "down", arrowSz);
-      ctx.strokeStyle = `${color}50`; ctx.lineWidth = 0.5; ctx.setLineDash([p?3:2, p?2:1.5]);
+      ctx.strokeStyle = `${color}50`; ctx.lineWidth = 0.5; ctx.setLineDash([sc.isPrint ? 3 : 2, sc?2:1.5]);
       ctx.beginPath();
       ctx.moveTo(dimX, rimTopY); ctx.lineTo(originX - cylW, rimTopY);
       ctx.moveTo(dimX, sy);      ctx.lineTo(originX - cylW, sy);
       ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle = color; ctx.font = `700 ${p ? 11 : 8}px sans-serif`; ctx.textAlign = "right";
-      ctx.fillText(label, dimX - (p ? 3 : 2), (rimTopY + sy) / 2 + 4);
+      ctx.fillStyle = color; ctx.font = `700 ${sc.v_11_8}px sans-serif`; ctx.textAlign = "right";
+      ctx.fillText(label, dimX - (sc.v_3_2), (rimTopY + sy) / 2 + 4);
       ctx.textAlign = "left";
     });
   }
 
   // ── Bifurcation hint ─────────────────────────────────────────────────────
   {
-    const legLen = Math.min(p ? 22 : 14, lh - rimBotY - 12);
+    const legLen = Math.min(sc.v_22_14, lh - rimBotY - 12);
     if (legLen > 4) {
-      ctx.setLineDash([p?4:3, p?3:2]); ctx.strokeStyle = "rgba(16,33,31,0.48)"; ctx.lineWidth = p?1.6:1.2;
+      ctx.setLineDash([sc.isPrint ? 4 : 3, sc?3:2]); ctx.strokeStyle = "rgba(16,33,31,0.48)"; ctx.lineWidth = sc.isPrint ? 1.6 : 1.2;
       ctx.beginPath();
       ctx.moveTo(originX - cylW, rimBotY); ctx.lineTo(originX - cylW * 0.30, rimBotY + legLen);
       ctx.moveTo(originX + cylW, rimBotY); ctx.lineTo(originX + cylW * 0.30, rimBotY + legLen);
@@ -1008,18 +1113,18 @@ export function renderGraftSketch({
   }
 
   // ── Depth axis ───────────────────────────────────────────────────────────
-  ctx.fillStyle = "#374151"; ctx.font = `400 ${p?9:7}px sans-serif`;
+  ctx.fillStyle = "#374151"; ctx.font = `400 ${sc.isPrint ? 9 : 7}px sans-serif`;
   ctx.strokeStyle = "rgba(55,65,81,0.40)"; ctx.lineWidth = 0.6; ctx.textAlign = "right";
   for (let d = 0; d <= maxDepth; d += 10) {
     const gy = rimTopY + d * Math.cos(el) * scale;
     if (gy > rimBotY + 6) break;
-    ctx.beginPath(); ctx.moveTo(originX - cylW - (p?3:2), gy); ctx.lineTo(originX - cylW, gy); ctx.stroke();
-    ctx.fillText(`${d}`, originX - cylW - (p?5:4), gy + 3);
+    ctx.beginPath(); ctx.moveTo(originX - cylW - (sc.isPrint ? 3 : 2), gy); ctx.lineTo(originX - cylW, gy); ctx.stroke();
+    ctx.fillText(`${d}`, originX - cylW - (sc.isPrint ? 5 : 4), gy + 3);
   }
   ctx.textAlign = "left";
   ctx.save();
-  ctx.translate(originX - cylW - (p?22:14), rimTopY + (rimBotY - rimTopY) / 2);
-  ctx.rotate(-Math.PI / 2); ctx.font = `400 ${p?7.5:6}px sans-serif`;
+  ctx.translate(originX - cylW - (sc.isPrint ? 22 : 14), rimTopY + (rimBotY - rimTopY) / 2);
+  ctx.rotate(-Math.PI / 2); ctx.font = `400 ${sc.isPrint ? 7.5 : 6}px sans-serif`;
   ctx.fillStyle = "#374151"; ctx.textAlign = "center";
   ctx.fillText("Distance from proximal edge (mm)", 0, 0);
   ctx.restore();
@@ -1028,13 +1133,13 @@ export function renderGraftSketch({
   // SPEC PANEL — exact copy from v1, no changes
   // ══════════════════════════════════════════════════════════════════════════
 
-  const lineH = p ? 15 : 12;
-  let sy      = bodyY + (p ? 6 : 4);
+  const lineH = sc.v_15_12;
+  let sy      = bodyY + (sc.v_6_4);
   const sw    = specPanelW;
 
-  ctx.fillStyle = "#111827"; ctx.font = `700 ${p?14:10}px sans-serif`;
+  ctx.fillStyle = "#111827"; ctx.font = `700 ${sc.isPrint ? 14 : 10}px sans-serif`;
   ctx.fillText("ROTATION PLAN", specPanelX, sy); sy += lineH * 1.3;
-  ctx.fillStyle = "#0f766e"; ctx.font = `600 ${p?11:9}px sans-serif`;
+  ctx.fillStyle = "#0f766e"; ctx.font = `600 ${sc.isPrint ? 11 : 9}px sans-serif`;
   sy = wrapText(ctx, getRotationSummary(result), specPanelX, sy, sw, lineH, 4);
   sy += lineH * 0.8;
   ctx.strokeStyle = "rgba(16,33,31,0.15)"; ctx.lineWidth = 0.5;
@@ -1054,32 +1159,32 @@ export function renderGraftSketch({
         ? `REINFORCED LARGE FENESTRATION #${fcnt.LARGE_FEN}`
         : `REINFORCED SMALL FENESTRATION #${fcnt.SMALL_FEN}`;
 
-    ctx.fillStyle = color; ctx.font = `700 ${p?12:9}px sans-serif`;
+    ctx.fillStyle = color; ctx.font = `700 ${sc.isPrint ? 12 : 9}px sans-serif`;
     ctx.fillText(typeLabel, specPanelX, sy); sy += lineH;
 
     if (fen.ftype !== "SCALLOP") {
       const arcSep   = computeArcSep(adjClock, seamDeg, delta, circ);
       const isStrFree = !isConflicted && isInInterRingGap(fen.depthMm, ringHeight, interRingGap, nRings);
       if (isStrFree) {
-        ctx.fillStyle = "#0f766e"; ctx.font = `700 ${p?11:8}px sans-serif`;
-        ctx.fillText("**Strut Free**", specPanelX + (p?6:4), sy); sy += lineH;
+        ctx.fillStyle = "#0f766e"; ctx.font = `700 ${sc.isPrint ? 11 : 8}px sans-serif`;
+        ctx.fillText("**Strut Free**", specPanelX + (sc.isPrint ? 6 : 4), sy); sy += lineH;
       } else if (isConflicted) {
-        ctx.fillStyle = "#dc2626"; ctx.font = `700 ${p?11:8}px sans-serif`;
-        ctx.fillText(`\u26a0 Conflict \u2014 min clearance ${conflict.minDist.toFixed(1)} mm`, specPanelX + (p?6:4), sy); sy += lineH;
+        ctx.fillStyle = "#dc2626"; ctx.font = `700 ${sc.isPrint ? 11 : 8}px sans-serif`;
+        ctx.fillText(`\u26a0 Conflict \u2014 min clearance ${conflict.minDist.toFixed(1)} mm`, specPanelX + (sc.isPrint ? 6 : 4), sy); sy += lineH;
       }
-      ctx.fillStyle = "#334155"; ctx.font = `400 ${p?11:9}px sans-serif`;
+      ctx.fillStyle = "#334155"; ctx.font = `400 ${sc.isPrint ? 11 : 9}px sans-serif`;
       for (const line of [
         `WIDTH: ${fen.widthMm} mm`, `HEIGHT: ${fen.heightMm} mm`,
         `DIST FROM PROX EDGE: ${fen.depthMm} mm`,
         `CLOCK: ${adjClock} (ARCSEP: ${arcSep > 0 ? "+" : ""}${arcSep.toFixed(1)} mm)`,
         `Original clock: ${fen.clock}`,
-      ]) { ctx.fillText(line, specPanelX + (p?6:4), sy); sy += lineH; }
+      ]) { ctx.fillText(line, specPanelX + (sc.isPrint ? 6 : 4), sy); sy += lineH; }
     } else {
-      ctx.fillStyle = "#334155"; ctx.font = `400 ${p?11:9}px sans-serif`;
+      ctx.fillStyle = "#334155"; ctx.font = `400 ${sc.isPrint ? 11 : 9}px sans-serif`;
       for (const line of [
         `WIDTH: ${fen.widthMm} mm`, `HEIGHT: ${fen.heightMm} mm`,
         `CLOCK: ${adjClock}`, `Original clock: ${fen.clock}`,
-      ]) { ctx.fillText(line, specPanelX + (p?6:4), sy); sy += lineH; }
+      ]) { ctx.fillText(line, specPanelX + (sc.isPrint ? 6 : 4), sy); sy += lineH; }
     }
     sy += lineH * 0.5;
   });
@@ -1089,9 +1194,9 @@ export function renderGraftSketch({
   ctx.beginPath(); ctx.moveTo(specPanelX, sy); ctx.lineTo(specPanelX + sw, sy); ctx.stroke();
   sy += lineH;
 
-  ctx.fillStyle = "#10211f"; ctx.font = `700 ${p?12:9}px sans-serif`;
+  ctx.fillStyle = "#10211f"; ctx.font = `700 ${sc.isPrint ? 12 : 9}px sans-serif`;
   ctx.fillText("DEVICE", specPanelX, sy); sy += lineH;
-  ctx.fillStyle = "#334155"; ctx.font = `400 ${p?11:9}px sans-serif`;
+  ctx.fillStyle = "#334155"; ctx.font = `400 ${sc.isPrint ? 11 : 9}px sans-serif`;
   const deviceLines: string[] = [
     `Sheath: ${result.size.sheathFr} Fr`,
     `Foreshortening: ${(result.device.foreshortening * 100).toFixed(1)}%`,
@@ -1106,22 +1211,22 @@ export function renderGraftSketch({
   if (dev.minNeckLengthMm      != null) deviceLines.push(`Min neck length (IFU): ${dev.minNeckLengthMm} mm`);
   if (dev.maxInfrarenalAngleDeg != null) deviceLines.push(`Max infrarenal angle (IFU): ${dev.maxInfrarenalAngleDeg}\u00b0`);
   if (dev.maxSuprarenalAngleDeg != null) deviceLines.push(`Max suprarenal angle (IFU): ${dev.maxSuprarenalAngleDeg}\u00b0`);
-  for (const line of deviceLines) { ctx.fillText(line, specPanelX + (p?6:4), sy); sy += lineH; }
+  for (const line of deviceLines) { ctx.fillText(line, specPanelX + (sc.isPrint ? 6 : 4), sy); sy += lineH; }
 
   if (caseInput.surgeonNote) {
     sy += lineH * 0.5;
-    ctx.fillStyle = "#45605b"; ctx.font = `400 italic ${p?10:8}px sans-serif`;
+    ctx.fillStyle = "#45605b"; ctx.font = `400 italic ${sc.isPrint ? 10 : 8}px sans-serif`;
     sy = wrapText(ctx, `Note: ${caseInput.surgeonNote}`, specPanelX, sy, sw, lineH, 4);
   }
 
   // ── Footer (unchanged from v1) ────────────────────────────────────────────
-  const footerY = lh - footerH + (p ? 14 : 8);
+  const footerY = lh - footerH + (sc.v_14_8);
   ctx.strokeStyle = "rgba(16,33,31,0.15)"; ctx.lineWidth = 0.5;
-  ctx.beginPath(); ctx.moveTo(margin, footerY - (p?8:6)); ctx.lineTo(lw - margin, footerY - (p?8:6)); ctx.stroke();
-  ctx.fillStyle = "#45605b"; ctx.font = `400 ${p?9:8}px sans-serif`;
+  ctx.beginPath(); ctx.moveTo(margin, footerY - (sc.isPrint ? 8 : 6)); ctx.lineTo(lw - margin, footerY - (sc.isPrint ? 8 : 6)); ctx.stroke();
+  ctx.fillStyle = "#45605b"; ctx.font = `400 ${sc.isPrint ? 9 : 8}px sans-serif`;
   ctx.fillText("For research and planning use only. All clinical decisions remain the surgeon\u2019s responsibility. Not to scale.", margin, footerY);
-  ctx.fillText(`PMEGplan.io  \u2022  ${new Date().toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" })}`, margin, footerY + (p?12:10));
-  if (p) {
+  ctx.fillText(`PMEGplan.io  \u2022  ${new Date().toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" })}`, margin, footerY + (sc.isPrint ? 12 : 10));
+  if (sc.isPrint) {
     ctx.fillText("Signature: ___________________________   Date: ___________", lw / 2 - 10, footerY);
   }
 }
