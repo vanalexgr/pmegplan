@@ -1,0 +1,137 @@
+import { getDeviceById, getNPeaks, selectSize } from "@/lib/devices";
+import type { CaseInput, DeviceGeometry, Fenestration } from "@/lib/types";
+import { normalizeClockText, parseClockFraction } from "@/lib/planning/clock";
+import type {
+  PlanningDeviceProfile,
+  PlanningFenestration,
+  PlanningFenestrationKind,
+  PlanningProject,
+} from "@/lib/planning/types";
+
+function createProjectId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `project_${Date.now()}`;
+}
+
+function fenestrationTypeToKind(
+  type: Fenestration["ftype"],
+): PlanningFenestrationKind {
+  switch (type) {
+    case "SCALLOP":
+      return "scallop";
+    case "LARGE_FEN":
+      return "large_fenestration";
+    default:
+      return "small_fenestration";
+  }
+}
+
+function vesselToLabel(vessel: Fenestration["vessel"]): string {
+  switch (vessel) {
+    case "LRA":
+      return "Left renal";
+    case "RRA":
+      return "Right renal";
+    case "LMA":
+      return "IMA / LMA";
+    case "CELIAC":
+      return "Celiac";
+    case "CUSTOM":
+      return "Custom";
+    default:
+      return vessel;
+  }
+}
+
+function toPlanningFenestration(
+  fenestration: Fenestration,
+  index: number,
+): PlanningFenestration {
+  const normalizedClock = normalizeClockText(fenestration.clock, {
+    separator: ":",
+    padHour: false,
+  });
+
+  return {
+    id: `fen_${index + 1}`,
+    vessel: fenestration.vessel,
+    sourceType: fenestration.ftype,
+    label: vesselToLabel(fenestration.vessel),
+    kind: fenestrationTypeToKind(fenestration.ftype),
+    clockText: normalizedClock,
+    clockFraction: parseClockFraction(normalizedClock),
+    distanceMm: fenestration.depthMm,
+    widthMm: fenestration.widthMm,
+    heightMm: fenestration.heightMm,
+  };
+}
+
+function estimateTemplateHeightMm(caseInput: CaseInput): number {
+  return Math.max(
+    120,
+    ...caseInput.fenestrations.map((fenestration) => fenestration.depthMm + 28),
+  );
+}
+
+export function buildPlanningDeviceProfile(
+  device: DeviceGeometry,
+  neckDiameterMm: number,
+): PlanningDeviceProfile {
+  const size = selectSize(device, neckDiameterMm);
+  const supportedNeckRangeMm =
+    device.sizes.length > 0
+      ? {
+          min: Math.min(...device.sizes.map((candidate) => candidate.neckDiameterMin)),
+          max: Math.max(...device.sizes.map((candidate) => candidate.neckDiameterMax)),
+        }
+      : null;
+
+  return {
+    id: device.id,
+    label: device.shortName,
+    manufacturer: device.manufacturer,
+    supportedConfigurations: ["bifurcated"],
+    supportedNeckRangeMm,
+    selectedGraftDiameterMm: size?.graftDiameter ?? null,
+    templateHeightMm:
+      device.nRings * device.ringHeight +
+      Math.max(0, device.nRings - 1) * device.interRingGap +
+      28,
+    seamDeg: device.seamDeg,
+    wireRadiusMm: device.wireRadius,
+    nPeaks: size ? getNPeaks(device, size.graftDiameter) : null,
+    notes: device.pmegNotes,
+  };
+}
+
+export function createPlanningProjectFromCaseInput(
+  caseInput: CaseInput,
+  deviceId?: string | null,
+): PlanningProject {
+  const deviceProfileId = deviceId ? getDeviceById(deviceId)?.id ?? null : null;
+
+  return {
+    schemaVersion: 1,
+    projectId: createProjectId(),
+    patient: {
+      displayName: caseInput.patientId?.trim() || "Untitled PMEG case",
+      patientId: caseInput.patientId,
+      surgeonName: caseInput.surgeonName,
+      note: caseInput.surgeonNote,
+    },
+    graft: {
+      deviceProfileId,
+      configuration: "bifurcated",
+      neckDiameterMm: caseInput.neckDiameterMm,
+      templateHeightMm: estimateTemplateHeightMm(caseInput),
+      baselineMode: "top",
+      secondaryBaselineMm: null,
+      xAdjustMm: 0,
+    },
+    fenestrations: caseInput.fenestrations.map(toPlanningFenestration),
+  };
+}
+

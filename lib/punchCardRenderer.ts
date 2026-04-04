@@ -18,6 +18,10 @@
 
 import { getSealZoneHeightMm } from "@/lib/stentGeometry";
 import type { CaseInput, DeviceAnalysisResult, StrutSegment } from "@/lib/types";
+import {
+  arcMmToClockText,
+  clockTextToArcMm,
+} from "@/lib/planning/clock";
 
 // ── Colours ───────────────────────────────────────────────────────────────────
 
@@ -32,17 +36,11 @@ const VESSEL_COLORS: Record<string, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function clockToArc(clock: string, circ: number): number {
-  const [h, m] = clock.split(":").map(Number);
-  return (((h % 12) * 60 + m) / 720) * circ;
-}
-
 function arcToClockStr(arcMm: number, circ: number): string {
-  const deg    = (arcMm / circ) * 360;
-  const total  = Math.round((deg / 360) * 720);
-  const h      = Math.floor(total / 60) % 12;
-  const m      = total % 60;
-  return `${h}:${m.toString().padStart(2, "0")}`;
+  return arcMmToClockText(arcMm, circ, {
+    separator: ":",
+    padHour: false,
+  });
 }
 
 function drawRoundedRect(
@@ -176,10 +174,6 @@ export function renderPunchCard({
   );
   const xScale = chartW / result.circumferenceMm;
   const yScale = chartH / maxDepth;
-
-  // Physical mm per pixel (for calibration square and true-scale items)
-  // In print mode the canvas is sized so 1px ≈ 1mm * xScale.
-  const mmPerPx = 1 / xScale;  // how many mm does one pixel represent?
 
   // ── Card background ───────────────────────────────────────────────────────
   drawRoundedRect(ctx, 6, 6, width - 12, height - 12, p ? 28 : 18);
@@ -399,7 +393,7 @@ export function renderPunchCard({
   caseInput.fenestrations.forEach((fen, idx) => {
     const conflict   = result.optimalConflicts[idx];
     const isConf     = conflict?.conflict ?? false;
-    const adjArc     = clockToArc(conflict?.adjustedClock ?? fen.clock, result.circumferenceMm);
+    const adjArc     = clockTextToArcMm(conflict?.adjustedClock ?? fen.clock, result.circumferenceMm);
     const fenY       = chartY + fen.depthMm * yScale;
     const col        = VESSEL_COLORS[fen.vessel] ?? "#475569";
     const rW_px      = Math.max((fen.widthMm / 2) * xScale, p ? 10 : 6);
@@ -644,7 +638,7 @@ export function renderPunchCard({
     ctx.font      = `400 ${fs(8)}px sans-serif`;
     if (fen.ftype !== "SCALLOP") {
       const seam    = result.device.seamDeg;
-      const adjArcMm = clockToArc(adjClock, result.circumferenceMm);
+      const adjArcMm = clockTextToArcMm(adjClock, result.circumferenceMm);
       const seamArcMm = (seam / 360) * result.circumferenceMm + delta;
       const arcSep  = adjArcMm - seamArcMm;
       const specRows = [

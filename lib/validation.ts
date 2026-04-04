@@ -1,11 +1,15 @@
 import { z } from "zod";
-
-const clockPattern = /^(?:[0-9]|1[0-2]):[0-5][0-9]$/;
+import { isValidClockText, normalizeClockText } from "@/lib/planning/clock";
 
 export const fenestrationSchema = z.object({
   vessel: z.enum(["SMA", "LRA", "RRA", "LMA", "CELIAC", "CUSTOM"]),
   ftype: z.enum(["SCALLOP", "LARGE_FEN", "SMALL_FEN"]),
-  clock: z.string().regex(clockPattern, "Use clock format H:MM from 0:00 to 12:59."),
+  clock: z
+    .string()
+    .refine(isValidClockText, "Use clock format H:MM, HH:MM, HhMM, or HHhMM.")
+    .transform((clockText) =>
+      normalizeClockText(clockText, { separator: ":", padHour: false }),
+    ),
   depthMm: z.number().min(0).max(200),
   widthMm: z.number().min(4).max(25),
   heightMm: z.number().min(4).max(20),
@@ -19,5 +23,4 @@ export const caseSchema = z.object({
   fenestrations: z.array(fenestrationSchema).min(1).max(4),
 });
 
-export type CaseFormValues = z.infer<typeof caseSchema>;
-
+export type CaseFormValues = z.input<typeof caseSchema>;

@@ -4,11 +4,14 @@ import { create } from "zustand";
 
 import { analyseCase } from "@/lib/analysis";
 import { ALL_DEVICES } from "@/lib/devices";
+import { createPlanningProjectFromCaseInput } from "@/lib/planning/project";
 import { sampleCase } from "@/lib/sampleCase";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
+import type { PlanningProject } from "@/lib/planning/types";
 
 interface PlannerStore {
   caseInput: CaseInput;
+  planningProject: PlanningProject;
   selectedDeviceIds: string[];
   results: DeviceAnalysisResult[];
   analyse: (caseInput: CaseInput) => void;
@@ -21,11 +24,13 @@ const defaultDeviceIds = ALL_DEVICES.map((device) => device.id);
 
 export const usePlannerStore = create<PlannerStore>((set, get) => ({
   caseInput: sampleCase,
+  planningProject: createPlanningProjectFromCaseInput(sampleCase),
   selectedDeviceIds: defaultDeviceIds,
   results: analyseCase(sampleCase, defaultDeviceIds),
   analyse: (caseInput) =>
     set({
       caseInput,
+      planningProject: createPlanningProjectFromCaseInput(caseInput),
       results: analyseCase(caseInput, get().selectedDeviceIds),
     }),
   toggleDeviceSelection: (deviceId) => {
@@ -47,8 +52,8 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   loadSampleCase: () =>
     set({
       caseInput: sampleCase,
+      planningProject: createPlanningProjectFromCaseInput(sampleCase),
       selectedDeviceIds: defaultDeviceIds,
       results: analyseCase(sampleCase, defaultDeviceIds),
     }),
 }));
-

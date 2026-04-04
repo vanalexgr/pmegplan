@@ -16,6 +16,7 @@
  */
 
 import type { CaseInput, DeviceAnalysisResult, StrutSegment } from "@/lib/types";
+import { clockTextToArcMm } from "@/lib/planning/clock";
 
 const VESSEL_COLORS: Record<string, string> = {
   SMA: "#15803d", LRA: "#c2410c", RRA: "#b91c1c",
@@ -31,13 +32,8 @@ function wrapMm(x: number, circ: number): number {
   return ((x % circ) + circ) % circ;
 }
 
-function clockToArcMm(clock: string, circ: number): number {
-  const [h, m] = clock.split(":").map(Number);
-  return (((h % 12) * 60 + m) / 720) * circ;
-}
-
 function computeArcSep(adjClock: string, seamDeg: number, delta: number, circ: number): number {
-  const adjArc = clockToArcMm(adjClock, circ);
+  const adjArc = clockTextToArcMm(adjClock, circ);
   const seamArc = (seamDeg / 360) * circ + delta;
   return adjArc - seamArc;
 }
@@ -393,7 +389,7 @@ export function renderGraftSketch({ ctx, width, height, result, caseInput, mode 
     const conflict = result.optimalConflicts[idx];
     const isConf = conflict?.conflict ?? false;
     const adjClock = conflict?.adjustedClock ?? fen.clock;
-    const adjArc = clockToArcMm(adjClock, circ);
+    const adjArc = clockTextToArcMm(adjClock, circ);
     const fenDrawX = cylBodyCX + arcFromNoon(wrapMm(adjArc+delta,circ),circ)*xScale;
     const fenDrawY = cylBodyY + fen.depthMm * yScale;
     const color = VESSEL_COLORS[fen.vessel] ?? "#334155";
