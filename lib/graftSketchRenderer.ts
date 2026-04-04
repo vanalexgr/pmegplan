@@ -495,24 +495,66 @@ function drawFenestration3D(
     return null;
   }
 
-  const rx = Math.max((widthMm / 2) * scale * 0.40 * fore, p ? 8 : 4.5);
-  const ry = Math.max((heightMm / 2) * scale * 0.40, p ? 8 : 4.5);
-  const haloRx = rx + (p ? 8 : 5.5);
-  const haloRy = ry + (p ? 8 : 5.5);
+  const left = projectSurfacePoint(arcMm - widthMm / 2, depthMm, circ, R, az, el, ox, oy, scale);
+  const right = projectSurfacePoint(arcMm + widthMm / 2, depthMm, circ, R, az, el, ox, oy, scale);
+  const top = projectSurfacePoint(
+    arcMm,
+    Math.max(0, depthMm - heightMm / 2),
+    circ,
+    R,
+    az,
+    el,
+    ox,
+    oy,
+    scale,
+  );
+  const bottom = projectSurfacePoint(
+    arcMm,
+    depthMm + heightMm / 2,
+    circ,
+    R,
+    az,
+    el,
+    ox,
+    oy,
+    scale,
+  );
+  const rx = Math.max(
+    Math.hypot(right.sx - left.sx, right.sy - left.sy) / 2,
+    p ? 7 : 4,
+  );
+  const ry = Math.max(
+    Math.hypot(bottom.sx - top.sx, bottom.sy - top.sy) / 2,
+    p ? 7 : 4,
+  );
+  const rotation = Math.atan2(right.sy - left.sy, right.sx - left.sx);
+  const guideRx = rx;
+  const guideRy = ry;
+  const coreRx = Math.max(p ? 5 : 3.8, Math.min(rx * 0.54, p ? 10 : 6.8));
+  const coreRy = Math.max(p ? 5 : 3.8, Math.min(ry * 0.54, p ? 10 : 6.8));
+  const haloRx = guideRx + (p ? 4.5 : 3.6);
+  const haloRy = guideRy + (p ? 4.5 : 3.6);
 
   ctx.save();
   if (isConflicted) {
-    ctx.beginPath(); ctx.ellipse(q.sx, q.sy, haloRx, haloRy, 0, 0, 2 * Math.PI);
+    ctx.beginPath(); ctx.ellipse(q.sx, q.sy, haloRx, haloRy, rotation, 0, 2 * Math.PI);
     ctx.strokeStyle = "#dc262672"; ctx.lineWidth = p ? 1.6 : 1.1;
     ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]); ctx.stroke(); ctx.setLineDash([]);
   }
-  ctx.beginPath(); ctx.ellipse(q.sx, q.sy, rx, ry, 0, 0, 2 * Math.PI);
+  ctx.beginPath(); ctx.ellipse(q.sx, q.sy, guideRx, guideRy, rotation, 0, 2 * Math.PI);
+  ctx.strokeStyle = q.front ? color + "8c" : color + "5c";
+  ctx.lineWidth = p ? 1.4 : 1.05;
+  ctx.setLineDash([p ? 4 : 3, p ? 3 : 2]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.beginPath(); ctx.ellipse(q.sx, q.sy, coreRx, coreRy, rotation, 0, 2 * Math.PI);
   if (q.front) {
     ctx.fillStyle = "#ffffff"; ctx.fill();
     ctx.strokeStyle = color; ctx.lineWidth = p ? 2.2 : 1.8; ctx.stroke();
 
-    const csx = Math.max(p ? 5 : 3, rx * 0.45);
-    const csy = Math.max(p ? 5 : 3, ry * 0.45);
+    const csx = Math.max(p ? 5 : 3, coreRx * 0.72);
+    const csy = Math.max(p ? 5 : 3, coreRy * 0.72);
     ctx.strokeStyle = color; ctx.lineWidth = p ? 1.2 : 0.9;
     ctx.beginPath();
     ctx.moveTo(q.sx - csx, q.sy); ctx.lineTo(q.sx + csx, q.sy);
@@ -564,8 +606,8 @@ function drawFenestrationGhost3D(
   R: number,
   clockDeg: number,
   depthMm: number,
-  widthMm: number,
-  heightMm: number,
+  _widthMm: number,
+  _heightMm: number,
   vessel: string,
   circ: number,
   az: number,
@@ -578,13 +620,12 @@ function drawFenestrationGhost3D(
   const color = VESSEL_COLORS[vessel] ?? "#334155";
   const arcMm = (clockDeg / 360) * circ;
   const q = projectSurfacePoint(arcMm, depthMm, circ, R, az, el, ox, oy, scale);
-  const fore = Math.max(0.25, Math.abs(q.face) / R);
-  const rx = Math.max((widthMm / 2) * scale * 0.36 * fore, p ? 7 : 4);
-  const ry = Math.max((heightMm / 2) * scale * 0.36, p ? 7 : 4);
+  const markerR = p ? 4.2 : 2.8;
+  const guideLen = p ? 10 : 7;
 
   ctx.save();
   ctx.beginPath();
-  ctx.ellipse(q.sx, q.sy, rx, ry, 0, 0, 2 * Math.PI);
+  ctx.arc(q.sx, q.sy, markerR, 0, 2 * Math.PI);
   ctx.setLineDash([p ? 5 : 4, p ? 4 : 3]);
   ctx.strokeStyle = q.front ? color + "55" : color + "35";
   ctx.lineWidth = p ? 1.5 : 1.1;
@@ -592,9 +633,16 @@ function drawFenestrationGhost3D(
   ctx.setLineDash([]);
 
   ctx.beginPath();
-  ctx.arc(q.sx, q.sy, Math.max(p ? 2 : 1.6, Math.min(rx, ry) * 0.24), 0, 2 * Math.PI);
+  ctx.arc(q.sx, q.sy, Math.max(p ? 1.7 : 1.2, markerR * 0.42), 0, 2 * Math.PI);
   ctx.fillStyle = q.front ? color + "65" : color + "40";
   ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(q.sx, q.sy - markerR - 1);
+  ctx.lineTo(q.sx, q.sy - markerR - guideLen);
+  ctx.strokeStyle = q.front ? color + "45" : color + "30";
+  ctx.setLineDash([p ? 3 : 2, p ? 3 : 2]);
+  ctx.stroke();
+  ctx.setLineDash([]);
   ctx.restore();
 }
 
@@ -994,7 +1042,7 @@ export function renderGraftSketch({
   ctx.fillStyle = "#45605b"; ctx.font = `400 ${p?10:8}px sans-serif`;
   sy = wrapText(
     ctx,
-    "Solid markers show device-adjusted punch positions. Dashed ghosts show the original anatomy targets for cross-graft comparison.",
+    "Colored footprint outlines show the current punch size. Small dashed targets mark the original anatomy positions when rotation shifts a fenestration.",
     specPanelX,
     sy,
     sw,

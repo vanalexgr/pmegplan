@@ -1,3 +1,4 @@
+import { getRotationBurdenDeg } from "@/lib/analysis";
 import type { DeviceAnalysisResult } from "@/lib/types";
 
 export interface DeviceRecommendationSummary {
@@ -37,6 +38,7 @@ function buildReasons(
   compatibleResults: DeviceAnalysisResult[],
 ): string[] {
   const reasons: string[] = [];
+  const rotationBurdenDeg = getRotationBurdenDeg(top.rotation);
   const minimumSheath = Math.min(
     ...compatibleResults
       .map((result) => result.size?.sheathFr)
@@ -92,6 +94,12 @@ function buildReasons(
     );
   }
 
+  if (rotationBurdenDeg <= 30) {
+    reasons.push(
+      `Low rotational burden at the preferred alignment (${rotationBurdenDeg.toFixed(1)}° from the default graft orientation).`,
+    );
+  }
+
   if (top.size && top.size.sheathFr === minimumSheath) {
     reasons.push(
       `Matches the lowest delivery profile among compatible devices (${top.size.sheathFr} Fr).`,
@@ -107,10 +115,21 @@ function buildCautions(
   runnerUp: DeviceAnalysisResult | null,
 ): string[] {
   const cautions: string[] = [];
+  const rotationBurdenDeg = getRotationBurdenDeg(top.rotation);
 
   if (!top.rotation.hasConflictFreeRotation) {
     cautions.push(
       `Requires compromise rotation at ${top.rotation.bestCompromiseDeg.toFixed(1)}° rather than a fully clear window.`,
+    );
+  }
+
+  if (rotationBurdenDeg >= 75) {
+    cautions.push(
+      `Large rotational burden (${rotationBurdenDeg.toFixed(1)}° from default orientation) may make limb orientation and contralateral gate catheterisation less practical.`,
+    );
+  } else if (rotationBurdenDeg >= 45) {
+    cautions.push(
+      `Meaningful rotational burden (${rotationBurdenDeg.toFixed(1)}° from default orientation) should be checked against planned graft orientation before choosing this platform.`,
     );
   }
 

@@ -216,6 +216,43 @@ function clamp01(value: number): number {
   return Math.min(Math.max(value, 0), 1);
 }
 
+export function normalizeRotationDeltaDeg(rotationDeg: number): number {
+  const normalized = ((rotationDeg % 360) + 360) % 360;
+  return normalized > 180 ? 360 - normalized : normalized;
+}
+
+export function getRotationBurdenDeg(
+  rotation: Pick<
+    DeviceAnalysisResult["rotation"],
+    "optimalDeltaDeg" | "bestCompromiseDeg"
+  >,
+): number {
+  return normalizeRotationDeltaDeg(
+    Number.isFinite(rotation.optimalDeltaDeg)
+      ? rotation.optimalDeltaDeg
+      : rotation.bestCompromiseDeg,
+  );
+}
+
+function getRotationBurdenScore(
+  rotation: Pick<
+    DeviceAnalysisResult["rotation"],
+    "optimalDeltaDeg" | "bestCompromiseDeg"
+  >,
+): number {
+  const burdenDeg = getRotationBurdenDeg(rotation);
+
+  if (burdenDeg <= 20) {
+    return 1;
+  }
+
+  if (burdenDeg >= 90) {
+    return 0;
+  }
+
+  return clamp01((90 - burdenDeg) / 70);
+}
+
 function buildManufacturabilityScore(
   result: Pick<
     DeviceAnalysisResult,
@@ -239,12 +276,14 @@ function buildManufacturabilityScore(
     : 10;
   const sheathScore = 5 * clamp01((20 - result.size.sheathFr) / 4);
   const platformScore = 5 * ((5 - result.device.pmegSuitability) / 4);
+  const rotationBurdenScore = 12 * getRotationBurdenScore(result.rotation);
 
   return roundToTenth(
     (result.rotation.hasConflictFreeRotation ? 20 : 0) +
       25 * result.robustness.conflictFreeRate +
       10 * result.robustness.localConflictFreeRate +
       15 * clamp01(result.totalValidWindowMm / 20) +
+      rotationBurdenScore +
       clearanceScore +
       worstCaseClearanceScore +
       sheathScore +

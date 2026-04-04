@@ -33,7 +33,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { GraftSketchCanvas } from "@/components/GraftSketchCanvas";
-import { Planning3DPreview } from "@/components/Planning3DPreview";
 import { isValidClockText, normalizeClockText } from "@/lib/planning/clock";
 import {
   isLikelyCompatibleTextExport,
@@ -167,7 +166,6 @@ export function PlanningWorkspace({
   const [editDraft, setEditDraft] = useState<FenestrationEditDraft | null>(null);
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
   const [projectStatus, setProjectStatus] = useState<string | null>(null);
-  const [showProjected3D, setShowProjected3D] = useState(false);
   const viewBoxWidth = 920;
   const viewBoxHeight = 540;
   const projectGraftDiameterMm =
@@ -255,7 +253,6 @@ export function PlanningWorkspace({
     const mediaQuery = window.matchMedia("(max-width: 768px)");
     const applyViewportMode = (matches: boolean) => {
       setIsCompactViewport(matches);
-      setShowProjected3D(!matches);
     };
 
     applyViewportMode(mediaQuery.matches);
@@ -1286,44 +1283,6 @@ export function PlanningWorkspace({
               </p>
             )}
           </div>
-
-          {isCompactViewport ? (
-            <div className="rounded-[28px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.86)] p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-[color:var(--foreground)]">
-                    Projected 3D preview
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-[color:var(--muted-foreground)]">
-                    Hidden by default on smaller screens to keep the workspace responsive.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowProjected3D((current) => !current)}
-                >
-                  {showProjected3D ? "Hide preview" : "Show preview"}
-                </Button>
-              </div>
-              {showProjected3D ? (
-                <div className="mt-4">
-                  <Planning3DPreview
-                    project={project}
-                    overlayResult={overlayResult}
-                    selectedFenestrationId={selectedFenestration?.id ?? null}
-                  />
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <Planning3DPreview
-              project={project}
-              overlayResult={overlayResult}
-              selectedFenestrationId={selectedFenestration?.id ?? null}
-            />
-          )}
 
           <div className="space-y-2">
             {planarFenestrations.map(({ fenestration }, index) => {
