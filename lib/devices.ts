@@ -31,7 +31,7 @@ export const ZENITH_ALPHA: DeviceGeometry = {
   fabricMaterial: "polyester",
   pmegSuitability: 1,
   pmegNotes:
-    "Gold standard PMEG platform. Proximal working zone: Ring 1 (0–9 mm) for SMA/scallop; Gap 1 (9–15 mm) strut-free; Ring 2 (15–24 mm) for renals. Narrow 6 mm inter-ring gaps mean renal fenestrations often land on a ring — rotation planning critical. Wider grafts (≥32 mm) give meaningfully larger peak-to-peak arcs.",
+    "Gold standard PMEG platform. Zenith Alpha keeps the familiar Cook zig-zag row architecture, with relatively narrow row stacking: practical working windows can be long circumferentially but the rows themselves sit only about 6 mm apart, so renal fenestrations often still crowd a stent row and need careful rotational planning.",
   clinicalRank: 1,
   color: "#2563eb",
   waveWidthMm: 13.6,
@@ -114,17 +114,19 @@ export const ENDURANT_II: DeviceGeometry = {
   name: "Medtronic Endurant II",
   shortName: "Endurant II",
   manufacturer: "Medtronic",
-  ringHeight: 20,
-  interRingGap: 4,
+  // Short proximal covered rows packed into roughly the first 55 mm, rather
+  // than tall 20 mm oscillations, better match the published platform profile.
+  ringHeight: 8.5,
+  interRingGap: 3,
   nRings: 5,
   foreshortening: 0.07,
   seamDeg: 180,
   wireRadius: 1.8,
-  stentType: "sinusoidal",
+  stentType: "M-stent",
   fabricMaterial: "polyester",
   pmegSuitability: 2,
   pmegNotes:
-    "Common European PMEG alternative to Zenith. Helical frame is modelled as sinusoidal rings for conflict planning.",
+    "Common European PMEG alternative to Zenith. Endurant uses five densely packed proximal covered rings with Medtronic's M-stent architecture, so the PMEG working zone is concentrated in the first ~55 mm and is more pattern-sensitive than a generic wide-wave layout suggests.",
   clinicalRank: 2,
   color: "#7c3aed",
   waveWidthMm: 12.8,
@@ -194,17 +196,20 @@ export const TREO: DeviceGeometry = {
   // Transrenal fixation zone (0–18 mm above fabric edge) shown as suprarenal bare stent in sketch.
   // Working zones below fabric: Zone 1 ≈ 0–27 mm (Ring 1 + Gap 1); Zone 2 ≈ 27–54 mm (Ring 2 + Gap 2).
   // Published inter-stent distance ≈ 20 mm (operator planning estimate, not official IFU dimension).
+  // PMEG literature describes TREO's covered body as staggered sinusoidal
+  // springs with roughly 18 mm row spacing, which creates large rectangular
+  // working windows in the proximal body.
   ringHeight: 9,
-  interRingGap: 18,
+  interRingGap: 9,
   nRings: 4,
   foreshortening: 0.05,
   seamDeg: 0,
   wireRadius: 2,
-  stentType: "Z-stent",
+  stentType: "sinusoidal",
   fabricMaterial: "polyester",
   pmegSuitability: 1,
   pmegNotes:
-    "Largest conflict-free fenestration windows of any device in the database (~18 mm inter-ring gaps). Two main working zones: 0–27 mm (SMA + scallop or first renal pair) and 27–54 mm (second renal target). Dual fixation (suprarenal + infrarenal valley barbs) adds proximal security. Preferred for multiple fenestrations across a wide longitudinal range.",
+    "Wide longitudinal planning windows with staggered covered sinusoidal rows at roughly 18 mm row spacing, plus dual fixation (suprarenal crown and infrarenal valley barbs). Among the modeled infrarenal platforms, TREO offers the broadest clean fabric windows for PMEG-style modification.",
   clinicalRank: 3,
   color: "#0d9488",
   waveWidthMm: 0,
@@ -420,4 +425,3 @@ export function getNPeaks(
 export function getDeviceById(deviceId: string) {
   return ALL_DEVICES.find((device) => device.id === deviceId) ?? null;
 }
-

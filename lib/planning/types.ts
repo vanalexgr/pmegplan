@@ -19,6 +19,7 @@ export interface PlanningGraft {
   deviceProfileId: string | null;
   configuration: GraftConfiguration;
   neckDiameterMm: number;
+  selectedGraftDiameterMm: number | null;
   templateHeightMm: number;
   baselineMode: BaselineMode;
   secondaryBaselineMm: number | null;

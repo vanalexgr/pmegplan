@@ -43,6 +43,77 @@ function makeFileName(result: DeviceAnalysisResult, caseInput: CaseInput) {
   return `${slugify(result.device.shortName)}${patient}.pdf`;
 }
 
+function makeCasePrefix(caseInput: CaseInput) {
+  return caseInput.patientId ? `${slugify(caseInput.patientId)}-` : "";
+}
+
+function buildFenestrationCsv(caseInput: CaseInput) {
+  const header = [
+    "vessel",
+    "type",
+    "clock",
+    "depth_mm",
+    "width_mm",
+    "height_mm",
+  ];
+  const rows = caseInput.fenestrations.map((fenestration) => [
+    fenestration.vessel,
+    fenestration.ftype,
+    fenestration.clock,
+    fenestration.depthMm.toString(),
+    fenestration.widthMm.toString(),
+    fenestration.heightMm.toString(),
+  ]);
+
+  return [header, ...rows].map((row) => row.join(",")).join("\n");
+}
+
+function buildStructuredAnalysisJson(
+  results: DeviceAnalysisResult[],
+  caseInput: CaseInput,
+) {
+  return JSON.stringify(
+    {
+      exportedAt: new Date().toISOString(),
+      caseInput,
+      devices: results.map((result, index) => ({
+        rank: index + 1,
+        deviceId: result.device.id,
+        deviceName: result.device.name,
+        shortName: result.device.shortName,
+        selectedSizeMm: result.size?.graftDiameter ?? null,
+        sheathFr: result.size?.sheathFr ?? null,
+        manufacturabilityScore: result.manufacturabilityScore,
+        optimalRotationDeg: result.rotation.optimalDeltaDeg,
+        conflictFree: result.rotation.hasConflictFreeRotation,
+        validWindowMm: result.totalValidWindowMm,
+        minClearanceAtOptimalMm: Number.isFinite(result.minClearanceAtOptimal)
+          ? result.minClearanceAtOptimal
+          : null,
+        robustness: result.robustness,
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+function buildPrintChecklistText(caseInput: CaseInput) {
+  return [
+    "PMEGPlan Print Calibration Checklist",
+    "",
+    `Patient: ${caseInput.patientId || "N/A"}`,
+    "",
+    "1. Print at 100% / Actual Size. Do not fit to page.",
+    "2. Measure the 100 x 100 mm calibration square on the punch card.",
+    "3. Confirm the printed ruler matches the stated millimeter scale.",
+    "4. If either check fails, do not use the printed template clinically.",
+    "5. Structured JSON/CSV sidecars are included in this archive to reduce mistyping.",
+    "",
+    "For research and planning use only.",
+  ].join("\n");
+}
+
 function renderSketchOffscreenCanvas(
   result: DeviceAnalysisResult,
   caseInput: CaseInput,
@@ -169,7 +240,7 @@ async function buildSummaryPdfBlob(
 
   pdf.setFontSize(9);
   pdf.text(
-    "For research and planning use only. All clinical decisions remain the surgeon's responsibility.",
+    "For research/planning use only. Print at 100% and verify the calibration square before use.",
     16,
     198,
   );
@@ -199,11 +270,18 @@ export async function downloadAllPdfs(
 
   const summary = await buildSummaryPdfBlob(available, caseInput);
   zip.file("index.pdf", summary);
+  zip.file(`${makeCasePrefix(caseInput)}case.json`, JSON.stringify(caseInput, null, 2));
+  zip.file(`${makeCasePrefix(caseInput)}fenestrations.csv`, buildFenestrationCsv(caseInput));
+  zip.file(
+    `${makeCasePrefix(caseInput)}analysis.json`,
+    buildStructuredAnalysisJson(available, caseInput),
+  );
+  zip.file("PRINT-CALIBRATION.txt", buildPrintChecklistText(caseInput));
 
   const archive = await zip.generateAsync({ type: "blob" });
   saveAs(
     archive,
-    `${caseInput.patientId ? `${slugify(caseInput.patientId)}-` : ""}pmegplan-export.zip`,
+    `${makeCasePrefix(caseInput)}pmegplan-export.zip`,
   );
 }
 
@@ -214,4 +292,3 @@ export function buildPrintUrl(caseInput: CaseInput, deviceId: string) {
   });
   return `/punch-card-print?${params.toString()}`;
 }
-

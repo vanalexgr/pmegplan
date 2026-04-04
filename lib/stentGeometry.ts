@@ -1,36 +1,219 @@
 import type { DeviceGeometry, StrutSegment } from "@/lib/types";
 
+type StrutPattern = "zigzag" | "mshaped" | "sinusoidal";
+
+interface StrutLayoutProfile {
+  pattern: StrutPattern;
+  phaseFractions: number[];
+  mShoulderRatio?: number;
+  sinusoidSamplesPerWave?: number;
+}
+
+function getPhaseFraction(
+  phaseFractions: number[],
+  ringIndex: number,
+) {
+  return phaseFractions[ringIndex] ?? phaseFractions[phaseFractions.length - 1] ?? 0;
+}
+
+function pushPoint(
+  points: Array<[number, number]>,
+  point: [number, number],
+) {
+  const previous = points[points.length - 1];
+  if (
+    previous &&
+    Math.abs(previous[0] - point[0]) < 1e-6 &&
+    Math.abs(previous[1] - point[1]) < 1e-6
+  ) {
+    return;
+  }
+
+  points.push(point);
+}
+
+function pointsToSegments(points: Array<[number, number]>) {
+  const segments: StrutSegment[] = [];
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const [ax, ay] = points[index];
+    const [bx, by] = points[index + 1];
+    segments.push([ax, ay, bx, by]);
+  }
+
+  return segments;
+}
+
+function buildZigZagRingSegments(input: {
+  circumferenceMm: number;
+  yTopMm: number;
+  ringHeightMm: number;
+  nPeaks: number;
+  phaseFraction: number;
+}) {
+  const { circumferenceMm, yTopMm, ringHeightMm, nPeaks, phaseFraction } = input;
+  const waveWidth = circumferenceMm / nPeaks;
+  const points: Array<[number, number]> = [];
+  const startX = -waveWidth + phaseFraction * waveWidth;
+  const step = waveWidth / 2;
+  const steps = Math.ceil((circumferenceMm + waveWidth * 2) / step);
+
+  for (let pointIndex = 0; pointIndex <= steps; pointIndex += 1) {
+    const x = startX + pointIndex * step;
+    const y = pointIndex % 2 === 0 ? yTopMm : yTopMm + ringHeightMm;
+    pushPoint(points, [x, y]);
+  }
+
+  return pointsToSegments(points);
+}
+
+function buildMShapedRingSegments(input: {
+  circumferenceMm: number;
+  yTopMm: number;
+  ringHeightMm: number;
+  nPeaks: number;
+  phaseFraction: number;
+  shoulderRatio: number;
+}) {
+  const {
+    circumferenceMm,
+    yTopMm,
+    ringHeightMm,
+    nPeaks,
+    phaseFraction,
+    shoulderRatio,
+  } = input;
+  const waveWidth = circumferenceMm / nPeaks;
+  const phaseShift = phaseFraction * waveWidth;
+  const shoulderY = yTopMm + ringHeightMm * shoulderRatio;
+  const yBottomMm = yTopMm + ringHeightMm;
+  const points: Array<[number, number]> = [];
+
+  for (let waveIndex = -2; waveIndex <= nPeaks + 1; waveIndex += 1) {
+    const baseX = waveIndex * waveWidth + phaseShift;
+    pushPoint(points, [baseX, yTopMm]);
+    pushPoint(points, [baseX + waveWidth * 0.25, yBottomMm]);
+    pushPoint(points, [baseX + waveWidth * 0.5, shoulderY]);
+    pushPoint(points, [baseX + waveWidth * 0.75, yBottomMm]);
+    pushPoint(points, [baseX + waveWidth, yTopMm]);
+  }
+
+  return pointsToSegments(points);
+}
+
+function buildSinusoidalRingSegments(input: {
+  circumferenceMm: number;
+  yTopMm: number;
+  ringHeightMm: number;
+  nPeaks: number;
+  phaseFraction: number;
+  samplesPerWave: number;
+}) {
+  const {
+    circumferenceMm,
+    yTopMm,
+    ringHeightMm,
+    nPeaks,
+    phaseFraction,
+    samplesPerWave,
+  } = input;
+  const waveWidth = circumferenceMm / nPeaks;
+  const phaseShift = phaseFraction * waveWidth;
+  const amplitude = ringHeightMm / 2;
+  const yMid = yTopMm + amplitude;
+  const points: Array<[number, number]> = [];
+  const totalSamples = Math.ceil((nPeaks + 4) * samplesPerWave);
+  const startWave = -2;
+
+  for (let sampleIndex = 0; sampleIndex <= totalSamples; sampleIndex += 1) {
+    const wavePosition = startWave + sampleIndex / samplesPerWave;
+    const x = wavePosition * waveWidth + phaseShift;
+    const y = yMid - amplitude * Math.cos(wavePosition * 2 * Math.PI);
+    pushPoint(points, [x, y]);
+  }
+
+  return pointsToSegments(points);
+}
+
+function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
+  switch (device.id) {
+    case "endurant_ii":
+      return {
+        // Endurant's covered body is built around Medtronic's characteristic
+        // M-stent architecture rather than a classic wide-gap Z scaffold.
+        pattern: "mshaped",
+        phaseFractions: [0, 0.18, 0.36, 0.18, 0],
+        mShoulderRatio: 0.46,
+      };
+    case "treo":
+      return {
+        // TREO's covered body uses sinusoidal wireform springs with staggered
+        // rows, creating the broad square-ish working windows described in PMEG
+        // literature.
+        pattern: "sinusoidal",
+        phaseFractions: [0, 0.5, 0, 0.5],
+        sinusoidSamplesPerWave: 14,
+      };
+    case "gore_excluder":
+      return {
+        pattern: "sinusoidal",
+        phaseFractions: [0, 0.33, 0.66, 0.33, 0],
+        sinusoidSamplesPerWave: 16,
+      };
+    case "zenith_alpha":
+    default:
+      return {
+        pattern: "zigzag",
+        phaseFractions: [0, 0.5, 0, 0.5, 0],
+      };
+  }
+}
+
 export function buildStrutSegments(
-  circ: number,
-  ringHeight: number,
-  gapHeight: number,
-  nRings: number,
+  device: DeviceGeometry,
+  circumferenceMm: number,
+  _graftDiameterMm: number,
   nPeaks: number,
 ): StrutSegment[] {
+  const { ringHeight, interRingGap, nRings } = device;
+  const profile = getStrutLayoutProfile(device);
   const segments: StrutSegment[] = [];
-  const waveWidth = circ / nPeaks;
   let y = 0;
 
   for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
-    const y0 = y;
-    const y1 = y0 + ringHeight;
-    const phase = ringIndex % 2 === 0 ? 0 : waveWidth / 2;
-    const nPts = (Math.floor(circ / waveWidth) + 4) * 2;
-    const points: [number, number][] = [];
+    const phaseFraction = getPhaseFraction(profile.phaseFractions, ringIndex);
+    const ringSegments =
+      profile.pattern === "mshaped"
+        ? buildMShapedRingSegments({
+            circumferenceMm,
+            yTopMm: y,
+            ringHeightMm: ringHeight,
+            nPeaks,
+            phaseFraction,
+            shoulderRatio: profile.mShoulderRatio ?? 0.42,
+          })
+        : profile.pattern === "sinusoidal"
+          ? buildSinusoidalRingSegments({
+              circumferenceMm,
+              yTopMm: y,
+              ringHeightMm: ringHeight,
+              nPeaks,
+              phaseFraction,
+              samplesPerWave: profile.sinusoidSamplesPerWave ?? 12,
+            })
+          : buildZigZagRingSegments({
+              circumferenceMm,
+              yTopMm: y,
+              ringHeightMm: ringHeight,
+              nPeaks,
+              phaseFraction,
+            });
 
-    for (let pointIndex = 0; pointIndex <= nPts; pointIndex += 1) {
-      const x = pointIndex * (waveWidth / 2) + phase - waveWidth / 2;
-      const pointY = pointIndex % 2 === 0 ? y0 : y1;
-      points.push([x, pointY]);
+    for (const segment of ringSegments) {
+      segments.push(segment);
     }
 
-    for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
-      const [ax, ay] = points[pointIndex];
-      const [bx, by] = points[pointIndex + 1];
-      segments.push([ax, ay, bx, by]);
-    }
-
-    y = y1 + gapHeight;
+    y += ringHeight + interRingGap;
   }
 
   return segments;
@@ -42,4 +225,3 @@ export function getSealZoneHeightMm(device: DeviceGeometry) {
     Math.max(0, device.nRings - 1) * device.interRingGap
   );
 }
-

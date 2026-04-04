@@ -13,7 +13,244 @@ import type {
   ConflictResult,
   DeviceAnalysisResult,
   DeviceGeometry,
+  Fenestration,
+  RobustnessSummary,
 } from "@/lib/types";
+
+const ROBUSTNESS_CIRCUMFERENTIAL_ERROR_MM = 0.5;
+const ROBUSTNESS_LONGITUDINAL_ERROR_MM = 1;
+
+interface ScenarioEvaluation {
+  conflictFree: boolean;
+  minClearanceAtOptimal: number;
+  totalValidWindowMm: number;
+}
+
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function shiftFenestration(
+  fenestration: Fenestration,
+  circumferenceMm: number,
+  deltaArcMm: number,
+  deltaDepthMm: number,
+): Fenestration {
+  return {
+    ...fenestration,
+    clock: arcToClockString(
+      wrapMm(clockToArc(fenestration.clock, circumferenceMm) + deltaArcMm, circumferenceMm),
+      circumferenceMm,
+    ),
+    depthMm: roundToTenth(clamp(fenestration.depthMm + deltaDepthMm, 0, 200)),
+  };
+}
+
+function evaluateScenario(
+  fenestrations: Fenestration[],
+  segs: DeviceAnalysisResult["strutSegments"],
+  circumferenceMm: number,
+  wireRadius: number,
+): ScenarioEvaluation {
+  const rotation = optimiseRotation(
+    fenestrations,
+    segs,
+    circumferenceMm,
+    wireRadius,
+  );
+  const optimalConflicts = fenestrations.map((fenestration) =>
+    checkConflict(
+      fenestration,
+      segs,
+      circumferenceMm,
+      wireRadius,
+      rotation.optimalDeltaMm,
+    ),
+  );
+  const minimumOptimalDistance = optimalConflicts
+    .map((result) => result.minDist)
+    .filter(Number.isFinite);
+
+  return {
+    conflictFree: rotation.hasConflictFreeRotation,
+    minClearanceAtOptimal:
+      minimumOptimalDistance.length > 0
+        ? Math.min(...minimumOptimalDistance)
+        : Number.POSITIVE_INFINITY,
+    totalValidWindowMm: rotation.validWindows.reduce(
+      (sum, window) => sum + (window.endMm - window.startMm),
+      0,
+    ),
+  };
+}
+
+function buildRobustnessSummary(
+  caseInput: CaseInput,
+  segs: DeviceAnalysisResult["strutSegments"],
+  circumferenceMm: number,
+  wireRadius: number,
+): RobustnessSummary {
+  const circumferentialDeltas = [
+    -ROBUSTNESS_CIRCUMFERENTIAL_ERROR_MM,
+    0,
+    ROBUSTNESS_CIRCUMFERENTIAL_ERROR_MM,
+  ];
+  const longitudinalDeltas = [
+    -ROBUSTNESS_LONGITUDINAL_ERROR_MM,
+    0,
+    ROBUSTNESS_LONGITUDINAL_ERROR_MM,
+  ];
+  const evaluations: Array<ScenarioEvaluation & { kind: "global" | "local"; vessel: Fenestration["vessel"] | null }> = [];
+  const localTotals = new Map<Fenestration["vessel"], { count: number; success: number }>();
+
+  for (const deltaArcMm of circumferentialDeltas) {
+    for (const deltaDepthMm of longitudinalDeltas) {
+      const shiftedFenestrations = caseInput.fenestrations.map((fenestration) =>
+        shiftFenestration(fenestration, circumferenceMm, deltaArcMm, deltaDepthMm),
+      );
+      evaluations.push({
+        kind: "global",
+        vessel: null,
+        ...evaluateScenario(shiftedFenestrations, segs, circumferenceMm, wireRadius),
+      });
+    }
+  }
+
+  for (const fenestration of caseInput.fenestrations) {
+    if (!localTotals.has(fenestration.vessel)) {
+      localTotals.set(fenestration.vessel, { count: 0, success: 0 });
+    }
+
+    for (const deltaArcMm of circumferentialDeltas) {
+      for (const deltaDepthMm of longitudinalDeltas) {
+        if (deltaArcMm === 0 && deltaDepthMm === 0) {
+          continue;
+        }
+
+        const shiftedFenestrations = caseInput.fenestrations.map((currentFenestration) =>
+          currentFenestration === fenestration
+            ? shiftFenestration(
+                currentFenestration,
+                circumferenceMm,
+                deltaArcMm,
+                deltaDepthMm,
+              )
+            : currentFenestration,
+        );
+        const evaluation = evaluateScenario(
+          shiftedFenestrations,
+          segs,
+          circumferenceMm,
+          wireRadius,
+        );
+        const localSummary = localTotals.get(fenestration.vessel);
+
+        if (localSummary) {
+          localSummary.count += 1;
+          if (evaluation.conflictFree) {
+            localSummary.success += 1;
+          }
+        }
+
+        evaluations.push({
+          kind: "local",
+          vessel: fenestration.vessel,
+          ...evaluation,
+        });
+      }
+    }
+  }
+
+  const globalEvaluations = evaluations.filter((evaluation) => evaluation.kind === "global");
+  const localEvaluations = evaluations.filter((evaluation) => evaluation.kind === "local");
+  const conflictFreeCount = evaluations.filter((evaluation) => evaluation.conflictFree).length;
+  const averageMinClearanceAtOptimal =
+    evaluations.reduce((sum, evaluation) => sum + evaluation.minClearanceAtOptimal, 0) /
+    evaluations.length;
+  const averageValidWindowMm =
+    evaluations.reduce((sum, evaluation) => sum + evaluation.totalValidWindowMm, 0) /
+    evaluations.length;
+
+  let mostSensitiveVessel: Fenestration["vessel"] | null = null;
+  let mostSensitiveRate = Number.POSITIVE_INFINITY;
+
+  for (const [vessel, summary] of localTotals.entries()) {
+    const successRate = summary.count > 0 ? summary.success / summary.count : 1;
+    if (successRate < mostSensitiveRate) {
+      mostSensitiveRate = successRate;
+      mostSensitiveVessel = vessel;
+    }
+  }
+
+  return {
+    scenarioCount: evaluations.length,
+    conflictFreeCount,
+    conflictFreeRate: conflictFreeCount / evaluations.length,
+    globalScenarioCount: globalEvaluations.length,
+    globalConflictFreeRate:
+      globalEvaluations.filter((evaluation) => evaluation.conflictFree).length /
+      Math.max(globalEvaluations.length, 1),
+    localScenarioCount: localEvaluations.length,
+    localConflictFreeRate:
+      localEvaluations.filter((evaluation) => evaluation.conflictFree).length /
+      Math.max(localEvaluations.length, 1),
+    averageMinClearanceAtOptimal,
+    worstMinClearanceAtOptimal: Math.min(
+      ...evaluations.map((evaluation) => evaluation.minClearanceAtOptimal),
+    ),
+    averageValidWindowMm,
+    worstValidWindowMm: Math.min(
+      ...evaluations.map((evaluation) => evaluation.totalValidWindowMm),
+    ),
+    mostSensitiveVessel,
+    simulatedCircumferentialErrorMm: ROBUSTNESS_CIRCUMFERENTIAL_ERROR_MM,
+    simulatedLongitudinalErrorMm: ROBUSTNESS_LONGITUDINAL_ERROR_MM,
+  };
+}
+
+function clamp01(value: number): number {
+  return Math.min(Math.max(value, 0), 1);
+}
+
+function buildManufacturabilityScore(
+  result: Pick<
+    DeviceAnalysisResult,
+    | "size"
+    | "rotation"
+    | "totalValidWindowMm"
+    | "minClearanceAtOptimal"
+    | "robustness"
+    | "device"
+  >,
+): number {
+  if (!result.size || !result.robustness) {
+    return 0;
+  }
+
+  const clearanceScore = Number.isFinite(result.minClearanceAtOptimal)
+    ? 10 * clamp01(result.minClearanceAtOptimal / 6)
+    : 10;
+  const worstCaseClearanceScore = Number.isFinite(result.robustness.worstMinClearanceAtOptimal)
+    ? 10 * clamp01(result.robustness.worstMinClearanceAtOptimal / 6)
+    : 10;
+  const sheathScore = 5 * clamp01((20 - result.size.sheathFr) / 4);
+  const platformScore = 5 * ((5 - result.device.pmegSuitability) / 4);
+
+  return roundToTenth(
+    (result.rotation.hasConflictFreeRotation ? 20 : 0) +
+      25 * result.robustness.conflictFreeRate +
+      10 * result.robustness.localConflictFreeRate +
+      15 * clamp01(result.totalValidWindowMm / 20) +
+      clearanceScore +
+      worstCaseClearanceScore +
+      sheathScore +
+      platformScore,
+  );
+}
 
 function buildConflictResult(
   caseInput: CaseInput,
@@ -69,6 +306,8 @@ function analyseDevice(
       },
       minClearanceAtOptimal: 0,
       totalValidWindowMm: 0,
+      robustness: null,
+      manufacturabilityScore: 0,
       unsupportedReason:
         "No available graft size matches the requested neck diameter with standard oversizing.",
     };
@@ -77,10 +316,9 @@ function analyseDevice(
   const circumferenceMm = Math.PI * size.graftDiameter;
   const nPeaks = getNPeaks(device, size.graftDiameter);
   const strutSegments = buildStrutSegments(
+    device,
     circumferenceMm,
-    device.ringHeight,
-    device.interRingGap,
-    device.nRings,
+    size.graftDiameter,
     nPeaks,
   );
   const rotation = optimiseRotation(
@@ -131,6 +369,28 @@ function analyseDevice(
   const minimumOptimalDistance = optimalConflicts
     .map((result) => result.minDist)
     .filter(Number.isFinite);
+  const minClearanceAtOptimal =
+    minimumOptimalDistance.length > 0
+      ? Math.min(...minimumOptimalDistance)
+      : Number.POSITIVE_INFINITY;
+  const totalValidWindowMm = rotation.validWindows.reduce(
+    (sum, window) => sum + (window.endMm - window.startMm),
+    0,
+  );
+  const robustness = buildRobustnessSummary(
+    caseInput,
+    strutSegments,
+    circumferenceMm,
+    device.wireRadius,
+  );
+  const manufacturabilityScore = buildManufacturabilityScore({
+    device,
+    size,
+    rotation,
+    totalValidWindowMm,
+    minClearanceAtOptimal,
+    robustness,
+  });
 
   return {
     device,
@@ -141,14 +401,10 @@ function analyseDevice(
     baselineConflicts,
     optimalConflicts,
     rotation,
-    minClearanceAtOptimal:
-      minimumOptimalDistance.length > 0
-        ? Math.min(...minimumOptimalDistance)
-        : Number.POSITIVE_INFINITY,
-    totalValidWindowMm: rotation.validWindows.reduce(
-      (sum, window) => sum + (window.endMm - window.startMm),
-      0,
-    ),
+    minClearanceAtOptimal,
+    totalValidWindowMm,
+    robustness,
+    manufacturabilityScore,
   };
 }
 
@@ -160,6 +416,12 @@ export function rankDevices(results: DeviceAnalysisResult[]) {
 
     if (!left.size || !right.size) {
       return left.device.clinicalRank - right.device.clinicalRank;
+    }
+
+    if (
+      Math.abs(left.manufacturabilityScore - right.manufacturabilityScore) > 0.1
+    ) {
+      return right.manufacturabilityScore - left.manufacturabilityScore;
     }
 
     if (

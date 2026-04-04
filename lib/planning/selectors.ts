@@ -5,7 +5,17 @@ import {
 } from "@/lib/planning/geometry";
 
 export function selectPlanarFenestrations(project: PlanningProject) {
-  const selectedDiameterMm = project.graft.neckDiameterMm;
+  return selectPlanarFenestrationsForDiameter(
+    project,
+    project.graft.selectedGraftDiameterMm ?? project.graft.neckDiameterMm,
+  );
+}
+
+export function selectPlanarFenestrationsForDiameter(
+  project: PlanningProject,
+  graftDiameterMm: number,
+) {
+  const selectedDiameterMm = graftDiameterMm;
 
   return project.fenestrations.map((fenestration) => ({
     fenestration,
@@ -21,14 +31,26 @@ export function selectPlanarFenestrations(project: PlanningProject) {
 }
 
 export function selectCylinderFenestrations(project: PlanningProject) {
-  const selectedDiameterMm = project.graft.neckDiameterMm;
+  return selectCylinderFenestrationsForDiameter(
+    project,
+    project.graft.selectedGraftDiameterMm ?? project.graft.neckDiameterMm,
+  );
+}
 
-  return selectPlanarFenestrations(project).map(({ fenestration, point }) => ({
-    fenestration,
-    point: planarToCylinderPoint({
-      xMm: point.xMm,
-      yMm: point.yMm,
-      graftDiameterMm: selectedDiameterMm,
+export function selectCylinderFenestrationsForDiameter(
+  project: PlanningProject,
+  graftDiameterMm: number,
+) {
+  const selectedDiameterMm = graftDiameterMm;
+
+  return selectPlanarFenestrationsForDiameter(project, selectedDiameterMm).map(
+    ({ fenestration, point }) => ({
+      fenestration,
+      point: planarToCylinderPoint({
+        xMm: point.xMm,
+        yMm: point.yMm,
+        graftDiameterMm: selectedDiameterMm,
+      }),
     }),
-  }));
+  );
 }

@@ -28,7 +28,7 @@ export interface DeviceGeometry {
   foreshortening: number;
   seamDeg: number;
   wireRadius: number;
-  stentType: "Z-stent" | "helical" | "sinusoidal";
+  stentType: "Z-stent" | "helical" | "sinusoidal" | "M-stent";
   fabricMaterial: "polyester" | "ePTFE";
   pmegSuitability: 1 | 2 | 3 | 4;
   pmegNotes: string;
@@ -100,6 +100,23 @@ export interface RotationResult {
   scanData: RotationScanPoint[];
 }
 
+export interface RobustnessSummary {
+  scenarioCount: number;
+  conflictFreeCount: number;
+  conflictFreeRate: number;
+  globalScenarioCount: number;
+  globalConflictFreeRate: number;
+  localScenarioCount: number;
+  localConflictFreeRate: number;
+  averageMinClearanceAtOptimal: number;
+  worstMinClearanceAtOptimal: number;
+  averageValidWindowMm: number;
+  worstValidWindowMm: number;
+  mostSensitiveVessel: VesselName | null;
+  simulatedCircumferentialErrorMm: number;
+  simulatedLongitudinalErrorMm: number;
+}
+
 export interface DeviceAnalysisResult {
   device: DeviceGeometry;
   size: DeviceSize | null;
@@ -111,6 +128,7 @@ export interface DeviceAnalysisResult {
   rotation: RotationResult;
   minClearanceAtOptimal: number;
   totalValidWindowMm: number;
+  robustness: RobustnessSummary | null;
+  manufacturabilityScore: number;
   unsupportedReason?: string;
 }
-

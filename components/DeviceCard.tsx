@@ -66,8 +66,20 @@ export function DeviceCard({
         {result.size ? (
           <div className="grid gap-3 text-sm text-[color:var(--muted-foreground)] sm:grid-cols-4">
             <div>
+              <p className="font-medium text-[color:var(--foreground)]">Manufacturability</p>
+              <p>{result.manufacturabilityScore.toFixed(1)}</p>
+            </div>
+            <div>
               <p className="font-medium text-[color:var(--foreground)]">Selected size</p>
               <p>{result.size.graftDiameter} mm</p>
+            </div>
+            <div>
+              <p className="font-medium text-[color:var(--foreground)]">Robustness</p>
+              <p>
+                {result.robustness
+                  ? `${Math.round(result.robustness.conflictFreeRate * 100)}%`
+                  : "N/A"}
+              </p>
             </div>
             <div>
               <p className="font-medium text-[color:var(--foreground)]">Sheath</p>
@@ -76,10 +88,6 @@ export function DeviceCard({
             <div>
               <p className="font-medium text-[color:var(--foreground)]">Valid window</p>
               <p>{result.totalValidWindowMm.toFixed(1)} mm</p>
-            </div>
-            <div>
-              <p className="font-medium text-[color:var(--foreground)]">Foreshortening</p>
-              <p>{(result.device.foreshortening * 100).toFixed(1)}%</p>
             </div>
           </div>
         ) : (
@@ -126,48 +134,75 @@ export function DeviceCard({
 
                 <div className="rounded-[24px] border border-[color:var(--border)] bg-white p-4">
                   <p className="text-sm font-semibold text-[color:var(--foreground)]">
+                    Robustness check
+                  </p>
+                  <div className="mt-4 space-y-3 text-sm text-[color:var(--muted-foreground)]">
+                    {result.robustness ? (
+                      <>
+                        <p>
+                          Conflict-free in{" "}
+                          {Math.round(result.robustness.conflictFreeRate * 100)}% of
+                          simulated perturbation scenarios.
+                        </p>
+                        <p>
+                          Global shift tolerance{" "}
+                          {Math.round(result.robustness.globalConflictFreeRate * 100)}% ·
+                          single-fenestration tolerance{" "}
+                          {Math.round(result.robustness.localConflictFreeRate * 100)}%.
+                        </p>
+                        <p>
+                          Most sensitive target:{" "}
+                          {result.robustness.mostSensitiveVessel ?? "None identified"}.
+                        </p>
+                      </>
+                    ) : (
+                      <p>Robustness simulation is not available for this device.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-[color:var(--border)] bg-white p-4">
+                  <p className="text-sm font-semibold text-[color:var(--foreground)]">
                     Fenestration comparison
                   </p>
                   <div className="mt-4 space-y-3 text-sm">
-                    {caseInput.fenestrations.map((fenestration, index) => (
-                      (() => {
-                        const normalizedClock = normalizeClockText(fenestration.clock, {
+                    {caseInput.fenestrations.map((fenestration, index) => {
+                      const normalizedClock = normalizeClockText(fenestration.clock, {
+                        separator: ":",
+                        padHour: false,
+                      });
+                      const adjustedClock = normalizeClockText(
+                        result.optimalConflicts[index].adjustedClock,
+                        {
                           separator: ":",
                           padHour: false,
-                        });
-                        const adjustedClock = normalizeClockText(
-                          result.optimalConflicts[index].adjustedClock,
-                          {
-                            separator: ":",
-                            padHour: false,
-                          },
-                        );
+                        },
+                      );
 
-                        return (
-                          <div
-                            key={`${fenestration.vessel}-${index}`}
-                            className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-2xl bg-[rgba(248,244,237,0.66)] px-3 py-2"
-                          >
-                            <div>
-                              <p className="font-medium text-[color:var(--foreground)]">
-                                {fenestration.vessel}
-                              </p>
-                              <p className="text-xs text-[color:var(--muted-foreground)]">
-                                {normalizedClock}
-                                {" -> "}
-                                {adjustedClock}
-                              </p>
-                            </div>
-                            <span className="text-xs text-[color:var(--muted-foreground)]">
-                              {formatConflictLabel(result.baselineConflicts[index].conflict)}
-                            </span>
-                            <span className="text-xs font-medium text-[color:var(--foreground)]">
-                              {formatConflictLabel(result.optimalConflicts[index].conflict)}
-                            </span>
+                      return (
+                        <div
+                          key={`${fenestration.vessel}-${index}`}
+                          className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-2xl bg-[rgba(248,244,237,0.66)] px-3 py-2"
+                        >
+                          <div>
+                            <p className="font-medium text-[color:var(--foreground)]">
+                              {fenestration.vessel}
+                            </p>
+                            <p className="text-xs text-[color:var(--muted-foreground)]">
+                              {normalizedClock}
+                              {" -> "}
+                              {adjustedClock}
+                            </p>
                           </div>
-                        );
-                      })()
-                    ))}
+                          <span className="text-xs text-[color:var(--muted-foreground)]">
+                            {formatConflictLabel(result.baselineConflicts[index].conflict)}
+                          </span>
+                          <span className="text-xs font-medium text-[color:var(--foreground)]">
+                            {formatConflictLabel(result.optimalConflicts[index].conflict)}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

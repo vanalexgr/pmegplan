@@ -8,12 +8,35 @@ import type {
   PlanningProject,
 } from "@/lib/planning/types";
 
-function createProjectId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
+function hashString(value: string): string {
+  let hash = 2166136261;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
   }
 
-  return `project_${Date.now()}`;
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function createProjectId(caseInput: CaseInput, deviceId?: string | null): string {
+  const seed = JSON.stringify({
+    patientId: caseInput.patientId ?? "",
+    surgeonName: caseInput.surgeonName ?? "",
+    surgeonNote: caseInput.surgeonNote ?? "",
+    neckDiameterMm: caseInput.neckDiameterMm,
+    fenestrations: caseInput.fenestrations.map((fenestration) => ({
+      vessel: fenestration.vessel,
+      ftype: fenestration.ftype,
+      clock: fenestration.clock,
+      depthMm: fenestration.depthMm,
+      widthMm: fenestration.widthMm,
+      heightMm: fenestration.heightMm,
+    })),
+    deviceId: deviceId ?? "",
+  });
+
+  return `project_${hashString(seed)}`;
 }
 
 function fenestrationTypeToKind(
@@ -112,11 +135,15 @@ export function createPlanningProjectFromCaseInput(
   deviceId?: string | null,
   projectId?: string,
 ): PlanningProject {
-  const deviceProfileId = deviceId ? getDeviceById(deviceId)?.id ?? null : null;
+  const selectedDevice = deviceId ? getDeviceById(deviceId) : null;
+  const deviceProfileId = selectedDevice?.id ?? null;
+  const selectedSize = selectedDevice
+    ? selectSize(selectedDevice, caseInput.neckDiameterMm)
+    : null;
 
   return {
     schemaVersion: 1,
-    projectId: projectId ?? createProjectId(),
+    projectId: projectId ?? createProjectId(caseInput, deviceProfileId),
     patient: {
       displayName: caseInput.patientId?.trim() || "Untitled PMEG case",
       patientId: caseInput.patientId,
@@ -127,6 +154,8 @@ export function createPlanningProjectFromCaseInput(
       deviceProfileId,
       configuration: "bifurcated",
       neckDiameterMm: caseInput.neckDiameterMm,
+      selectedGraftDiameterMm:
+        selectedSize?.graftDiameter ?? caseInput.neckDiameterMm,
       templateHeightMm: estimateTemplateHeightMm(caseInput),
       baselineMode: "top",
       secondaryBaselineMm: null,

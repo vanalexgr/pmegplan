@@ -6,10 +6,12 @@ import { Download } from "lucide-react";
 import { AnatomyForm } from "@/components/AnatomyForm";
 import { DeviceCard } from "@/components/DeviceCard";
 import { PlanningWorkspace } from "@/components/PlanningWorkspace";
+import { RecommendationOverview } from "@/components/RecommendationOverview";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ALL_DEVICES } from "@/lib/devices";
 import { downloadAllPdfs } from "@/lib/pdfExport";
+import type { SavedPlannerProject } from "@/lib/planning/persistence";
 import type { DeviceAnalysisResult } from "@/lib/types";
 import { usePlannerStore } from "@/store/plannerStore";
 
@@ -22,7 +24,9 @@ function SummaryTable({ results }: { results: DeviceAnalysisResult[] }) {
             <th className="pb-3 pr-4">Rank</th>
             <th className="pb-3 pr-4">Device</th>
             <th className="pb-3 pr-4">Selected size</th>
+            <th className="pb-3 pr-4">Score</th>
             <th className="pb-3 pr-4">Status</th>
+            <th className="pb-3 pr-4">Robust</th>
             <th className="pb-3 pr-4">Rotation</th>
             <th className="pb-3 pr-4">Valid window</th>
             <th className="pb-3">Clearance</th>
@@ -39,12 +43,18 @@ function SummaryTable({ results }: { results: DeviceAnalysisResult[] }) {
               <td className="py-4 pr-4">
                 {result.size ? `${result.size.graftDiameter} mm` : "Unavailable"}
               </td>
+              <td className="py-4 pr-4">{result.manufacturabilityScore.toFixed(1)}</td>
               <td className="py-4 pr-4">
                 {result.rotation.hasConflictFreeRotation ? (
                   <span className="font-medium text-emerald-700">Conflict-free</span>
                 ) : (
                   <span className="text-amber-700">Compromise</span>
                 )}
+              </td>
+              <td className="py-4 pr-4">
+                {result.robustness
+                  ? `${Math.round(result.robustness.conflictFreeRate * 100)}%`
+                  : "N/A"}
               </td>
               <td className="py-4 pr-4">{result.rotation.optimalDeltaDeg.toFixed(1)}°</td>
               <td className="py-4 pr-4">{result.totalValidWindowMm.toFixed(1)} mm</td>
@@ -69,14 +79,21 @@ export function PlannerClient() {
     results,
     analyse,
     loadSampleCase,
+    loadSavedProject,
+    canUndo,
+    canRedo,
+    redo,
     setSelectedDeviceIds,
     toggleDeviceSelection,
+    undo,
     updateFenestration,
+    updateFenestrations,
   } = usePlannerStore();
   const [isPending, startTransition] = useTransition();
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const availableResults = results.filter((result) => result.size);
   const unavailableResults = results.filter((result) => !result.size);
+  const recommendedResult = availableResults[0] ?? null;
 
   const handleDownloadAll = async () => {
     setIsDownloadingAll(true);
@@ -141,12 +158,40 @@ export function PlannerClient() {
         }}
       />
 
+      <RecommendationOverview results={results} />
+
       <PlanningWorkspace
         key={planningProject.projectId}
+        caseInput={caseInput}
         project={planningProject}
-        onMoveFenestration={(index, patch) => {
+        selectedDeviceIds={selectedDeviceIds}
+        results={results}
+        recommendedResult={recommendedResult}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUpdateFenestration={(index, patch) => {
           startTransition(() => {
             updateFenestration(index, patch);
+          });
+        }}
+        onMoveAllFenestrations={(patches) => {
+          startTransition(() => {
+            updateFenestrations(patches);
+          });
+        }}
+        onUndo={() => {
+          startTransition(() => {
+            undo();
+          });
+        }}
+        onRedo={() => {
+          startTransition(() => {
+            redo();
+          });
+        }}
+        onLoadSavedProject={(savedProject: SavedPlannerProject) => {
+          startTransition(() => {
+            loadSavedProject(savedProject);
           });
         }}
       />
@@ -162,8 +207,9 @@ export function PlannerClient() {
             </h2>
           </div>
           <p className="max-w-xl text-sm leading-6 text-[color:var(--muted-foreground)]">
-            Ranking prioritises conflict-free windows, wider valid rotation
-            ranges, greater minimum clearance, and finally the published clinical hierarchy.
+            Ranking now prioritises manufacturability under realistic planning error,
+            then wider valid windows, better clearance, and finally the published
+            platform hierarchy.
           </p>
         </div>
 
@@ -210,8 +256,13 @@ export function PlannerClient() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm leading-6 text-[color:var(--muted-foreground)]">
-              Download a ZIP archive with one PDF per compatible device plus an
-              index summary for the current case.
+              Download a ZIP archive with one PDF per compatible device, a ranking
+              summary, structured coordinate exports, and a print-calibration checklist
+              for the current case.
+            </p>
+            <p className="text-sm leading-6 text-[color:var(--muted-foreground)]">
+              Before clinical use, print at 100% and measure the calibration square and
+              ruler on the generated punch card.
             </p>
             <Button
               onClick={handleDownloadAll}
