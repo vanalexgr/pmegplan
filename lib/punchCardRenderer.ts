@@ -17,7 +17,9 @@
  */
 
 import { getSealZoneHeightMm } from "@/lib/stentGeometry";
+import { getEffectiveRingGeometry } from "@/lib/devices";
 import type { CaseInput, DeviceAnalysisResult, StrutSegment } from "@/lib/types";
+
 
 
 export interface PunchCardScaleContext {
@@ -327,11 +329,12 @@ export function renderPunchCard({
   // Ring danger zones (light red)  and safe inter-ring zones (light green)
   let bandY = 0;
   const proximalRingOffset = result.device.proximalRingOffsetMm ?? 0;
+  const { ringHeight: effectiveRingH, interRingGap: effectiveGap } = getEffectiveRingGeometry(result.device, result.size);
   bandY = proximalRingOffset;
   for (let ri = 0; ri < result.device.nRings; ri++) {
     // Ring band
     const ringTop  = chartY + bandY * yScale;
-    const ringH_px = result.device.ringHeight * yScale;
+    const ringH_px = effectiveRingH * yScale;
     ctx.fillStyle = "rgba(220,38,38,0.10)";
     ctx.fillRect(chartX, ringTop, chartW, ringH_px);
 
@@ -340,11 +343,11 @@ export function renderPunchCard({
       ctx.font = `400 ${fs(8)}px sans-serif`;
       ctx.fillText(`Ring ${ri + 1}`, chartX + 4, ringTop + (sc.v_13_10));
     }
-    bandY += result.device.ringHeight;
+    bandY += effectiveRingH;
 
     if (ri < result.device.nRings - 1) {
       const gapTop  = chartY + bandY * yScale;
-      const gapH_px = result.device.interRingGap * yScale;
+      const gapH_px = effectiveGap * yScale;
       ctx.fillStyle = "rgba(15,118,110,0.11)";
       ctx.fillRect(chartX, gapTop, chartW, gapH_px);
 
@@ -352,14 +355,15 @@ export function renderPunchCard({
         ctx.fillStyle = "rgba(15,118,110,0.60)";
         ctx.font = `600 ${fs(7.5)}px sans-serif`;
         ctx.fillText(
-          `safe  ${result.device.interRingGap} mm`,
+          `safe  ${effectiveGap} mm`,
           chartX + 4,
           gapTop + gapH_px / 2 + 3,
         );
       }
-      bandY += result.device.interRingGap;
+      bandY += effectiveGap;
     }
   }
+
 
   // ── Horizontal depth grid lines (every 10 mm) ─────────────────────────────
   ctx.strokeStyle = "rgba(16,33,31,0.08)";
@@ -690,9 +694,10 @@ export function renderPunchCard({
   spec("Circ",        `${result.circumferenceMm.toFixed(1)} mm`);
   spec("Sheath",      `${result.size.sheathFr} Fr`);
   spec("Foreshorten", `${(result.device.foreshortening * 100).toFixed(0)}%`);
-  spec("Ring height", `${result.device.ringHeight} mm`);
-  spec("Gap",         `${result.device.interRingGap} mm`,
-    result.device.interRingGap >= 12 ? "#15803d" : "#c2410c");
+  spec("Ring height", `${effectiveRingH} mm`);
+  spec("Gap",         `${effectiveGap} mm`,
+    effectiveGap >= 12 ? "#15803d" : "#c2410c");
+
   spec("Peaks / ring", `${result.nPeaks}`);
   sy += lineH * 0.4;
 

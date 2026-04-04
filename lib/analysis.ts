@@ -1,4 +1,5 @@
-import { ALL_DEVICES, getDeviceById, getNPeaks, selectSize } from "@/lib/devices";
+import { ALL_DEVICES, getDeviceById, getEffectiveRingGeometry, getNPeaks, selectSize } from "@/lib/devices";
+
 import {
   arcToClockString,
   checkConflict,
@@ -381,14 +382,16 @@ function analyseDevice(
 
   const circumferenceMm = Math.PI * size.graftDiameter;
   const nPeaks = getNPeaks(device, size.graftDiameter);
+  const { ringHeight, interRingGap } = getEffectiveRingGeometry(device, size);
   const strutSegments = buildStrutSegmentsForDevice(
     device,
     circumferenceMm,
-    device.ringHeight,
-    device.interRingGap,
+    ringHeight,
+    interRingGap,
     device.nRings,
     nPeaks,
   );
+
   const rotation = optimiseRotation(
     caseInput.fenestrations,
     strutSegments,

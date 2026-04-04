@@ -121,6 +121,7 @@ export const ENDURANT_II: DeviceGeometry = {
   manufacturer: "Medtronic",
   // Short proximal covered rows packed into roughly the first 55 mm, rather
   // than tall 20 mm oscillations, better match the published platform profile.
+  // Device-level defaults (used when a size does not carry its own overrides).
   ringHeight: 8.5,
   interRingGap: 3,
   nRings: 5,
@@ -151,6 +152,10 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
+      // Template measurements (IFU print-at-100% template, 3.8 px/mm):
+      // Circumference = π × 23 ≈ 72.3 mm · 8 peaks · 5 rings · gap ~2 mm
+      ringHeightMm: 8.0,
+      interRingGapMm: 2.5,
     },
     {
       graftDiameter: 25,
@@ -159,6 +164,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
+      // Template measurements: circ = π × 25 ≈ 78.5 mm · 8 peaks · 5 rings
+      ringHeightMm: 8.5,
+      interRingGapMm: 2.5,
     },
     {
       graftDiameter: 28,
@@ -167,6 +175,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
+      // Template measurements: circ = π × 28 ≈ 88.0 mm · 8 peaks · 5 rings
+      ringHeightMm: 9.0,
+      interRingGapMm: 2.5,
     },
     {
       graftDiameter: 32,
@@ -175,6 +186,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 10,
       mainBodyLengths: [82, 124, 166],
+      // Template measurements: circ = π × 32 ≈ 100.5 mm · 10 peaks · 5 rings
+      ringHeightMm: 10.0,
+      interRingGapMm: 2.0,
     },
     {
       graftDiameter: 36,
@@ -183,6 +197,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 10,
       mainBodyLengths: [124, 166],
+      // Template measurements: circ = π × 36 ≈ 113.1 mm · 10 peaks · 5 rings
+      ringHeightMm: 10.5,
+      interRingGapMm: 2.0,
     },
   ],
   sources: [
@@ -190,8 +207,10 @@ export const ENDURANT_II: DeviceGeometry = {
     "Saratzis A et al. EJVES 2017",
     "Donas KP PMEG series",
     "IFU M985265A001DOC1 Fig 1: M-stent style covered frame and suprarenal fixation confirmed",
+    "Template geometry sourced from Medtronic print-at-100% back-table templates (3.8 px/mm calibration): 5 ring rows, nPeaks 8 (Ø23–28 mm) / 10 (Ø32–36 mm)",
   ],
 };
+
 
 export const TREO: DeviceGeometry = {
   id: "treo",
@@ -433,3 +452,23 @@ export function getNPeaks(
 export function getDeviceById(deviceId: string) {
   return ALL_DEVICES.find((device) => device.id === deviceId) ?? null;
 }
+
+/**
+ * Resolves the effective ring height and inter-ring gap for a given device + size
+ * combination. Per-size overrides (from template measurements) take precedence
+ * over device-level defaults.
+ *
+ * @example
+ *   const { ringHeight, interRingGap } = getEffectiveRingGeometry(ENDURANT_II, size32);
+ *   // → { ringHeight: 10.0, interRingGap: 2.0 } (from template measurements)
+ */
+export function getEffectiveRingGeometry(
+  device: DeviceGeometry,
+  size: import("@/lib/types").DeviceSize | null,
+): { ringHeight: number; interRingGap: number } {
+  return {
+    ringHeight: size?.ringHeightMm ?? device.ringHeight,
+    interRingGap: size?.interRingGapMm ?? device.interRingGap,
+  };
+}
+

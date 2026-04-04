@@ -17,8 +17,10 @@
  */
 
 import { clockToArc, wrapMm } from "@/lib/conflictDetection";
+import { getEffectiveRingGeometry } from "@/lib/devices";
 import { getRotationSummary } from "@/lib/analysis";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
+
 
 
 export interface ScaleContext {
@@ -876,7 +878,9 @@ export function renderGraftSketch({
   }
 
   // ── 3-D cylinder setup ───────────────────────────────────────────────────
-  const { ringHeight, interRingGap, nRings, seamDeg } = result.device;
+  const { nRings, seamDeg } = result.device;
+  const { ringHeight, interRingGap } = getEffectiveRingGeometry(result.device, result.size);
+
   const circ    = result.circumferenceMm;
   const R       = result.size.graftDiameter / 2;
   const delta   = result.rotation.optimalDeltaMm;

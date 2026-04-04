@@ -15,6 +15,18 @@ export interface DeviceSize {
   sheathFr: number;
   mainBodyLengths: number[];
   nPeaks: number;
+  /**
+   * Per-size ring row height override (mm). When set, takes precedence over
+   * `DeviceGeometry.ringHeight` for this graft diameter. Used for devices
+   * such as Endurant II where the M-stent amplitude scales with diameter
+   * (sourced from IFU template measurements).
+   */
+  ringHeightMm?: number;
+  /**
+   * Per-size inter-ring gap override (mm). When set, takes precedence over
+   * `DeviceGeometry.interRingGap` for this graft diameter.
+   */
+  interRingGapMm?: number;
 }
 
 export interface DeviceGeometry {
