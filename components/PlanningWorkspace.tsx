@@ -160,12 +160,14 @@ export function PlanningWorkspace({
   const [showStruts, setShowStruts] = useState(true);
   const [showGhosts, setShowGhosts] = useState(true);
   const [moveAllMode, setMoveAllMode] = useState(false);
+  const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [overlayDeviceId, setOverlayDeviceId] = useState<string | null>(
     recommendedResult?.device.id ?? null,
   );
   const [editDraft, setEditDraft] = useState<FenestrationEditDraft | null>(null);
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
   const [projectStatus, setProjectStatus] = useState<string | null>(null);
+  const [showProjected3D, setShowProjected3D] = useState(false);
   const viewBoxWidth = 920;
   const viewBoxHeight = 540;
   const projectGraftDiameterMm =
@@ -248,6 +250,25 @@ export function PlanningWorkspace({
     setEditDraft(toEditDraft(selectedCaseFenestration));
     setEditorStatus(null);
   }, [selectedCaseFenestration, activeSelectedIndex]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 768px)");
+    const applyViewportMode = (matches: boolean) => {
+      setIsCompactViewport(matches);
+      setShowProjected3D(!matches);
+    };
+
+    applyViewportMode(mediaQuery.matches);
+    const handleChange = (event: MediaQueryListEvent) => {
+      applyViewportMode(event.matches);
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, []);
 
   const applyDeltaToPoint = (
     point: PlanarPointMm,
@@ -567,13 +588,13 @@ export function PlanningWorkspace({
         </div>
       </CardHeader>
 
-      <CardContent className="grid gap-6 px-0 py-0 lg:grid-cols-[1.35fr_0.65fr]">
-        <div className="border-b border-[color:var(--border)] p-4 lg:border-b-0 lg:border-r">
+      <CardContent className="grid gap-6 px-0 py-0 xl:grid-cols-[1.35fr_0.65fr]">
+        <div className="border-b border-[color:var(--border)] p-4 xl:border-b-0 xl:border-r">
           <div className="overflow-hidden rounded-[28px] border border-[color:var(--border)] bg-[radial-gradient(circle_at_top,rgba(245,251,249,0.98),rgba(232,242,239,0.96))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)]">
             <svg
               ref={svgRef}
               viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
-              className="aspect-[1.7/1] w-full touch-none select-none"
+              className="aspect-[1.18/1] w-full touch-none select-none sm:aspect-[1.7/1]"
               onPointerMove={(event) => {
                 if (!dragState || event.pointerId !== dragState.pointerId) {
                   return;
@@ -814,7 +835,7 @@ export function PlanningWorkspace({
                 <GraftSketchCanvas
                   result={overlayResult}
                   caseInput={caseInput}
-                  height={520}
+                  height={isCompactViewport ? 360 : 520}
                 />
               </div>
             </div>
@@ -1266,11 +1287,43 @@ export function PlanningWorkspace({
             )}
           </div>
 
-          <Planning3DPreview
-            project={project}
-            overlayResult={overlayResult}
-            selectedFenestrationId={selectedFenestration?.id ?? null}
-          />
+          {isCompactViewport ? (
+            <div className="rounded-[28px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.86)] p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[color:var(--foreground)]">
+                    Projected 3D preview
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[color:var(--muted-foreground)]">
+                    Hidden by default on smaller screens to keep the workspace responsive.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowProjected3D((current) => !current)}
+                >
+                  {showProjected3D ? "Hide preview" : "Show preview"}
+                </Button>
+              </div>
+              {showProjected3D ? (
+                <div className="mt-4">
+                  <Planning3DPreview
+                    project={project}
+                    overlayResult={overlayResult}
+                    selectedFenestrationId={selectedFenestration?.id ?? null}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <Planning3DPreview
+              project={project}
+              overlayResult={overlayResult}
+              selectedFenestrationId={selectedFenestration?.id ?? null}
+            />
+          )}
 
           <div className="space-y-2">
             {planarFenestrations.map(({ fenestration }, index) => {

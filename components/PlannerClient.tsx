@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Download } from "lucide-react";
 
 import { AnatomyForm } from "@/components/AnatomyForm";
@@ -77,6 +77,8 @@ export function PlannerClient() {
     planningProject,
     selectedDeviceIds,
     results,
+    isReady,
+    bootstrap,
     analyse,
     loadSampleCase,
     loadSavedProject,
@@ -94,6 +96,34 @@ export function PlannerClient() {
   const availableResults = results.filter((result) => result.size);
   const unavailableResults = results.filter((result) => !result.size);
   const recommendedResult = availableResults[0] ?? null;
+
+  useEffect(() => {
+    if (isReady) {
+      return;
+    }
+
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+    let idleId: number | null = null;
+
+    const runBootstrap = () => {
+      bootstrap();
+    };
+
+    if ("requestIdleCallback" in window) {
+      idleId = window.requestIdleCallback(runBootstrap, { timeout: 250 });
+    } else {
+      timeoutId = globalThis.setTimeout(runBootstrap, 32);
+    }
+
+    return () => {
+      if (idleId !== null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+    };
+  }, [bootstrap, isReady]);
 
   const handleDownloadAll = async () => {
     setIsDownloadingAll(true);
@@ -158,44 +188,59 @@ export function PlannerClient() {
         }}
       />
 
-      <RecommendationOverview results={results} />
+      {isReady ? (
+        <>
+          <RecommendationOverview results={results} />
 
-      <PlanningWorkspace
-        key={planningProject.projectId}
-        caseInput={caseInput}
-        project={planningProject}
-        selectedDeviceIds={selectedDeviceIds}
-        results={results}
-        recommendedResult={recommendedResult}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUpdateFenestration={(index, patch) => {
-          startTransition(() => {
-            updateFenestration(index, patch);
-          });
-        }}
-        onMoveAllFenestrations={(patches) => {
-          startTransition(() => {
-            updateFenestrations(patches);
-          });
-        }}
-        onUndo={() => {
-          startTransition(() => {
-            undo();
-          });
-        }}
-        onRedo={() => {
-          startTransition(() => {
-            redo();
-          });
-        }}
-        onLoadSavedProject={(savedProject: SavedPlannerProject) => {
-          startTransition(() => {
-            loadSavedProject(savedProject);
-          });
-        }}
-      />
+          <PlanningWorkspace
+            caseInput={caseInput}
+            project={planningProject}
+            selectedDeviceIds={selectedDeviceIds}
+            results={results}
+            recommendedResult={recommendedResult}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUpdateFenestration={(index, patch) => {
+              startTransition(() => {
+                updateFenestration(index, patch);
+              });
+            }}
+            onMoveAllFenestrations={(patches) => {
+              startTransition(() => {
+                updateFenestrations(patches);
+              });
+            }}
+            onUndo={() => {
+              startTransition(() => {
+                undo();
+              });
+            }}
+            onRedo={() => {
+              startTransition(() => {
+                redo();
+              });
+            }}
+            onLoadSavedProject={(savedProject: SavedPlannerProject) => {
+              startTransition(() => {
+                loadSavedProject(savedProject);
+              });
+            }}
+          />
+        </>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Preparing planner analysis</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm leading-6 text-[color:var(--muted-foreground)]">
+            Loading the four-device rotation and robustness comparison. The form is
+            ready now, and the heavier device analysis will appear as soon as the
+            first client-side pass completes.
+          </CardContent>
+        </Card>
+      )}
 
+      {isReady ? (
       <section className="space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -239,7 +284,9 @@ export function PlannerClient() {
           ) : null}
         </div>
       </section>
+      ) : null}
 
+      {isReady ? (
       <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
         <Card>
           <CardHeader>
@@ -274,6 +321,7 @@ export function PlannerClient() {
           </CardContent>
         </Card>
       </section>
+      ) : null}
     </main>
   );
 }

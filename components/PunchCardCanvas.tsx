@@ -43,7 +43,7 @@ export function PunchCardCanvas({
       return;
     }
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
     canvas.style.width = `${width}px`;
@@ -76,4 +76,3 @@ export function PunchCardCanvas({
     </div>
   );
 }
-

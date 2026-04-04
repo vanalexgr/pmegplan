@@ -26,10 +26,12 @@ interface PlannerStore {
   planningProject: PlanningProject;
   selectedDeviceIds: string[];
   results: DeviceAnalysisResult[];
+  isReady: boolean;
   historyPast: PlannerSnapshot[];
   historyFuture: PlannerSnapshot[];
   canUndo: boolean;
   canRedo: boolean;
+  bootstrap: () => void;
   analyse: (caseInput: CaseInput) => void;
   updateFenestration: (index: number, patch: FenestrationPatch) => void;
   updateFenestrations: (
@@ -149,6 +151,7 @@ function commitSnapshotChange(
 
   return {
     ...buildStateFromSnapshot(nextSnapshot),
+    isReady: true,
     historyPast: pushPast(state.historyPast, currentSnapshot),
     historyFuture: [],
     canUndo: true,
@@ -156,22 +159,43 @@ function commitSnapshotChange(
   };
 }
 
-const initialDerived = buildPlannerSnapshot(sampleCase, defaultDeviceIds);
+const initialProject = createPlanningProjectFromCaseInput(
+  sampleCase,
+  defaultDeviceIds[0] ?? null,
+);
 const initialSnapshot = buildSnapshot(
   sampleCase,
   defaultDeviceIds,
-  initialDerived.planningProject.projectId,
+  initialProject.projectId,
 );
 
 export const usePlannerStore = create<PlannerStore>((set, get) => ({
   caseInput: cloneCaseInput(initialSnapshot.caseInput),
-  planningProject: initialDerived.planningProject,
+  planningProject: initialProject,
   selectedDeviceIds: [...initialSnapshot.selectedDeviceIds],
-  results: initialDerived.results,
+  results: [],
+  isReady: false,
   historyPast: [],
   historyFuture: [],
   canUndo: false,
   canRedo: false,
+  bootstrap: () =>
+    set((state) => {
+      if (state.isReady) {
+        return state;
+      }
+
+      const derived = buildPlannerSnapshot(
+        state.caseInput,
+        state.selectedDeviceIds,
+        state.planningProject.projectId,
+      );
+
+      return {
+        ...derived,
+        isReady: true,
+      };
+    }),
   analyse: (caseInput) =>
     set((state) =>
       commitSnapshotChange(

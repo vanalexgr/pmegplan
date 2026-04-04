@@ -74,7 +74,7 @@ export function GraftSketchCanvas({
     const canvas = canvasRef.current;
     if (!canvas || width === 0) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     // Only resize the backing store if dimensions actually changed
     const targetW = Math.floor(width * dpr);
     const targetH = Math.floor(height * dpr);
@@ -225,7 +225,7 @@ export function GraftSketchCanvas({
           onMouseDown={onMouseDown}
           onTouchStart={onTouchStart}
           className={cn(
-            "w-full rounded-[18px] border border-[color:var(--border)]",
+            "w-full touch-none rounded-[18px] border border-[color:var(--border)]",
             interactionMode === "move"
               ? "cursor-move active:cursor-move"
               : "cursor-grab active:cursor-grabbing",

@@ -33,6 +33,7 @@ export function DeviceCard({
   rank: number;
 }) {
   const [showChart, setShowChart] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const baselineCount = getConflictCount(result.baselineConflicts);
   const optimalCount = getConflictCount(result.optimalConflicts);
@@ -99,7 +100,14 @@ export function DeviceCard({
         {result.size ? (
           <>
             <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-              <PunchCardCanvas result={result} caseInput={caseInput} />
+              {showPreview ? (
+                <PunchCardCanvas result={result} caseInput={caseInput} />
+              ) : (
+                <div className="flex min-h-[260px] items-center justify-center rounded-[22px] border border-dashed border-[color:var(--border)] bg-[rgba(248,244,237,0.66)] p-6 text-center text-sm leading-6 text-[color:var(--muted-foreground)]">
+                  Punch-card preview is available on demand to keep the planner fast on
+                  desktop and mobile.
+                </div>
+              )}
 
               <div className="space-y-4">
                 <div className="rounded-[24px] border border-[color:var(--border)] bg-[rgba(248,244,237,0.76)] p-4">
@@ -207,6 +215,10 @@ export function DeviceCard({
             </div>
 
             <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={() => setShowPreview((current) => !current)}>
+                <Eye className="mr-2 size-4" />
+                {showPreview ? "Hide punch card" : "Show punch card"}
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => {
@@ -217,7 +229,6 @@ export function DeviceCard({
                   );
                 }}
               >
-                <Eye className="mr-2 size-4" />
                 View full card
               </Button>
               <Button variant="secondary" onClick={handleExport} disabled={isExporting}>

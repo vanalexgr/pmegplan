@@ -2,8 +2,8 @@
 
 import { Badge } from "@/components/ui/badge";
 import { circumferenceMm, planarToCylinderPoint } from "@/lib/planning/geometry";
-import { selectCylinderFenestrationsForDiameter } from "@/lib/planning/selectors";
-import type { PlanningProject } from "@/lib/planning/types";
+import { selectPlanarFenestrationsForDiameter } from "@/lib/planning/selectors";
+import type { PlanningFenestration, PlanningProject } from "@/lib/planning/types";
 import type { DeviceAnalysisResult, StrutSegment } from "@/lib/types";
 
 function formatMm(value: number): string {
@@ -50,6 +50,107 @@ function projectCylinderPoint(
       topY + point.y * heightScale + (point.z / radiusMm) * radiusY * 0.5,
     ),
     front: point.z >= 0,
+  };
+}
+
+function projectPlanarPoint(
+  xMm: number,
+  yMm: number,
+  graftDiameterMm: number,
+  centerX: number,
+  topY: number,
+  heightScale: number,
+  radiusX: number,
+  radiusY: number,
+) {
+  return projectCylinderPoint(
+    planarToCylinderPoint({
+      xMm,
+      yMm,
+      graftDiameterMm,
+    }),
+    centerX,
+    topY,
+    heightScale,
+    radiusX,
+    radiusY,
+  );
+}
+
+function projectFenestrationFootprint(
+  fenestration: PlanningFenestration,
+  point: { xMm: number; yMm: number },
+  graftDiameterMm: number,
+  centerX: number,
+  topY: number,
+  heightScale: number,
+  radiusX: number,
+  radiusY: number,
+) {
+  const center = projectPlanarPoint(
+    point.xMm,
+    point.yMm,
+    graftDiameterMm,
+    centerX,
+    topY,
+    heightScale,
+    radiusX,
+    radiusY,
+  );
+  const left = projectPlanarPoint(
+    point.xMm - fenestration.widthMm / 2,
+    point.yMm,
+    graftDiameterMm,
+    centerX,
+    topY,
+    heightScale,
+    radiusX,
+    radiusY,
+  );
+  const right = projectPlanarPoint(
+    point.xMm + fenestration.widthMm / 2,
+    point.yMm,
+    graftDiameterMm,
+    centerX,
+    topY,
+    heightScale,
+    radiusX,
+    radiusY,
+  );
+  const top = projectPlanarPoint(
+    point.xMm,
+    point.yMm - fenestration.heightMm / 2,
+    graftDiameterMm,
+    centerX,
+    topY,
+    heightScale,
+    radiusX,
+    radiusY,
+  );
+  const bottom = projectPlanarPoint(
+    point.xMm,
+    point.yMm + fenestration.heightMm / 2,
+    graftDiameterMm,
+    centerX,
+    topY,
+    heightScale,
+    radiusX,
+    radiusY,
+  );
+
+  return {
+    center,
+    rx: Math.max(
+      4,
+      roundSvgCoordinate(Math.hypot(right.x - left.x, right.y - left.y) / 2),
+    ),
+    ry: Math.max(
+      4,
+      roundSvgCoordinate(Math.hypot(bottom.x - top.x, bottom.y - top.y) / 2),
+    ),
+    rotationDeg: roundSvgCoordinate(
+      (Math.atan2(right.y - left.y, right.x - left.x) * 180) / Math.PI,
+    ),
   };
 }
 
@@ -112,7 +213,7 @@ export function Planning3DPreview({
     project.graft.neckDiameterMm;
   const circumference =
     overlayResult?.circumferenceMm ?? circumferenceMm(graftDiameterMm);
-  const cylinderFenestrations = selectCylinderFenestrationsForDiameter(
+  const planarFenestrations = selectPlanarFenestrationsForDiameter(
     project,
     graftDiameterMm,
   );
@@ -123,6 +224,19 @@ export function Planning3DPreview({
   const bodyHeight = 284;
   const heightScale = bodyHeight / Math.max(project.graft.templateHeightMm, 1);
   const bodyPath = buildCylinderPath(centerX, topY, bodyHeight, radiusX);
+  const projectedFenestrations = planarFenestrations.map(({ fenestration, point }) => ({
+    fenestration,
+    projected: projectFenestrationFootprint(
+      fenestration,
+      point,
+      graftDiameterMm,
+      centerX,
+      topY,
+      heightScale,
+      radiusX,
+      radiusY,
+    ),
+  }));
   const projectedStruts = overlayResult?.size
     ? overlayResult.strutSegments.map((segment) =>
         projectStrutSegment(
@@ -162,7 +276,7 @@ export function Planning3DPreview({
       </div>
 
       <div className="mt-5 overflow-hidden rounded-[24px] border border-[color:var(--border)] bg-[radial-gradient(circle_at_top,rgba(245,251,249,1),rgba(236,244,241,0.98))] p-3">
-        <svg viewBox="0 0 420 372" className="aspect-[1.15/1] w-full">
+        <svg viewBox="0 0 420 372" className="aspect-[1.02/1] w-full sm:aspect-[1.15/1]">
           {projectedStruts
             .filter((segment) => !segment.front)
             .map((segment, index) => (
@@ -179,27 +293,23 @@ export function Planning3DPreview({
               />
             ))}
 
-          {cylinderFenestrations
-            .filter(({ point }) => point.z < 0)
-            .map(({ fenestration, point }) => {
-              const projected = projectCylinderPoint(
-                point,
-                centerX,
-                topY,
-                heightScale,
-                radiusX,
-                radiusY,
-              );
+          {projectedFenestrations
+            .filter(({ projected }) => !projected.center.front)
+            .map(({ fenestration, projected }) => {
+              const ellipseTransform = `rotate(${projected.rotationDeg} ${projected.center.x} ${projected.center.y})`;
 
               return (
-                <circle
+                <ellipse
                   key={`back-fen-${fenestration.id}`}
-                  cx={projected.x}
-                  cy={projected.y}
-                  r={7}
+                  cx={projected.center.x}
+                  cy={projected.center.y}
+                  rx={projected.rx}
+                  ry={projected.ry}
+                  transform={ellipseTransform}
                   fill="rgba(12,84,72,0.12)"
                   stroke="rgba(12,84,72,0.24)"
                   strokeWidth={1.5}
+                  strokeDasharray="5 4"
                 />
               );
             })}
@@ -260,32 +370,27 @@ export function Planning3DPreview({
               />
             ))}
 
-          {cylinderFenestrations.map(({ fenestration, point }, index) => {
-            const projected = projectCylinderPoint(
-              point,
-              centerX,
-              topY,
-              heightScale,
-              radiusX,
-              radiusY,
-            );
+          {projectedFenestrations.map(({ fenestration, projected }, index) => {
             const isSelected = selectedFenestrationId === fenestration.id;
+            const ellipseTransform = `rotate(${projected.rotationDeg} ${projected.center.x} ${projected.center.y})`;
 
             return (
               <g key={fenestration.id}>
-                <circle
-                  cx={projected.x}
-                  cy={projected.y}
-                  r={isSelected ? 11 : 9}
-                  fill={projected.front ? "#0c5448" : "rgba(12,84,72,0.2)"}
+                <ellipse
+                  cx={projected.center.x}
+                  cy={projected.center.y}
+                  rx={isSelected ? projected.rx + 1.5 : projected.rx}
+                  ry={isSelected ? projected.ry + 1.5 : projected.ry}
+                  transform={ellipseTransform}
+                  fill={projected.center.front ? "#0c5448" : "rgba(12,84,72,0.2)"}
                   stroke={isSelected ? "#f0b13a" : "rgba(255,255,255,0.94)"}
                   strokeWidth={isSelected ? 3 : 2}
                 />
-                {projected.front ? (
+                {projected.center.front ? (
                   <>
                     <text
-                      x={projected.x}
-                      y={roundSvgCoordinate(projected.y + 4)}
+                      x={projected.center.x}
+                      y={roundSvgCoordinate(projected.center.y + 4)}
                       fill="white"
                       fontSize={11}
                       fontWeight={700}
@@ -294,8 +399,8 @@ export function Planning3DPreview({
                       {index + 1}
                     </text>
                     <text
-                      x={projected.x}
-                      y={roundSvgCoordinate(projected.y - 15)}
+                      x={projected.center.x}
+                      y={roundSvgCoordinate(projected.center.y - projected.ry - 8)}
                       fill="rgba(16,33,31,0.86)"
                       fontSize={11}
                       fontWeight={600}
