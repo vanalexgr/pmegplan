@@ -2,21 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { renderPunchCard } from "@/lib/punchCardRenderer";
+import { computePunchCardHeight, renderPunchCard } from "@/lib/punchCardRenderer";
 import { cn } from "@/lib/utils";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
 interface PunchCardCanvasProps {
   result: DeviceAnalysisResult;
   caseInput: CaseInput;
-  height?: number;
   className?: string;
 }
 
 export function PunchCardCanvas({
   result,
   caseInput,
-  height = 260,
   className,
 }: PunchCardCanvasProps) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -43,6 +41,7 @@ export function PunchCardCanvas({
       return;
     }
 
+    const height = computePunchCardHeight(width, result, caseInput, "preview");
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
@@ -68,7 +67,7 @@ export function PunchCardCanvas({
       showCalibration: true,
       cutMarginMm: 8,
     });
-  }, [caseInput, height, result, width]);
+  }, [caseInput, result, width]);
 
   return (
     <div ref={frameRef} className={cn("w-full", className)}>

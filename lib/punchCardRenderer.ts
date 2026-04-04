@@ -212,6 +212,31 @@ function drawArrowHead(
 
 // ── Main export ────────────────────────────────────────────────────────────────
 
+/**
+ * Computes the canvas height required for a punch card rendered at the given
+ * width with uniform (undistorted) x/y scaling. Call this before creating the
+ * canvas so that height = computePunchCardHeight(...); then pass the same
+ * height into renderPunchCard.
+ */
+export function computePunchCardHeight(
+  width:     number,
+  result:    DeviceAnalysisResult,
+  caseInput: CaseInput,
+  mode:      "preview" | "print",
+): number {
+  if (!result.size) return mode === "print" ? 400 : 300;
+  const sc = buildPunchCardScaleContext(mode);
+  const sidePanelW = sc.isPrint ? Math.min(380, width * 0.27) : Math.min(295, width * 0.34);
+  const chartW  = width - sc.v_52_20 * 2 - sidePanelW - sc.v_28_20;
+  const sealZoneH = getSealZoneHeightMm(result.device);
+  const maxDepth  = Math.max(
+    sealZoneH + 12,
+    ...caseInput.fenestrations.map((f) => f.depthMm + 28),
+  );
+  const chartH = (chartW / result.circumferenceMm) * maxDepth;
+  return Math.ceil(sc.v_80_52 + chartH + sc.v_52_20 + sc.v_56_36);
+}
+
 export interface PunchCardRenderOptions {
   ctx:                 CanvasRenderingContext2D;
   width:               number;
@@ -264,7 +289,6 @@ export function renderPunchCard({
   const chartX       = margin;
   const chartY       = headerH;
   const chartW       = width - margin * 2 - sidePanelW - (sc.v_28_20);
-  const chartH       = height - chartY - margin - (sc.v_56_36); // leave room for footer
   const sidePanelX   = chartX + chartW + (sc.v_28_20);
 
   const sealZoneH    = getSealZoneHeightMm(result.device);
@@ -272,8 +296,11 @@ export function renderPunchCard({
     sealZoneH + 12,
     ...caseInput.fenestrations.map((f) => f.depthMm + 28),
   );
+  // Uniform scale: both axes use the same px/mm so ring geometry is not distorted.
+  // chartH is derived from content depth, not from the canvas height.
   const xScale = chartW / result.circumferenceMm;
-  const yScale = chartH / maxDepth;
+  const yScale = xScale;
+  const chartH = maxDepth * yScale;
 
   // ── Card background ───────────────────────────────────────────────────────
   drawRoundedRect(ctx, 6, 6, width - 12, height - 12, sc.v_28_18);

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
-import { renderPunchCard } from "@/lib/punchCardRenderer";
+import { computePunchCardHeight, renderPunchCard } from "@/lib/punchCardRenderer";
 
 interface PunchCardCanvasProps {
   result: DeviceAnalysisResult;
@@ -17,15 +17,20 @@ const PunchCardCanvas = React.memo(
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      const w = 600;
+      const h = computePunchCardHeight(w, result, caseInput, "preview");
+      canvas.width = w;
+      canvas.height = h;
+
       renderPunchCard({
         ctx,
-        width: canvas.width,
-        height: canvas.height,
+        width: w,
+        height: h,
         result,
         caseInput,
         mode: "preview",
         cutMarginMm: 8,
-        showCalibration: false, // Too small for standard desktop view
+        showCalibration: false,
       });
     }, [result, caseInput]);
 
@@ -35,9 +40,7 @@ const PunchCardCanvas = React.memo(
         {result.size ? (
           <canvas
             ref={canvasRef}
-            width={600}
-            height={424}
-            className="w-full h-auto aspect-[600/424] rounded-lg border bg-white shadow-sm"
+            className="w-full h-auto rounded-lg border bg-white shadow-sm"
           />
         ) : (
           <div className="w-full aspect-[600/424] flex items-center justify-center rounded-lg border border-dashed bg-white shadow-sm p-6 text-center text-sm text-red-600">

@@ -4,7 +4,7 @@ import { saveAs } from "file-saver";
 
 import { getConflictCount } from "@/lib/analysis";
 import { renderGraftSketch } from "@/lib/graftSketchRenderer";
-import { renderPunchCard } from "@/lib/punchCardRenderer";
+import { computePunchCardHeight, renderPunchCard } from "@/lib/punchCardRenderer";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
 const A4_LANDSCAPE_MM = { width: 297, height: 210 };
@@ -19,7 +19,7 @@ function renderOffscreenCanvas(
 ) {
   const canvas = document.createElement("canvas");
   canvas.width = 3508;
-  canvas.height = 2480;
+  canvas.height = computePunchCardHeight(canvas.width, result, caseInput, "print");
   const context = canvas.getContext("2d");
 
   if (!context) {

@@ -57,7 +57,7 @@ export function PrintCardClient() {
       </div>
 
       <section className="grid gap-6 rounded-[30px] border border-[color:var(--border)] bg-white/90 p-4 print:rounded-none print:border-none print:bg-white print:p-0">
-        <PunchCardCanvas result={result} caseInput={caseInput} height={860} />
+        <PunchCardCanvas result={result} caseInput={caseInput} />
 
         <div className="grid gap-4 rounded-[26px] border border-[color:var(--border)] bg-[rgba(248,244,237,0.6)] p-5 print:border print:bg-white">
           <div className="grid gap-4 md:grid-cols-3">
