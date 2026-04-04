@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { getConflictCount, getRotationSummary } from "@/lib/analysis";
 import { buildPrintUrl, downloadDevicePdf } from "@/lib/pdfExport";
+import { normalizeClockText } from "@/lib/planning/clock";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
 function formatConflictLabel(conflict: boolean) {
@@ -129,27 +130,43 @@ export function DeviceCard({
                   </p>
                   <div className="mt-4 space-y-3 text-sm">
                     {caseInput.fenestrations.map((fenestration, index) => (
-                      <div
-                        key={`${fenestration.vessel}-${index}`}
-                        className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-2xl bg-[rgba(248,244,237,0.66)] px-3 py-2"
-                      >
-                        <div>
-                          <p className="font-medium text-[color:var(--foreground)]">
-                            {fenestration.vessel}
-                          </p>
-                          <p className="text-xs text-[color:var(--muted-foreground)]">
-                            {fenestration.clock}
-                            {" -> "}
-                            {result.optimalConflicts[index].adjustedClock}
-                          </p>
-                        </div>
-                        <span className="text-xs text-[color:var(--muted-foreground)]">
-                          {formatConflictLabel(result.baselineConflicts[index].conflict)}
-                        </span>
-                        <span className="text-xs font-medium text-[color:var(--foreground)]">
-                          {formatConflictLabel(result.optimalConflicts[index].conflict)}
-                        </span>
-                      </div>
+                      (() => {
+                        const normalizedClock = normalizeClockText(fenestration.clock, {
+                          separator: ":",
+                          padHour: false,
+                        });
+                        const adjustedClock = normalizeClockText(
+                          result.optimalConflicts[index].adjustedClock,
+                          {
+                            separator: ":",
+                            padHour: false,
+                          },
+                        );
+
+                        return (
+                          <div
+                            key={`${fenestration.vessel}-${index}`}
+                            className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-2xl bg-[rgba(248,244,237,0.66)] px-3 py-2"
+                          >
+                            <div>
+                              <p className="font-medium text-[color:var(--foreground)]">
+                                {fenestration.vessel}
+                              </p>
+                              <p className="text-xs text-[color:var(--muted-foreground)]">
+                                {normalizedClock}
+                                {" -> "}
+                                {adjustedClock}
+                              </p>
+                            </div>
+                            <span className="text-xs text-[color:var(--muted-foreground)]">
+                              {formatConflictLabel(result.baselineConflicts[index].conflict)}
+                            </span>
+                            <span className="text-xs font-medium text-[color:var(--foreground)]">
+                              {formatConflictLabel(result.optimalConflicts[index].conflict)}
+                            </span>
+                          </div>
+                        );
+                      })()
                     ))}
                   </div>
                 </div>

@@ -5,6 +5,7 @@ import { Download } from "lucide-react";
 
 import { AnatomyForm } from "@/components/AnatomyForm";
 import { DeviceCard } from "@/components/DeviceCard";
+import { PlanningWorkspace } from "@/components/PlanningWorkspace";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ALL_DEVICES } from "@/lib/devices";
@@ -63,12 +64,14 @@ function SummaryTable({ results }: { results: DeviceAnalysisResult[] }) {
 export function PlannerClient() {
   const {
     caseInput,
+    planningProject,
     selectedDeviceIds,
     results,
     analyse,
     loadSampleCase,
     setSelectedDeviceIds,
     toggleDeviceSelection,
+    updateFenestration,
   } = usePlannerStore();
   const [isPending, startTransition] = useTransition();
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
@@ -134,6 +137,16 @@ export function PlannerClient() {
         onLoadSample={() => {
           startTransition(() => {
             loadSampleCase();
+          });
+        }}
+      />
+
+      <PlanningWorkspace
+        key={planningProject.projectId}
+        project={planningProject}
+        onMoveFenestration={(index, patch) => {
+          startTransition(() => {
+            updateFenestration(index, patch);
           });
         }}
       />
@@ -213,4 +226,3 @@ export function PlannerClient() {
     </main>
   );
 }
-

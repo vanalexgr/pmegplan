@@ -21,6 +21,15 @@ export function distanceToPlanarY(
   return baselineMode === "top" ? distanceMm : templateHeightMm - distanceMm;
 }
 
+export function planarYToDistanceMm(
+  baselineMode: BaselineMode,
+  yMm: number,
+  templateHeightMm: number,
+): number {
+  const clampedY = Math.min(Math.max(yMm, 0), templateHeightMm);
+  return baselineMode === "top" ? clampedY : templateHeightMm - clampedY;
+}
+
 export function fenestrationToPlanarPoint(input: {
   clockFraction: number;
   distanceMm: number;

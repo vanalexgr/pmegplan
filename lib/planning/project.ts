@@ -110,12 +110,13 @@ export function buildPlanningDeviceProfile(
 export function createPlanningProjectFromCaseInput(
   caseInput: CaseInput,
   deviceId?: string | null,
+  projectId?: string,
 ): PlanningProject {
   const deviceProfileId = deviceId ? getDeviceById(deviceId)?.id ?? null : null;
 
   return {
     schemaVersion: 1,
-    projectId: createProjectId(),
+    projectId: projectId ?? createProjectId(),
     patient: {
       displayName: caseInput.patientId?.trim() || "Untitled PMEG case",
       patientId: caseInput.patientId,
@@ -134,4 +135,3 @@ export function createPlanningProjectFromCaseInput(
     fenestrations: caseInput.fenestrations.map(toPlanningFenestration),
   };
 }
-

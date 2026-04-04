@@ -6,7 +6,7 @@ import { analyseCase } from "@/lib/analysis";
 import { ALL_DEVICES } from "@/lib/devices";
 import { createPlanningProjectFromCaseInput } from "@/lib/planning/project";
 import { sampleCase } from "@/lib/sampleCase";
-import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
+import type { CaseInput, DeviceAnalysisResult, Fenestration } from "@/lib/types";
 import type { PlanningProject } from "@/lib/planning/types";
 
 interface PlannerStore {
@@ -15,6 +15,10 @@ interface PlannerStore {
   selectedDeviceIds: string[];
   results: DeviceAnalysisResult[];
   analyse: (caseInput: CaseInput) => void;
+  updateFenestration: (
+    index: number,
+    patch: Partial<Pick<Fenestration, "clock" | "depthMm" | "widthMm" | "heightMm">>,
+  ) => void;
   toggleDeviceSelection: (deviceId: string) => void;
   setSelectedDeviceIds: (deviceIds: string[]) => void;
   loadSampleCase: () => void;
@@ -22,16 +26,58 @@ interface PlannerStore {
 
 const defaultDeviceIds = ALL_DEVICES.map((device) => device.id);
 
+function buildPlannerSnapshot(
+  caseInput: CaseInput,
+  selectedDeviceIds: string[],
+  projectId?: string,
+) {
+  const results = analyseCase(caseInput, selectedDeviceIds);
+  const preferredDeviceId =
+    results.find((result) => result.size)?.device.id ?? selectedDeviceIds[0] ?? null;
+
+  return {
+    results,
+    planningProject: createPlanningProjectFromCaseInput(
+      caseInput,
+      preferredDeviceId,
+      projectId,
+    ),
+  };
+}
+
+const initialSnapshot = buildPlannerSnapshot(sampleCase, defaultDeviceIds);
+
 export const usePlannerStore = create<PlannerStore>((set, get) => ({
   caseInput: sampleCase,
-  planningProject: createPlanningProjectFromCaseInput(sampleCase),
+  planningProject: initialSnapshot.planningProject,
   selectedDeviceIds: defaultDeviceIds,
-  results: analyseCase(sampleCase, defaultDeviceIds),
+  results: initialSnapshot.results,
   analyse: (caseInput) =>
-    set({
+    set((state) => ({
       caseInput,
-      planningProject: createPlanningProjectFromCaseInput(caseInput),
-      results: analyseCase(caseInput, get().selectedDeviceIds),
+      ...buildPlannerSnapshot(
+        caseInput,
+        state.selectedDeviceIds,
+        state.planningProject.projectId,
+      ),
+    })),
+  updateFenestration: (index, patch) =>
+    set((state) => {
+      const nextCaseInput: CaseInput = {
+        ...state.caseInput,
+        fenestrations: state.caseInput.fenestrations.map((fenestration, currentIndex) =>
+          currentIndex === index ? { ...fenestration, ...patch } : fenestration,
+        ),
+      };
+
+      return {
+        caseInput: nextCaseInput,
+        ...buildPlannerSnapshot(
+          nextCaseInput,
+          state.selectedDeviceIds,
+          state.planningProject.projectId,
+        ),
+      };
     }),
   toggleDeviceSelection: (deviceId) => {
     const selected = get().selectedDeviceIds;
@@ -41,19 +87,26 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
 
     set({
       selectedDeviceIds: next,
-      results: analyseCase(get().caseInput, next),
+      ...buildPlannerSnapshot(get().caseInput, next, get().planningProject.projectId),
     });
   },
   setSelectedDeviceIds: (deviceIds) =>
     set({
       selectedDeviceIds: deviceIds,
-      results: analyseCase(get().caseInput, deviceIds),
+      ...buildPlannerSnapshot(
+        get().caseInput,
+        deviceIds,
+        get().planningProject.projectId,
+      ),
     }),
-  loadSampleCase: () =>
+  loadSampleCase: () => {
+    const snapshot = buildPlannerSnapshot(sampleCase, defaultDeviceIds);
+
     set({
       caseInput: sampleCase,
-      planningProject: createPlanningProjectFromCaseInput(sampleCase),
+      planningProject: snapshot.planningProject,
       selectedDeviceIds: defaultDeviceIds,
-      results: analyseCase(sampleCase, defaultDeviceIds),
-    }),
+      results: snapshot.results,
+    });
+  },
 }));

@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ALL_DEVICES } from "@/lib/devices";
+import { isValidClockText, normalizeClockText } from "@/lib/planning/clock";
 import type { Fenestration, FenestrationType } from "@/lib/types";
 import { caseSchema, type CaseFormValues } from "@/lib/validation";
 
@@ -123,6 +124,22 @@ export function AnatomyForm({
     name: "fenestrations",
   });
 
+  const normalizeClockField = (index: number, rawValue: string) => {
+    if (!isValidClockText(rawValue)) {
+      return;
+    }
+
+    setValue(
+      `fenestrations.${index}.clock`,
+      normalizeClockText(rawValue, { separator: ":", padHour: false }),
+      {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      },
+    );
+  };
+
   return (
     <form
       className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]"
@@ -171,6 +188,7 @@ export function AnatomyForm({
           <div className="space-y-4">
             {fields.map((field, index) => {
               const currentType = watchedFenestrations?.[index]?.ftype ?? field.ftype;
+              const clockField = register(`fenestrations.${index}.clock`);
               return (
                 <div
                   key={field.id}
@@ -241,7 +259,11 @@ export function AnatomyForm({
                       <Label>Clock position</Label>
                       <Input
                         placeholder="3:45"
-                        {...register(`fenestrations.${index}.clock`)}
+                        {...clockField}
+                        onBlur={(event) => {
+                          clockField.onBlur(event);
+                          normalizeClockField(index, event.target.value);
+                        }}
                       />
                       <FieldError
                         message={errors.fenestrations?.[index]?.clock?.message}
