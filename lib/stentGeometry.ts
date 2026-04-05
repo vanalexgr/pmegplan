@@ -139,11 +139,13 @@ function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
   switch (device.id) {
     case "endurant_ii":
       return {
-        // Endurant's covered body is built around Medtronic's characteristic
-        // M-stent architecture rather than a classic wide-gap Z scaffold.
-        pattern: "mshaped",
-        phaseFractions: [0, 0.18, 0.36, 0.18, 0],
-        mShoulderRatio: 0.46,
+        // Endurant's covered rings are smooth sinusoidal wireforms when
+        // unrolled, not sharp zigzags. The template (Endurant_32.png) shows
+        // low-amplitude rounded waves with alternating row phase offset of
+        // half a wave-width — producing the characteristic staggered pattern.
+        pattern: "sinusoidal",
+        phaseFractions: [0, 0.5, 0, 0.5, 0],
+        sinusoidSamplesPerWave: 16,
       };
     case "treo":
       return {
