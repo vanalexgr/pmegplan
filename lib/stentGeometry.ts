@@ -140,11 +140,12 @@ function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
     case "endurant_ii":
       return {
         // Endurant's covered rings are smooth sinusoidal wireforms when
-        // unrolled, not sharp zigzags. The template (Endurant_32.png) shows
-        // low-amplitude rounded waves with alternating row phase offset of
-        // half a wave-width — producing the characteristic staggered pattern.
+        // unrolled. Crucially, the printed Medtronic back-table template
+        // (Endurant_32.png, 3.8 px/mm) shows all 5 rings are IN PHASE —
+        // every row peaks at the same circumferential positions (12h and 6h).
+        // There is NO stagger between rows.
         pattern: "sinusoidal",
-        phaseFractions: [0, 0.5, 0, 0.5, 0],
+        phaseFractions: [0, 0, 0, 0, 0],
         sinusoidSamplesPerWave: 16,
       };
     case "treo":

@@ -152,9 +152,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
-      // Template measurements (IFU print-at-100% template, 3.8 px/mm):
-      // Circumference = π × 23 ≈ 72.3 mm · 8 peaks · 5 rings · gap ~2 mm
-      ringHeightMm: 8.0,
+      // Template measurements (IFU print-at-100% at 3.8 px/mm):
+      // 5 rings, all in-phase. Ring height measured top-to-bottom of sinusoid.
+      ringHeightMm: 7.5,
       interRingGapMm: 2.5,
     },
     {
@@ -165,7 +165,7 @@ export const ENDURANT_II: DeviceGeometry = {
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
       // Template measurements: circ = π × 25 ≈ 78.5 mm · 8 peaks · 5 rings
-      ringHeightMm: 8.5,
+      ringHeightMm: 8.0,
       interRingGapMm: 2.5,
     },
     {
@@ -176,7 +176,7 @@ export const ENDURANT_II: DeviceGeometry = {
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
       // Template measurements: circ = π × 28 ≈ 88.0 mm · 8 peaks · 5 rings
-      ringHeightMm: 9.0,
+      ringHeightMm: 8.0,
       interRingGapMm: 2.5,
     },
     {
@@ -186,8 +186,10 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 10,
       mainBodyLengths: [82, 124, 166],
-      // Template measurements: circ = π × 32 ≈ 100.5 mm · 10 peaks · 5 rings
-      ringHeightMm: 10.0,
+      // Blueprint (Endurant_32.png, 3.8 px/mm): 5 rings, in-phase sinusoids.
+      // Rows at ~0→8mm, ~10→18mm, ~20→28mm, ~30→38mm, ~40→48mm.
+      // Ring height = 8mm, gap = 2mm → total 5×8 + 4×2 = 48mm ✓
+      ringHeightMm: 8.0,
       interRingGapMm: 2.0,
     },
     {
@@ -198,7 +200,7 @@ export const ENDURANT_II: DeviceGeometry = {
       nPeaks: 10,
       mainBodyLengths: [124, 166],
       // Template measurements: circ = π × 36 ≈ 113.1 mm · 10 peaks · 5 rings
-      ringHeightMm: 10.5,
+      ringHeightMm: 8.5,
       interRingGapMm: 2.0,
     },
   ],
