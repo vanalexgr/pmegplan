@@ -22,6 +22,10 @@ import {
   evalMStentDepth,
   getEndurantProfile,
 } from "@/lib/mstentProfile";
+import {
+  evalTreoDepth,
+  TREO_PROFILE_Y_MAX,
+} from "@/lib/treoProfile";
 import { getRotationSummary } from "@/lib/analysis";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
@@ -390,6 +394,34 @@ function buildEndurantRingPts3D(
   return pts;
 }
 
+function buildTreoRingPts3D(
+  R: number,
+  ringHeightMm: number,
+  z0: number,
+  delta: number,
+  circMm: number,
+  nPeaks: number,
+  ringIdx: number,
+  N = 120,
+): Pt3D[] {
+  const pts: Pt3D[] = [];
+
+  for (let index = 0; index <= N; index += 1) {
+    const arcMm = ((index / N) * circMm + delta + circMm) % circMm;
+    const theta = (arcMm / circMm) * 2 * Math.PI;
+    const refDepth = evalTreoDepth(arcMm, circMm, nPeaks, ringIdx);
+    const zz = z0 + (refDepth / TREO_PROFILE_Y_MAX) * ringHeightMm;
+    pts.push({
+      x: R * Math.sin(theta),
+      y: R * Math.cos(theta),
+      z: zz,
+    });
+  }
+
+  pts.push({ ...pts[0] });
+  return pts;
+}
+
 function getRingPhaseFraction(deviceId: string, ringIdx: number): number {
   switch (deviceId) {
     case "treo":
@@ -413,6 +445,18 @@ function buildRingPtsForDevice(
   delta: number,
   circ: number,
 ): Pt3D[] {
+  if (deviceId === "treo") {
+    return buildTreoRingPts3D(
+      R,
+      ringH,
+      z0,
+      delta,
+      circ,
+      nPeaks,
+      ringIdx,
+    );
+  }
+
   if (deviceId === "endurant_ii") {
     return buildEndurantRingPts3D(
       R,

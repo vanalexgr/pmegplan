@@ -1,25 +1,25 @@
 import type { CaseInput } from "@/lib/types";
 
 export const sampleCase: CaseInput = {
-  neckDiameterMm: 27,
-  patientId: "Demo-2026-001",
+  neckDiameterMm: 24,
+  patientId: "Demo-2026-002",
   surgeonName: "Vangelis Alexiou",
   surgeonNote:
-    "Two-renal demonstration case with realistic juxtarenal spacing at roughly 13-16 mm below the proximal edge, used to compare infrarenal PMEG planning windows without forcing an impractical 90-degree-style graft rotation.",
+    "Two-renal demonstration case with slightly deeper, more oblique renal targets than the original sample. TREO still performs strongly, but the anatomy also gives Endurant II a more credible planning score instead of making the starter case feel like a TREO-only showcase.",
   fenestrations: [
     {
       vessel: "RRA",
       ftype: "SMALL_FEN",
-      clock: "9:00",
-      depthMm: 14,
+      clock: "9:30",
+      depthMm: 18,
       widthMm: 6,
       heightMm: 6,
     },
     {
       vessel: "LRA",
       ftype: "SMALL_FEN",
-      clock: "3:00",
-      depthMm: 16,
+      clock: "2:30",
+      depthMm: 20,
       widthMm: 6,
       heightMm: 8,
     },

@@ -8,7 +8,7 @@ import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
 const AZ_DEFAULT = 0.28;
 const EL_DEFAULT = 0.17;
-const ZOOM_DEFAULT = 1.24;
+const ZOOM_DEFAULT = 1.5;
 const ZOOM_MIN = 0.75;
 const ZOOM_MAX = 2.4;
 const PAN_Y_DEFAULT_RATIO = -0.11;

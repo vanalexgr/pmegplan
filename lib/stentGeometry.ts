@@ -3,6 +3,10 @@ import {
   evalMStentDepth,
   getEndurantProfile,
 } from "@/lib/mstentProfile";
+import {
+  evalTreoDepth,
+  TREO_PROFILE_Y_MAX,
+} from "@/lib/treoProfile";
 import type { DeviceGeometry, StrutSegment } from "@/lib/types";
 
 type StrutPattern = "zigzag" | "mshaped" | "sinusoidal";
@@ -142,15 +146,6 @@ function buildSinusoidalRingSegments(input: {
 
 function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
   switch (device.id) {
-    case "treo":
-      return {
-        // TREO's covered body uses sinusoidal wireform springs with staggered
-        // rows, creating the broad square-ish working windows described in PMEG
-        // literature.
-        pattern: "sinusoidal",
-        phaseFractions: [0, 0.5, 0, 0.5],
-        sinusoidSamplesPerWave: 14,
-      };
     case "gore_excluder":
       return {
         pattern: "sinusoidal",
@@ -177,6 +172,17 @@ export function buildStrutSegments(
   ) ?? null;
   const { ringHeight, interRingGap } = getEffectiveRingGeometry(device, size);
   const { nRings } = device;
+
+  if (device.id === "treo") {
+    return buildTreoStrutSegments(
+      circumferenceMm,
+      nPeaks,
+      ringHeight,
+      interRingGap,
+      nRings,
+      device.proximalRingOffsetMm ?? 0,
+    );
+  }
 
   if (device.id === "endurant_ii") {
     return buildEndurantStrutSegments(
@@ -312,11 +318,40 @@ function buildEndurantStrutSegments(
   return segments;
 }
 
+function buildTreoStrutSegments(
+  circMm: number,
+  nPeaks: number,
+  ringHeightMm: number,
+  gapMm: number,
+  nRings: number,
+  startOffset = 0,
+  samplesPerMm = 4,
+): StrutSegment[] {
+  const segments: StrutSegment[] = [];
+  const nSamples = Math.ceil(circMm * samplesPerMm);
+
+  for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
+    const ringTopMm = startOffset + ringIndex * (ringHeightMm + gapMm);
+    const points: Array<[number, number]> = [];
+
+    for (let sampleIndex = 0; sampleIndex <= nSamples; sampleIndex += 1) {
+      const arcMm = (sampleIndex / nSamples) * circMm;
+      const refDepth = evalTreoDepth(arcMm, circMm, nPeaks, ringIndex);
+      const depthInRing = (refDepth / TREO_PROFILE_Y_MAX) * ringHeightMm;
+      pushPoint(points, [arcMm, ringTopMm + depthInRing]);
+    }
+
+    segments.push(...pointsToSegments(points));
+  }
+
+  return segments;
+}
+
 // ── Device-aware router ─────────────────────────────────────────────────────
 //
 // Most devices still map cleanly onto the generic zigzag / M / sinusoidal
-// families. Endurant II is routed separately so planning uses the digitised
-// Medtronic M-stent profile instead of a generic approximation.
+// families. TREO and Endurant II are routed separately so planning uses their
+// calibrated template-derived profiles instead of generic approximations.
 export function buildStrutSegmentsForDevice(
   device: Pick<DeviceGeometry, "id" | "stentType" | "proximalRingOffsetMm">,
   circ: number,
@@ -325,6 +360,17 @@ export function buildStrutSegmentsForDevice(
   nRings: number,
   nPeaks: number,
 ): StrutSegment[] {
+  if (device.id === "treo") {
+    return buildTreoStrutSegments(
+      circ,
+      nPeaks,
+      ringHeight,
+      gapHeight,
+      nRings,
+      device.proximalRingOffsetMm ?? 0,
+    );
+  }
+
   if (device.id === "endurant_ii") {
     return buildEndurantStrutSegments(
       circ,

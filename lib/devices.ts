@@ -225,7 +225,8 @@ export const TREO: DeviceGeometry = {
   // TREO's defining planning feature is the broad working window created by
   // staggered covered wireform rows with roughly square-ish openings.
   ringHeight: 9,
-  interRingGap: 9,
+  // Template measurement: fabric gaps between covered rows are ~18 mm.
+  interRingGap: 18,
   nRings: 4,
   foreshortening: 0.05,
   seamDeg: 0,
