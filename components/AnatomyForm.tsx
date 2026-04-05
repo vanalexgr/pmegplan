@@ -192,6 +192,9 @@ export function AnatomyForm({
             {fields.map((field, index) => {
               const currentType = watchedCase?.fenestrations?.[index]?.ftype ?? field.ftype;
               const isScallop = currentType === "SCALLOP";
+              const currentClockText =
+                watchedCase?.fenestrations?.[index]?.clock ?? field.clock;
+              const hasValidClock = isValidClockText(currentClockText);
               const clockField = register(`fenestrations.${index}.clock`);
               const conflictData = liveConflict?.perFenestration?.[index];
               return (
@@ -280,6 +283,11 @@ export function AnatomyForm({
                               Clear
                             </span>
                           )
+                        ) : !isScallop && watchedCase?.neckDiameterMm && currentClockText.trim() && !hasValidClock ? (
+                          <span className="flex items-center text-xs text-muted-foreground gap-1">
+                            <AlertCircle className="size-3" />
+                            Enter valid clock
+                          </span>
                         ) : !isScallop && !conflictData && watchedCase?.neckDiameterMm ? (
                           <span className="flex items-center text-xs text-muted-foreground gap-1">
                             <Loader2 className="size-3 animate-spin" />

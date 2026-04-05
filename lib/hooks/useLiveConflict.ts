@@ -2,13 +2,27 @@ import { useMemo, useDeferredValue } from "react";
 import { buildStrutSegments } from "@/lib/stentGeometry";
 import { checkConflict } from "@/lib/conflictDetection";
 import { selectSize, getNPeaks, ALL_DEVICES } from "@/lib/devices";
+import { isValidClockText } from "@/lib/planning/clock";
 import { circumferenceMm } from "@/lib/planning/geometry";
-import type { CaseInput, ConflictResult } from "@/lib/types";
+import type { CaseInput, ConflictResult, Fenestration } from "@/lib/types";
 
 export interface LiveConflictResult {
   /** Index matches caseInput.fenestrations */
-  perFenestration: ConflictResult[];
+  perFenestration: Array<ConflictResult | null>;
   anyConflict: boolean;
+}
+
+function isReadyForLiveConflict(fenestration: Fenestration): boolean {
+  if (fenestration.ftype === "SCALLOP") {
+    return true;
+  }
+
+  return (
+    isValidClockText(fenestration.clock) &&
+    Number.isFinite(fenestration.depthMm) &&
+    Number.isFinite(fenestration.widthMm) &&
+    Number.isFinite(fenestration.heightMm)
+  );
 }
 
 /**
@@ -41,7 +55,11 @@ export function useLiveConflict(
     const circ = circumferenceMm(size.graftDiameter);
     const segs = buildStrutSegments(device, circ, size.graftDiameter, nPeaks);
 
-    const perFenestration: ConflictResult[] = deferred.fenestrations.map((fen) => {
+    const perFenestration = deferred.fenestrations.map((fen) => {
+      if (!isReadyForLiveConflict(fen)) {
+        return null;
+      }
+
       const { conflict, minDist } = checkConflict(fen, segs, circ, device.wireRadius);
       const safeThreshold = Math.max(fen.widthMm, fen.heightMm) / 2 + device.wireRadius;
       return {
@@ -55,7 +73,7 @@ export function useLiveConflict(
 
     return {
       perFenestration,
-      anyConflict: perFenestration.some((r) => r.conflict),
+      anyConflict: perFenestration.some((result) => result?.conflict ?? false),
     };
   }, [deferred, selectedDeviceIds]);
 
