@@ -186,8 +186,10 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 10,
       mainBodyLengths: [82, 124, 166],
-      // Blueprint (Endurant_32.png, 3.8 px/mm): 5 rings, in-phase sinusoids.
-      // Rows at ~0→8mm, ~10→18mm, ~20→28mm, ~30→38mm, ~40→48mm.
+      // Digitised Endurant_32 back-table template (3.8 px/mm): five covered
+      // M-stent rows packed at ~0→8 mm, ~10→18 mm, ~20→28 mm, ~30→38 mm,
+      // and ~40→48 mm. Ring 1 is symmetric; rings 2–5 use the asymmetric
+      // calligraphic profile captured in lib/mstentProfile.ts.
       // Ring height = 8mm, gap = 2mm → total 5×8 + 4×2 = 48mm ✓
       ringHeightMm: 8.0,
       interRingGapMm: 2.0,
@@ -473,4 +475,3 @@ export function getEffectiveRingGeometry(
     interRingGap: size?.interRingGapMm ?? device.interRingGap,
   };
 }
-

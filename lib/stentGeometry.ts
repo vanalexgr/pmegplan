@@ -1,3 +1,8 @@
+import { getEffectiveRingGeometry } from "@/lib/devices";
+import {
+  evalMStentDepth,
+  getEndurantProfile,
+} from "@/lib/mstentProfile";
 import type { DeviceGeometry, StrutSegment } from "@/lib/types";
 
 type StrutPattern = "zigzag" | "mshaped" | "sinusoidal";
@@ -137,17 +142,6 @@ function buildSinusoidalRingSegments(input: {
 
 function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
   switch (device.id) {
-    case "endurant_ii":
-      return {
-        // Endurant's covered rings are smooth sinusoidal wireforms when
-        // unrolled. Crucially, the printed Medtronic back-table template
-        // (Endurant_32.png, 3.8 px/mm) shows all 5 rings are IN PHASE —
-        // every row peaks at the same circumferential positions (12h and 6h).
-        // There is NO stagger between rows.
-        pattern: "sinusoidal",
-        phaseFractions: [0, 0, 0, 0, 0],
-        sinusoidSamplesPerWave: 16,
-      };
     case "treo":
       return {
         // TREO's covered body uses sinusoidal wireform springs with staggered
@@ -175,10 +169,25 @@ function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
 export function buildStrutSegments(
   device: DeviceGeometry,
   circumferenceMm: number,
-  _graftDiameterMm: number,
+  graftDiameterMm: number,
   nPeaks: number,
 ): StrutSegment[] {
-  const { ringHeight, interRingGap, nRings } = device;
+  const size = device.sizes.find(
+    (candidate) => candidate.graftDiameter === graftDiameterMm,
+  ) ?? null;
+  const { ringHeight, interRingGap } = getEffectiveRingGeometry(device, size);
+  const { nRings } = device;
+
+  if (device.id === "endurant_ii") {
+    return buildEndurantStrutSegments(
+      circumferenceMm,
+      ringHeight,
+      interRingGap,
+      nRings,
+      device.proximalRingOffsetMm ?? 0,
+    );
+  }
+
   const profile = getStrutLayoutProfile(device);
   const segments: StrutSegment[] = [];
   let y = 0;
@@ -232,7 +241,7 @@ export function getSealZoneHeightMm(device: DeviceGeometry) {
 
 // ── Sinusoidal ring segments ─────────────────────────────────────────────────
 //
-// Endurant II and Gore Excluder use smooth sinusoidal ring frames rather than
+// Devices such as Gore Excluder use smooth sinusoidal ring frames rather than
 // sharp Z-stent zigzags. We approximate each ring with dense piecewise-linear
 // segments so both rendering and conflict detection see the same wire path.
 const N_SINUS = 12; // samples per half-period (per peak)
@@ -274,11 +283,40 @@ export function buildSinusoidalStrutSegments(
   return segments;
 }
 
+function buildEndurantStrutSegments(
+  circMm: number,
+  ringHeightMm: number,
+  gapMm: number,
+  nRings: number,
+  startOffset = 0,
+  samplesPerMm = 4,
+): StrutSegment[] {
+  const segments: StrutSegment[] = [];
+  const nSamples = Math.ceil(circMm * samplesPerMm);
+
+  for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
+    const profile = getEndurantProfile(ringIndex);
+    const ringTopMm = startOffset + ringIndex * (ringHeightMm + gapMm);
+    const points: Array<[number, number]> = [];
+
+    for (let sampleIndex = 0; sampleIndex <= nSamples; sampleIndex += 1) {
+      const arcMm = (sampleIndex / nSamples) * circMm;
+      const rawDepth = evalMStentDepth(arcMm, profile, circMm);
+      const depthInRing = (rawDepth / 10) * ringHeightMm;
+      pushPoint(points, [arcMm, ringTopMm + depthInRing]);
+    }
+
+    segments.push(...pointsToSegments(points));
+  }
+
+  return segments;
+}
+
 // ── Device-aware router ─────────────────────────────────────────────────────
 //
-// The current device database still uses "M-stent" for Endurant, but for
-// planning and rendering we want the smooth sinusoidal family of curves rather
-// than a sharp zigzag approximation.
+// Most devices still map cleanly onto the generic zigzag / M / sinusoidal
+// families. Endurant II is routed separately so planning uses the digitised
+// Medtronic M-stent profile instead of a generic approximation.
 export function buildStrutSegmentsForDevice(
   device: Pick<DeviceGeometry, "id" | "stentType" | "proximalRingOffsetMm">,
   circ: number,
@@ -287,6 +325,16 @@ export function buildStrutSegmentsForDevice(
   nRings: number,
   nPeaks: number,
 ): StrutSegment[] {
+  if (device.id === "endurant_ii") {
+    return buildEndurantStrutSegments(
+      circ,
+      ringHeight,
+      gapHeight,
+      nRings,
+      device.proximalRingOffsetMm ?? 0,
+    );
+  }
+
   const profile = getStrutLayoutProfile(device as DeviceGeometry);
   const startOffset = device.proximalRingOffsetMm ?? 0;
   const segments: StrutSegment[] = [];

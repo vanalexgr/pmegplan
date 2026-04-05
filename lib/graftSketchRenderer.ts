@@ -18,6 +18,10 @@
 
 import { clockToArc, wrapMm } from "@/lib/conflictDetection";
 import { getEffectiveRingGeometry } from "@/lib/devices";
+import {
+  evalMStentDepth,
+  getEndurantProfile,
+} from "@/lib/mstentProfile";
 import { getRotationSummary } from "@/lib/analysis";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
@@ -135,11 +139,6 @@ const VESSEL_COLORS: Record<string, string> = {
 };
 
 // ── Helpers preserved from v1 (used by spec panel) ───────────────────────────
-
-function arcFromNoon(arcPos: number, circ: number): number {
-  const w = wrapMm(arcPos, circ);
-  return w > circ / 2 ? w - circ : w;
-}
 
 function computeArcSep(
   adjustedClock: string, seamDeg: number, optimalDeltaMm: number, circ: number,
@@ -366,12 +365,35 @@ function buildMShapedRingPts3D(
   return pts;
 }
 
+function buildEndurantRingPts3D(
+  R: number,
+  ringH: number,
+  z0: number,
+  ringIdx: number,
+  delta: number,
+  circ: number,
+  samplesPerMm = 4,
+): Pt3D[] {
+  const profile = getEndurantProfile(ringIdx);
+  const deltaTheta = (delta / circ) * 2 * Math.PI;
+  const nSamples = Math.ceil(circ * samplesPerMm);
+  const pts: Pt3D[] = [];
+
+  for (let sampleIndex = 0; sampleIndex <= nSamples; sampleIndex += 1) {
+    const arcMm = (sampleIndex / nSamples) * circ;
+    const theta = deltaTheta + (arcMm / circ) * 2 * Math.PI;
+    const rawDepth = evalMStentDepth(arcMm, profile, circ);
+    const ringZ = (rawDepth / 10) * ringH;
+    pts.push({ x: R * Math.sin(theta), y: R * Math.cos(theta), z: z0 + ringZ });
+  }
+
+  return pts;
+}
+
 function getRingPhaseFraction(deviceId: string, ringIdx: number): number {
   switch (deviceId) {
     case "treo":
       return [0, 0.5, 0, 0.5][ringIdx] ?? 0.5;
-    case "endurant_ii":
-      return [0, 0.18, 0.36, 0.18, 0][ringIdx] ?? 0;
     case "gore_excluder":
       return ringIdx % 2 === 0 ? 0 : 0.5;
     case "zenith_alpha":
@@ -391,6 +413,17 @@ function buildRingPtsForDevice(
   delta: number,
   circ: number,
 ): Pt3D[] {
+  if (deviceId === "endurant_ii") {
+    return buildEndurantRingPts3D(
+      R,
+      ringH,
+      z0,
+      ringIdx,
+      delta,
+      circ,
+    );
+  }
+
   const phaseFraction = getRingPhaseFraction(deviceId, ringIdx);
 
   if (stentType === "M-stent") {
