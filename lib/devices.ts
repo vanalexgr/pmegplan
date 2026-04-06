@@ -123,7 +123,8 @@ export const ENDURANT_II: DeviceGeometry = {
   // Short proximal covered rows packed into roughly the first 55 mm, rather
   // than tall 20 mm oscillations, better match the published platform profile.
   // Device-level defaults (used when a size does not carry its own overrides).
-  ringHeight: 8.5,
+  // ringHeight: binary extraction shows 8.1 mm for both 23-28 and 32-36 size ranges.
+  ringHeight: 8.1,
   interRingGap: 3,
   nRings: 5,
   foreshortening: 0.07,
@@ -332,8 +333,9 @@ export const VALIANT: DeviceGeometry = {
   name: "Medtronic Valiant",
   shortName: "Valiant",
   manufacturer: "Medtronic",
-  // ringHeight = projected vertical height of each sinusoidal ring (~8 mm).
-  ringHeight: 8,
+  // ringHeight = sinusoidal ring amplitude extracted from binary waveform data.
+  // Binary: Y range 7.6–23.2 mm → amplitude 15.6 mm; wave period ~17.9 mm.
+  ringHeight: 15.6,
   interRingGap: 2,
   nRings: 4,
   foreshortening: 0.05,
@@ -343,10 +345,10 @@ export const VALIANT: DeviceGeometry = {
   fabricMaterial: "polyester",
   pmegSuitability: 3,
   pmegNotes:
-    "Medtronic Valiant uses nitinol sinusoidal rings. Moderate PMEG platform — ring spacing provides workable fenestration windows but the sinusoidal frame requires careful rotational planning to avoid ring conflict.",
+    "Medtronic Valiant uses wide sinusoidal nitinol rings (15.6 mm ring height, ~18 mm period). Tall rings reduce the strut-free gap between rows; fenestration placement is tightly constrained. Careful rotational planning is essential.",
   clinicalRank: 3,
   color: "#0d9488",
-  waveWidthMm: 10.0,
+  waveWidthMm: 17.9,
   proximalRingOffsetMm: 3,
   hasBareSuprarenal: false,
   hasInfrarenalBarbs: false,
@@ -359,7 +361,7 @@ export const VALIANT: DeviceGeometry = {
       neckDiameterMin: 22,
       neckDiameterMax: 25,
       sheathFr: 18,
-      nPeaks: 9,
+      nPeaks: 5,
       mainBodyLengths: [80, 100, 120, 150],
     },
     {
@@ -367,7 +369,7 @@ export const VALIANT: DeviceGeometry = {
       neckDiameterMin: 24,
       neckDiameterMax: 27,
       sheathFr: 18,
-      nPeaks: 9,
+      nPeaks: 5,
       mainBodyLengths: [80, 100, 120, 150],
     },
     {
@@ -375,12 +377,13 @@ export const VALIANT: DeviceGeometry = {
       neckDiameterMin: 26,
       neckDiameterMax: 29,
       sheathFr: 20,
-      nPeaks: 10,
+      nPeaks: 6,
       mainBodyLengths: [80, 100, 120, 150],
     },
   ],
   sources: [
-    "Medtronic Valiant IFU (provisional — verify ring height and gap against current IFU before clinical use)",
+    "Waveform extracted from compiled binary: 249 points, period 17.87 mm, amplitude 15.60 mm",
+    "interRingGap provisional (2 mm) — multi-ring data not available in binary extract",
   ],
 };
 
