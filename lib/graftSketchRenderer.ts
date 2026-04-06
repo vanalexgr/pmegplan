@@ -710,15 +710,21 @@ function drawSuprarenal(
       ctx.lineTo(apex.sx + bLen * 1.2, apex.sy + bLen * 2.2); ctx.stroke();
     }
   } else if (suprType === "barbs_only") {
-    // Valiant: upward-pointing barb hooks at Ring 1 peaks (z=0, graft edge)
+    // Valiant IFU: single hooked barbs at Ring 1 peaks — stem up, hook curving outward
+    const stemH = bLen * 2.8;
+    const hookW = bLen * 1.2;
+    const hookDrop = bLen * 0.7;
     for (let i = 0; i < nPeaks; i++) {
       const theta = dTheta + i * dt;
       const q = project3D(R * Math.sin(theta), R * Math.cos(theta), 0, az, el, ox, oy, scale);
       if (q.d < 0) continue;
+      const dir = i % 2 === 0 ? 1 : -1; // alternate hook direction
+      // Stem going straight up from peak
       ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
-      ctx.lineTo(q.sx - bLen * 1.0, q.sy - bLen * 2.5); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
-      ctx.lineTo(q.sx + bLen * 1.0, q.sy - bLen * 2.5); ctx.stroke();
+      ctx.lineTo(q.sx, q.sy - stemH); ctx.stroke();
+      // Hook tip curving outward
+      ctx.beginPath(); ctx.moveTo(q.sx, q.sy - stemH);
+      ctx.lineTo(q.sx + dir * hookW, q.sy - stemH + hookDrop); ctx.stroke();
     }
   } else {
     // Zenith Alpha / Endurant: V-shaped barbs at Z-stent peaks (IFU: hooks at tips)
