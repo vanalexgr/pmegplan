@@ -40,7 +40,7 @@ function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
     case "valiant":
       return {
         pattern: "sinusoidal",
-        phaseFractions: [0, 0.5, 0, 0.5],
+        phaseFractions: [0, 0, 0, 0],           // IFU: all rings in-phase
         sinusoidSamplesPerWave: 16,
       };
     case "zenith_alpha":

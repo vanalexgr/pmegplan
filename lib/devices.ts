@@ -350,7 +350,9 @@ export const VALIANT: DeviceGeometry = {
   color: "#0d9488",
   waveWidthMm: 17.9,
   proximalRingOffsetMm: 3,
-  hasBareSuprarenal: false,
+  // IFU: proximal barb fixation at Ring 1 peaks (no separate bare Z-stent)
+  hasBareSuprarenal: true,
+  suprarenalHeightMm: 5,
   hasInfrarenalBarbs: false,
   minNeckLengthMm: 15,
   maxInfrarenalAngleDeg: 60,

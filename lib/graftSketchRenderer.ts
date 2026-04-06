@@ -422,7 +422,7 @@ function getRingPhaseFraction(deviceId: string, ringIdx: number): number {
     case "treo":
       return 0;  // TREO: all rings in-phase (peaks align with peaks)
     case "valiant":
-      return ringIdx % 2 === 0 ? 0 : 0.5;
+      return 0;  // Valiant: all rings in-phase (IFU shows valleys aligned)
     case "zenith_alpha":
     default:
       return ringIdx % 2 === 0 ? 0 : 0.5;
@@ -646,7 +646,7 @@ function drawSuprarenal(
   ctx: CanvasRenderingContext2D,
   R: number, nPeaks: number, delta: number, circ: number,
   az: number, el: number, ox: number, oy: number, scale: number,
-  color: string, suprType: "crown" | "zstent" | "cook_lattice" | "none",
+  color: string, suprType: "crown" | "zstent" | "cook_lattice" | "barbs_only" | "none",
   suprarenalHeightMm = 18,
 ): void {
   if (suprType === "none") return;
@@ -686,6 +686,8 @@ function drawSuprarenal(
     ctx.save(); ctx.setLineDash([3.5, 2.5]);
     drawRing3D(ctx, buildRingPts(R, nPeaks, totalH, SUPRA_Z, 0, 0, circ), az, el, ox, oy, scale, color + "80", 1.1);
     ctx.setLineDash([]); ctx.restore();
+  } else if (suprType === "barbs_only") {
+    // Valiant: no Z-stent ring — barbs only (drawn in barb section below)
   } else {
     // Zenith Alpha / Endurant: dashed Z-stent ring above fabric
     ctx.save(); ctx.setLineDash([3.5, 2.5]);
@@ -697,7 +699,7 @@ function drawSuprarenal(
   ctx.save(); ctx.strokeStyle = "#222"; ctx.lineWidth = 0.9;
   const bLen = 4 * scale / 26;
   if (suprType === "crown") {
-    // Barbs at Z-stent valley = crown apex (z=4.6, inside fabric)
+    // TREO: barbs at Z-stent valley = crown apex (z=4.6, inside fabric)
     for (let i = 0; i < nPeaks; i++) {
       const theta = (i + 0.5) * dt;
       const apex = project3D(R * Math.sin(theta), R * Math.cos(theta), 4.6, az, el, ox, oy, scale);
@@ -707,14 +709,27 @@ function drawSuprarenal(
       ctx.beginPath(); ctx.moveTo(apex.sx, apex.sy);
       ctx.lineTo(apex.sx + bLen * 1.2, apex.sy + bLen * 2.2); ctx.stroke();
     }
+  } else if (suprType === "barbs_only") {
+    // Valiant: upward-pointing barb hooks at Ring 1 peaks (z=0, graft edge)
+    for (let i = 0; i < nPeaks; i++) {
+      const theta = dTheta + i * dt;
+      const q = project3D(R * Math.sin(theta), R * Math.cos(theta), 0, az, el, ox, oy, scale);
+      if (q.d < 0) continue;
+      ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
+      ctx.lineTo(q.sx - bLen * 1.0, q.sy - bLen * 2.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
+      ctx.lineTo(q.sx + bLen * 1.0, q.sy - bLen * 2.5); ctx.stroke();
+    }
   } else {
-    // Other devices: barbs at Z-stent peaks
+    // Zenith Alpha / Endurant: V-shaped barbs at Z-stent peaks (IFU: hooks at tips)
     for (let i = 0; i < nPeaks; i++) {
       const theta = dTheta + i * dt;
       const q = project3D(R * Math.sin(theta), R * Math.cos(theta), SUPRA_Z, az, el, ox, oy, scale);
       if (q.d < 0) continue;
       ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
-      ctx.lineTo(q.sx - bLen * 1.2, q.sy - bLen * 2.2); ctx.stroke();
+      ctx.lineTo(q.sx - bLen * 1.0, q.sy - bLen * 2.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
+      ctx.lineTo(q.sx + bLen * 1.0, q.sy - bLen * 2.5); ctx.stroke();
     }
   }
   ctx.restore();
@@ -1069,8 +1084,8 @@ export function renderGraftSketch({
     result.device.color,
     result.device.id === "treo"
       ? "crown"
-      : result.device.id === "zenith_alpha"
-        ? "cook_lattice"
+      : result.device.id === "valiant"
+        ? "barbs_only"
         : result.device.hasBareSuprarenal
           ? "zstent"
           : "none",
