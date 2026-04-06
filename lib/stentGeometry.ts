@@ -31,10 +31,10 @@ function getPhaseFraction(
 
 function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
   switch (device.id) {
-    case "gore_excluder":
+    case "valiant":
       return {
         pattern: "sinusoidal",
-        phaseFractions: [0, 0.33, 0.66, 0.33, 0],
+        phaseFractions: [0, 0.5, 0, 0.5],
         sinusoidSamplesPerWave: 16,
       };
     case "zenith_alpha":

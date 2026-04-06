@@ -118,7 +118,7 @@ export function loadDevicePresets(
 
 function inferPattern(family: string): WaveformPattern {
   const f = family.toLowerCase();
-  if (f.includes("excluder") || f.includes("gore")) return "sinusoidal";
+  if (f.includes("valiant")) return "sinusoidal";
   if (f.includes("endurant") || f.includes("m-stent")) return "m-shaped";
   return "zigzag";
 }

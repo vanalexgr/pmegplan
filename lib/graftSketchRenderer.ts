@@ -421,7 +421,7 @@ function getRingPhaseFraction(deviceId: string, ringIdx: number): number {
   switch (deviceId) {
     case "treo":
       return [0, 0.5, 0, 0.5][ringIdx] ?? 0.5;
-    case "gore_excluder":
+    case "valiant":
       return ringIdx % 2 === 0 ? 0 : 0.5;
     case "zenith_alpha":
     default:
