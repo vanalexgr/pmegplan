@@ -179,7 +179,7 @@ export function PlannerClient() {
             Compare PMEG platforms, optimise rotation, and export back-table punch cards.
           </h1>
           <p className="max-w-2xl text-base leading-7 text-[color:var(--muted-foreground)]">
-            The MVP planner hard-codes the four main infrarenal devices from the
+            The MVP planner hard-codes the four main devices that are used for PMEG from the
             technical specification, runs full-circumference strut conflict scans,
             and generates printable device-specific templates for the selected anatomy.
           </p>

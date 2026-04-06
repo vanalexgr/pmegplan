@@ -425,7 +425,7 @@ function getRingPhaseFraction(deviceId: string, ringIdx: number): number {
       return 0;  // Valiant: all rings in-phase (IFU shows valleys aligned)
     case "zenith_alpha":
     default:
-      return ringIdx % 2 === 0 ? 0 : 0.5;
+      return 0;  // IFU: valleys follow valleys (all rings in-phase)
   }
 }
 
@@ -651,7 +651,9 @@ function drawSuprarenal(
 ): void {
   if (suprType === "none") return;
   const SUPRA_Z = -suprarenalHeightMm;
-  const dt      = (2 * Math.PI) / nPeaks;
+  // Suprarenal crown uses fewer, broader peaks than the main body rings
+  const crownPeaks = (suprType === "zstent") ? 6 : nPeaks;
+  const dt      = (2 * Math.PI) / crownPeaks;
   const dTheta  = (delta / circ) * 2 * Math.PI;
 
   if (suprType === "cook_lattice") {
@@ -689,9 +691,9 @@ function drawSuprarenal(
   } else if (suprType === "barbs_only") {
     // Valiant: no Z-stent ring — barbs only (drawn in barb section below)
   } else {
-    // Zenith Alpha / Endurant: dashed Z-stent ring above fabric
+    // Zenith Alpha / Endurant / Valiant: sinusoidal suprarenal crown above fabric
     ctx.save(); ctx.setLineDash([3.5, 2.5]);
-    drawRing3D(ctx, buildRingPts(R, nPeaks, Math.abs(SUPRA_Z), SUPRA_Z, 0, delta, circ), az, el, ox, oy, scale, color + "80", 1.1);
+    drawRing3D(ctx, buildSinusoidalRingPts3D(R, crownPeaks, Math.abs(SUPRA_Z), SUPRA_Z, 0, delta, circ, 20, 0), az, el, ox, oy, scale, color + "80", 1.1);
     ctx.setLineDash([]); ctx.restore();
   }
 
@@ -710,32 +712,38 @@ function drawSuprarenal(
       ctx.lineTo(apex.sx + bLen * 1.2, apex.sy + bLen * 2.2); ctx.stroke();
     }
   } else if (suprType === "barbs_only") {
-    // Valiant IFU: single hooked barbs at Ring 1 peaks — stem up, hook curving outward
-    const stemH = bLen * 2.8;
-    const hookW = bLen * 1.2;
-    const hookDrop = bLen * 0.7;
+    // Valiant IFU: paired angled spikes at Ring 1 peaks (narrow inverted-V form)
+    // Use suprarenalHeightMm to scale spike length so they clear the rim
+    ctx.lineWidth = 1.5;
+    const spikeH = suprarenalHeightMm * scale * Math.cos(el);
+    const spikeW = spikeH * 0.4;
     for (let i = 0; i < nPeaks; i++) {
       const theta = dTheta + i * dt;
       const q = project3D(R * Math.sin(theta), R * Math.cos(theta), 0, az, el, ox, oy, scale);
       if (q.d < 0) continue;
-      const dir = i % 2 === 0 ? 1 : -1; // alternate hook direction
-      // Stem going straight up from peak
+      // Left spike
       ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
-      ctx.lineTo(q.sx, q.sy - stemH); ctx.stroke();
-      // Hook tip curving outward
-      ctx.beginPath(); ctx.moveTo(q.sx, q.sy - stemH);
-      ctx.lineTo(q.sx + dir * hookW, q.sy - stemH + hookDrop); ctx.stroke();
+      ctx.lineTo(q.sx - spikeW, q.sy - spikeH); ctx.stroke();
+      // Right spike
+      ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
+      ctx.lineTo(q.sx + spikeW, q.sy - spikeH); ctx.stroke();
     }
   } else {
-    // Zenith Alpha / Endurant: V-shaped barbs at Z-stent peaks (IFU: hooks at tips)
-    for (let i = 0; i < nPeaks; i++) {
+    // Zenith Alpha / Endurant / Valiant: fishhook barbs at Z-stent peaks
+    // One barb per peak, alternating direction, with retrograde hook tip
+    for (let i = 0; i < crownPeaks; i++) {
       const theta = dTheta + i * dt;
       const q = project3D(R * Math.sin(theta), R * Math.cos(theta), SUPRA_Z, az, el, ox, oy, scale);
       if (q.d < 0) continue;
+      const dir = i % 2 === 0 ? 1 : -1;
+      const tipX = q.sx + dir * bLen * 0.9;
+      const tipY = q.sy - bLen * 2.6;
+      // Shank: from peak upward and outward
       ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
-      ctx.lineTo(q.sx - bLen * 1.0, q.sy - bLen * 2.5); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
-      ctx.lineTo(q.sx + bLen * 1.0, q.sy - bLen * 2.5); ctx.stroke();
+      ctx.lineTo(tipX, tipY); ctx.stroke();
+      // Retrograde hook: curves back inward from tip
+      ctx.beginPath(); ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tipX - dir * bLen * 0.6, tipY + bLen * 0.7); ctx.stroke();
     }
   }
   ctx.restore();
@@ -1090,11 +1098,9 @@ export function renderGraftSketch({
     result.device.color,
     result.device.id === "treo"
       ? "crown"
-      : result.device.id === "valiant"
-        ? "barbs_only"
-        : result.device.hasBareSuprarenal
-          ? "zstent"
-          : "none",
+      : result.device.hasBareSuprarenal
+        ? "zstent"
+        : "none",
     treoLarge ? supraH + 2 : supraH,
   );
 

@@ -36,12 +36,11 @@ export const ZENITH_ALPHA: DeviceGeometry = {
   clinicalRank: 1,
   color: "#2563eb",
   waveWidthMm: 13.6,
-  // Photo/IFU appearance: short ring-free fabric collar below the proximal edge
-  // before the first covered Z-row starts.
-  proximalRingOffsetMm: 8,
+  // IFU: first Z-stent ring starts very close to the proximal fabric edge
+  proximalRingOffsetMm: 2,
   // IFU T_ZALPHA_REV5: bare suprarenal nitinol stent with fixation barbs
   hasBareSuprarenal: true,
-  suprarenalHeightMm: 18, // IFU T_ZALPHA_REV5: bare Z-stent above fabric ≈ 18 mm
+  suprarenalHeightMm: 6, // IFU: suprarenal crown height ~6 mm
   hasInfrarenalBarbs: false,
   // IFU §2: ≥15 mm non-aneurysmal neck, <60° infrarenal, <45° suprarenal
   minNeckLengthMm: 15,
@@ -350,9 +349,9 @@ export const VALIANT: DeviceGeometry = {
   color: "#0d9488",
   waveWidthMm: 17.9,
   proximalRingOffsetMm: 3,
-  // IFU: proximal barb fixation at Ring 1 peaks (no separate bare Z-stent)
+  // IFU: Z-stent suprarenal crown with barbs at peaks
   hasBareSuprarenal: true,
-  suprarenalHeightMm: 5,
+  suprarenalHeightMm: 15,
   hasInfrarenalBarbs: false,
   minNeckLengthMm: 15,
   maxInfrarenalAngleDeg: 60,

@@ -47,7 +47,7 @@ function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
     default:
       return {
         pattern: "zigzag",
-        phaseFractions: [0, 0.5, 0, 0.5, 0],
+        phaseFractions: [0, 0, 0, 0, 0],   // IFU: valleys follow valleys (in-phase)
       };
   }
 }
