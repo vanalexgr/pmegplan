@@ -18,6 +18,7 @@
 
 import { clockToArc, wrapMm } from "@/lib/conflictDetection";
 import { getEffectiveRingGeometry } from "@/lib/devices";
+import { arcSepFromSeam, isStrutFreeDepth } from "@/lib/geometry";
 import {
   evalMStentDepth,
   getEndurantProfile,
@@ -147,12 +148,7 @@ const VESSEL_COLORS: Record<string, string> = {
 function computeArcSep(
   adjustedClock: string, seamDeg: number, optimalDeltaMm: number, circ: number,
 ): number {
-  const fenArc  = wrapMm(clockToArc(adjustedClock, circ), circ);
-  const seamArc = wrapMm((seamDeg / 360) * circ + optimalDeltaMm, circ);
-  let sep = fenArc - seamArc;
-  if (sep >  circ / 2) sep -= circ;
-  if (sep < -circ / 2) sep += circ;
-  return sep;
+  return arcSepFromSeam(adjustedClock, seamDeg, optimalDeltaMm, circ);
 }
 
 function isInInterRingGap(
@@ -162,13 +158,12 @@ function isInInterRingGap(
   nRings: number,
   startOffset = 0,
 ): boolean {
-  let y = startOffset;
-  for (let i = 0; i < nRings - 1; i++) {
-    y += ringHeight;
-    if (depthMm >= y && depthMm <= y + interRingGap) return true;
-    y += interRingGap;
-  }
-  return false;
+  return isStrutFreeDepth(depthMm, {
+    ringHeightMm: ringHeight,
+    interRingGapMm: interRingGap,
+    nRings,
+    proximalOffsetMm: startOffset,
+  });
 }
 
 function drawArrow(

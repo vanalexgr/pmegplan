@@ -7,12 +7,16 @@ import {
   evalTreoDepth,
   TREO_PROFILE_Y_MAX,
 } from "@/lib/treoProfile";
+import {
+  buildRingSegments,
+  pushPoint,
+  pointsToSegments,
+} from "@/lib/geometry/waveform";
+import type { WaveformPattern } from "@/lib/geometry/waveform";
 import type { DeviceGeometry, StrutSegment } from "@/lib/types";
 
-type StrutPattern = "zigzag" | "mshaped" | "sinusoidal";
-
 interface StrutLayoutProfile {
-  pattern: StrutPattern;
+  pattern: WaveformPattern;
   phaseFractions: number[];
   mShoulderRatio?: number;
   sinusoidSamplesPerWave?: number;
@@ -23,125 +27,6 @@ function getPhaseFraction(
   ringIndex: number,
 ) {
   return phaseFractions[ringIndex] ?? phaseFractions[phaseFractions.length - 1] ?? 0;
-}
-
-function pushPoint(
-  points: Array<[number, number]>,
-  point: [number, number],
-) {
-  const previous = points[points.length - 1];
-  if (
-    previous &&
-    Math.abs(previous[0] - point[0]) < 1e-6 &&
-    Math.abs(previous[1] - point[1]) < 1e-6
-  ) {
-    return;
-  }
-
-  points.push(point);
-}
-
-function pointsToSegments(points: Array<[number, number]>) {
-  const segments: StrutSegment[] = [];
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const [ax, ay] = points[index];
-    const [bx, by] = points[index + 1];
-    segments.push([ax, ay, bx, by]);
-  }
-
-  return segments;
-}
-
-function buildZigZagRingSegments(input: {
-  circumferenceMm: number;
-  yTopMm: number;
-  ringHeightMm: number;
-  nPeaks: number;
-  phaseFraction: number;
-}) {
-  const { circumferenceMm, yTopMm, ringHeightMm, nPeaks, phaseFraction } = input;
-  const waveWidth = circumferenceMm / nPeaks;
-  const points: Array<[number, number]> = [];
-  const startX = -waveWidth + phaseFraction * waveWidth;
-  const step = waveWidth / 2;
-  const steps = Math.ceil((circumferenceMm + waveWidth * 2) / step);
-
-  for (let pointIndex = 0; pointIndex <= steps; pointIndex += 1) {
-    const x = startX + pointIndex * step;
-    const y = pointIndex % 2 === 0 ? yTopMm : yTopMm + ringHeightMm;
-    pushPoint(points, [x, y]);
-  }
-
-  return pointsToSegments(points);
-}
-
-function buildMShapedRingSegments(input: {
-  circumferenceMm: number;
-  yTopMm: number;
-  ringHeightMm: number;
-  nPeaks: number;
-  phaseFraction: number;
-  shoulderRatio: number;
-}) {
-  const {
-    circumferenceMm,
-    yTopMm,
-    ringHeightMm,
-    nPeaks,
-    phaseFraction,
-    shoulderRatio,
-  } = input;
-  const waveWidth = circumferenceMm / nPeaks;
-  const phaseShift = phaseFraction * waveWidth;
-  const shoulderY = yTopMm + ringHeightMm * shoulderRatio;
-  const yBottomMm = yTopMm + ringHeightMm;
-  const points: Array<[number, number]> = [];
-
-  for (let waveIndex = -2; waveIndex <= nPeaks + 1; waveIndex += 1) {
-    const baseX = waveIndex * waveWidth + phaseShift;
-    pushPoint(points, [baseX, yTopMm]);
-    pushPoint(points, [baseX + waveWidth * 0.25, yBottomMm]);
-    pushPoint(points, [baseX + waveWidth * 0.5, shoulderY]);
-    pushPoint(points, [baseX + waveWidth * 0.75, yBottomMm]);
-    pushPoint(points, [baseX + waveWidth, yTopMm]);
-  }
-
-  return pointsToSegments(points);
-}
-
-function buildSinusoidalRingSegments(input: {
-  circumferenceMm: number;
-  yTopMm: number;
-  ringHeightMm: number;
-  nPeaks: number;
-  phaseFraction: number;
-  samplesPerWave: number;
-}) {
-  const {
-    circumferenceMm,
-    yTopMm,
-    ringHeightMm,
-    nPeaks,
-    phaseFraction,
-    samplesPerWave,
-  } = input;
-  const waveWidth = circumferenceMm / nPeaks;
-  const phaseShift = phaseFraction * waveWidth;
-  const amplitude = ringHeightMm / 2;
-  const yMid = yTopMm + amplitude;
-  const points: Array<[number, number]> = [];
-  const totalSamples = Math.ceil((nPeaks + 4) * samplesPerWave);
-  const startWave = -2;
-
-  for (let sampleIndex = 0; sampleIndex <= totalSamples; sampleIndex += 1) {
-    const wavePosition = startWave + sampleIndex / samplesPerWave;
-    const x = wavePosition * waveWidth + phaseShift;
-    const y = yMid - amplitude * Math.cos(wavePosition * 2 * Math.PI);
-    pushPoint(points, [x, y]);
-  }
-
-  return pointsToSegments(points);
 }
 
 function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
@@ -199,38 +84,14 @@ export function buildStrutSegments(
   let y = 0;
 
   for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
-    const phaseFraction = getPhaseFraction(profile.phaseFractions, ringIndex);
-    const ringSegments =
-      profile.pattern === "mshaped"
-        ? buildMShapedRingSegments({
-            circumferenceMm,
-            yTopMm: y,
-            ringHeightMm: ringHeight,
-            nPeaks,
-            phaseFraction,
-            shoulderRatio: profile.mShoulderRatio ?? 0.42,
-          })
-        : profile.pattern === "sinusoidal"
-          ? buildSinusoidalRingSegments({
-              circumferenceMm,
-              yTopMm: y,
-              ringHeightMm: ringHeight,
-              nPeaks,
-              phaseFraction,
-              samplesPerWave: profile.sinusoidSamplesPerWave ?? 12,
-            })
-          : buildZigZagRingSegments({
-              circumferenceMm,
-              yTopMm: y,
-              ringHeightMm: ringHeight,
-              nPeaks,
-              phaseFraction,
-            });
-
-    for (const segment of ringSegments) {
-      segments.push(segment);
-    }
-
+    segments.push(...buildRingSegments(circumferenceMm, y, {
+      pattern: profile.pattern,
+      waveWidthMm: circumferenceMm / nPeaks,
+      ringHeightMm: ringHeight,
+      phaseFraction: getPhaseFraction(profile.phaseFractions, ringIndex),
+      sinusoidSamples: profile.sinusoidSamplesPerWave,
+      mShoulderRatio: profile.mShoulderRatio,
+    }, nPeaks));
     y += ringHeight + interRingGap;
   }
 
@@ -387,35 +248,14 @@ export function buildStrutSegmentsForDevice(
   let yTopMm = startOffset;
 
   for (let ringIndex = 0; ringIndex < nRings; ringIndex += 1) {
-    const phaseFraction = getPhaseFraction(profile.phaseFractions, ringIndex);
-    const ringSegments =
-      profile.pattern === "mshaped"
-        ? buildMShapedRingSegments({
-            circumferenceMm: circ,
-            yTopMm,
-            ringHeightMm: ringHeight,
-            nPeaks,
-            phaseFraction,
-            shoulderRatio: profile.mShoulderRatio ?? 0.42,
-          })
-        : profile.pattern === "sinusoidal"
-          ? buildSinusoidalRingSegments({
-              circumferenceMm: circ,
-              yTopMm,
-              ringHeightMm: ringHeight,
-              nPeaks,
-              phaseFraction,
-              samplesPerWave: profile.sinusoidSamplesPerWave ?? 12,
-            })
-          : buildZigZagRingSegments({
-              circumferenceMm: circ,
-              yTopMm,
-              ringHeightMm: ringHeight,
-              nPeaks,
-              phaseFraction,
-            });
-
-    segments.push(...ringSegments);
+    segments.push(...buildRingSegments(circ, yTopMm, {
+      pattern: profile.pattern,
+      waveWidthMm: circ / nPeaks,
+      ringHeightMm: ringHeight,
+      phaseFraction: getPhaseFraction(profile.phaseFractions, ringIndex),
+      sinusoidSamples: profile.sinusoidSamplesPerWave,
+      mShoulderRatio: profile.mShoulderRatio,
+    }, nPeaks));
     yTopMm += ringHeight + gapHeight;
   }
 

@@ -1,4 +1,5 @@
 import type { DeviceGeometry, DeviceSize } from "@/lib/types";
+import { resolveRingGeometry } from "@/lib/geometry/ringGeometry";
 
 /**
  * PMEGplan.io — Device Geometry Database
@@ -469,10 +470,11 @@ export function getDeviceById(deviceId: string) {
  */
 export function getEffectiveRingGeometry(
   device: DeviceGeometry,
-  size: import("@/lib/types").DeviceSize | null,
+  size: DeviceSize | null,
 ): { ringHeight: number; interRingGap: number } {
+  const geom = resolveRingGeometry(device, size);
   return {
-    ringHeight: size?.ringHeightMm ?? device.ringHeight,
-    interRingGap: size?.interRingGapMm ?? device.interRingGap,
+    ringHeight: geom.ringHeightMm,
+    interRingGap: geom.interRingGapMm,
   };
 }
