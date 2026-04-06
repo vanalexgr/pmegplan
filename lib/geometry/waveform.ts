@@ -7,7 +7,7 @@
  *
  * Three supported patterns:
  *   "zigzag"     — Z-stent (Zenith Alpha)
- *   "sinusoidal" — smooth sinusoidal frame (Gore Excluder)
+ *   "sinusoidal" — smooth sinusoidal frame (Valiant, TREO)
  *   "m-shaped"   — M-stent calligraphic wave (generic fallback)
  */
 

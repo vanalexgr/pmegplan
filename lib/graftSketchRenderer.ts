@@ -420,7 +420,7 @@ function buildTreoRingPts3D(
 function getRingPhaseFraction(deviceId: string, ringIdx: number): number {
   switch (deviceId) {
     case "treo":
-      return [0, 0.5, 0, 0.5][ringIdx] ?? 0.5;
+      return 0;  // TREO: all rings in-phase (peaks align with peaks)
     case "valiant":
       return ringIdx % 2 === 0 ? 0 : 0.5;
     case "zenith_alpha":
@@ -677,29 +677,15 @@ function drawSuprarenal(
     }
     ctx.restore();
   } else if (suprType === "crown") {
-    // TREO: parabolic arches above fabric
-    ctx.save(); ctx.strokeStyle = color + "cc"; ctx.lineWidth = 1.3;
-    for (let i = 0; i < nPeaks; i++) {
-      const t0 = dTheta + i * dt, t1 = dTheta + (i + 1) * dt;
-      const archPts: Pt3D[] = [];
-      for (let s = 0; s <= 14; s++) {
-        const f = s / 14, theta = t0 + f * (t1 - t0);
-        archPts.push({ x: R * Math.sin(theta), y: R * Math.cos(theta), z: SUPRA_Z * (1 - 4 * f * (1 - f)) });
-      }
-      const prj = archPts.map((p) => project3D(p.x, p.y, p.z, az, el, ox, oy, scale));
-      ctx.beginPath(); ctx.moveTo(prj[0].sx, prj[0].sy);
-      for (let s = 1; s < prj.length; s++) ctx.lineTo(prj[s].sx, prj[s].sy);
-      ctx.stroke();
-    }
-    // Crown foot dots
-    ctx.fillStyle = color;
-    for (let i = 0; i < nPeaks; i++) {
-      const theta = dTheta + i * dt;
-      const q = project3D(R * Math.sin(theta), R * Math.cos(theta), 0, az, el, ox, oy, scale);
-      if (q.d < 0) continue;
-      ctx.beginPath(); ctx.arc(q.sx, q.sy, 2.2, 0, 2 * Math.PI); ctx.fill();
-    }
-    ctx.restore();
+    // TREO: the suprarenal Z-stent is one continuous wire. Its peaks rise above
+    // the fabric (at SUPRA_Z) and its valleys are sewn INTO the fabric to 4.6 mm
+    // depth (the crown). Total ring height = |SUPRA_Z| + 4.6.
+    // delta=0 aligns with TREO Ring 1 (buildTreoRingPts3D uses absolute theta).
+    const CROWN_DEPTH = 4.6;
+    const totalH = Math.abs(SUPRA_Z) + CROWN_DEPTH;
+    ctx.save(); ctx.setLineDash([3.5, 2.5]);
+    drawRing3D(ctx, buildRingPts(R, nPeaks, totalH, SUPRA_Z, 0, 0, circ), az, el, ox, oy, scale, color + "80", 1.1);
+    ctx.setLineDash([]); ctx.restore();
   } else {
     // Zenith Alpha / Endurant: dashed Z-stent ring above fabric
     ctx.save(); ctx.setLineDash([3.5, 2.5]);
@@ -707,15 +693,29 @@ function drawSuprarenal(
     ctx.setLineDash([]); ctx.restore();
   }
 
-  // Fixation barbs at peaks
+  // Fixation barbs
   ctx.save(); ctx.strokeStyle = "#222"; ctx.lineWidth = 0.9;
   const bLen = 4 * scale / 26;
-  for (let i = 0; i < nPeaks; i++) {
-    const theta = dTheta + i * dt;
-    const barbZ = suprType === "crown" ? 0 : SUPRA_Z;
-    const q     = project3D(R * Math.sin(theta), R * Math.cos(theta), barbZ, az, el, ox, oy, scale);
-    if (q.d < 0) continue;
-    ctx.beginPath(); ctx.moveTo(q.sx, q.sy); ctx.lineTo(q.sx - bLen * 1.2, q.sy - bLen * 2.2); ctx.stroke();
+  if (suprType === "crown") {
+    // Barbs at Z-stent valley = crown apex (z=4.6, inside fabric)
+    for (let i = 0; i < nPeaks; i++) {
+      const theta = (i + 0.5) * dt;
+      const apex = project3D(R * Math.sin(theta), R * Math.cos(theta), 4.6, az, el, ox, oy, scale);
+      if (apex.d < 0) continue;
+      ctx.beginPath(); ctx.moveTo(apex.sx, apex.sy);
+      ctx.lineTo(apex.sx - bLen * 1.2, apex.sy + bLen * 2.2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(apex.sx, apex.sy);
+      ctx.lineTo(apex.sx + bLen * 1.2, apex.sy + bLen * 2.2); ctx.stroke();
+    }
+  } else {
+    // Other devices: barbs at Z-stent peaks
+    for (let i = 0; i < nPeaks; i++) {
+      const theta = dTheta + i * dt;
+      const q = project3D(R * Math.sin(theta), R * Math.cos(theta), SUPRA_Z, az, el, ox, oy, scale);
+      if (q.d < 0) continue;
+      ctx.beginPath(); ctx.moveTo(q.sx, q.sy);
+      ctx.lineTo(q.sx - bLen * 1.2, q.sy - bLen * 2.2); ctx.stroke();
+    }
   }
   ctx.restore();
 }

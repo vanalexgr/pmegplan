@@ -15,7 +15,7 @@ export default function Home() {
             Physician-facing PMEG planning with rotational conflict analysis built in.
           </h1>
           <p className="max-w-2xl text-lg leading-8 text-[color:var(--muted-foreground)]">
-            Compare Zenith Alpha, TREO, Endurant II, and Excluder in one workspace,
+            Compare Zenith Alpha, TREO, Endurant II, and Valiant in one workspace,
             scan the full circumference for conflict-free windows, and export a
             printable punch card sized for back-table use.
           </p>

@@ -29,7 +29,7 @@ export const TREO_PROFILE_Y_MAX = 11.0;
  * Phase offsets for each ring row (index 0–3).
  * 0 = in-phase, 0.5 = half-period lag.
  */
-export const TREO_PHASE_FRACTIONS: readonly number[] = [0, 0.5, 0, 0.5] as const;
+export const TREO_PHASE_FRACTIONS: readonly number[] = [0, 0, 0, 0] as const;
 
 export const TREO_RING_PROFILE: readonly TreoKeypoint[] = [
   { posFrac: 0.0, depthMm: 0.5 },

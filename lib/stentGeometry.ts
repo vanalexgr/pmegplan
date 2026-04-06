@@ -31,6 +31,12 @@ function getPhaseFraction(
 
 function getStrutLayoutProfile(device: DeviceGeometry): StrutLayoutProfile {
   switch (device.id) {
+    case "treo":
+      return {
+        pattern: "sinusoidal",
+        phaseFractions: [0, 0, 0, 0],           // all rings in-phase
+        sinusoidSamplesPerWave: 16,
+      };
     case "valiant":
       return {
         pattern: "sinusoidal",
@@ -108,7 +114,7 @@ export function getSealZoneHeightMm(device: DeviceGeometry) {
 
 // ── Sinusoidal ring segments ─────────────────────────────────────────────────
 //
-// Devices such as Gore Excluder use smooth sinusoidal ring frames rather than
+// Devices such as Valiant and TREO use smooth sinusoidal ring frames rather than
 // sharp Z-stent zigzags. We approximate each ring with dense piecewise-linear
 // segments so both rendering and conflict detection see the same wire path.
 const N_SINUS = 12; // samples per half-period (per peak)

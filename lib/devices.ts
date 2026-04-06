@@ -123,9 +123,10 @@ export const ENDURANT_II: DeviceGeometry = {
   // Short proximal covered rows packed into roughly the first 55 mm, rather
   // than tall 20 mm oscillations, better match the published platform profile.
   // Device-level defaults (used when a size does not carry its own overrides).
-  // ringHeight: binary extraction shows 8.1 mm for both 23-28 and 32-36 size ranges.
-  ringHeight: 8.1,
-  interRingGap: 3,
+  // Binary extraction (endurant_23_28_data): ring heights 8.8–9.1 mm, gaps 1.0–1.3 mm.
+  // 5 rings packed tightly: total span ~50 mm (5×9 + 4×1.1 = 49.4 mm).
+  ringHeight: 9.0,
+  interRingGap: 1.1,
   nRings: 5,
   foreshortening: 0.07,
   seamDeg: 180,
@@ -154,10 +155,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
-      // Template measurements (IFU print-at-100% at 3.8 px/mm):
-      // 5 rings, all in-phase. Ring height measured top-to-bottom of sinusoid.
-      ringHeightMm: 7.5,
-      interRingGapMm: 2.5,
+      // Binary extraction: ring height ~9.0 mm, gap ~1.1 mm for 23-28 range
+      ringHeightMm: 9.0,
+      interRingGapMm: 1.1,
     },
     {
       graftDiameter: 25,
@@ -166,9 +166,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
-      // Template measurements: circ = π × 25 ≈ 78.5 mm · 8 peaks · 5 rings
-      ringHeightMm: 8.0,
-      interRingGapMm: 2.5,
+      // Binary extraction: ring height ~9.0 mm, gap ~1.1 mm for 23-28 range
+      ringHeightMm: 9.0,
+      interRingGapMm: 1.1,
     },
     {
       graftDiameter: 28,
@@ -177,9 +177,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 8,
       mainBodyLengths: [49, 82, 124, 166],
-      // Template measurements: circ = π × 28 ≈ 88.0 mm · 8 peaks · 5 rings
-      ringHeightMm: 8.0,
-      interRingGapMm: 2.5,
+      // Binary extraction: ring height ~9.0 mm, gap ~1.1 mm for 23-28 range
+      ringHeightMm: 9.0,
+      interRingGapMm: 1.1,
     },
     {
       graftDiameter: 32,
@@ -188,13 +188,10 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 10,
       mainBodyLengths: [82, 124, 166],
-      // Digitised Endurant_32 back-table template (3.8 px/mm): five covered
-      // M-stent rows packed at ~0→8 mm, ~10→18 mm, ~20→28 mm, ~30→38 mm,
-      // and ~40→48 mm. Ring 1 is symmetric; rings 2–5 use the asymmetric
-      // calligraphic profile captured in lib/mstentProfile.ts.
-      // Ring height = 8mm, gap = 2mm → total 5×8 + 4×2 = 48mm ✓
-      ringHeightMm: 8.0,
-      interRingGapMm: 2.0,
+      // Binary extraction (endurant_32_36_data): same ring packing as 23-28.
+      // 5 rings × 9mm + 4 gaps × 1.1mm = 49.4mm
+      ringHeightMm: 9.0,
+      interRingGapMm: 1.1,
     },
     {
       graftDiameter: 36,
@@ -203,9 +200,9 @@ export const ENDURANT_II: DeviceGeometry = {
       sheathFr: 18,
       nPeaks: 10,
       mainBodyLengths: [124, 166],
-      // Template measurements: circ = π × 36 ≈ 113.1 mm · 10 peaks · 5 rings
-      ringHeightMm: 8.5,
-      interRingGapMm: 2.0,
+      // Binary extraction: ring height ~9mm, gap ~1.1mm for 32-36 range
+      ringHeightMm: 9.0,
+      interRingGapMm: 1.1,
     },
   ],
   sources: [
@@ -224,11 +221,12 @@ export const TREO: DeviceGeometry = {
   shortName: "TREO",
   manufacturer: "Terumo Aortic",
   // ringHeight = projected vertical height of each covered spring row.
-  // TREO's defining planning feature is the broad working window created by
-  // staggered covered wireform rows with roughly square-ish openings.
-  ringHeight: 9,
-  // Template measurement: fabric gaps between covered rows are ~18 mm.
-  interRingGap: 18,
+  // Binary extraction (treo_33_data): Ring 1 height 10.8 mm, Rings 2-4 ~9.5 mm.
+  // Use 9.5 as device default; Ring 1 is slightly taller (~10.8).
+  ringHeight: 9.5,
+  // Binary extraction: edge-to-edge gap ~9.4 mm (center-to-center ~19 mm).
+  // Previous value of 18 mm was the center-to-center distance, not the gap.
+  interRingGap: 9.4,
   nRings: 4,
   foreshortening: 0.05,
   seamDeg: 0,
@@ -336,7 +334,9 @@ export const VALIANT: DeviceGeometry = {
   // ringHeight = sinusoidal ring amplitude extracted from binary waveform data.
   // Binary: Y range 7.6–23.2 mm → amplitude 15.6 mm; wave period ~17.9 mm.
   ringHeight: 15.6,
-  interRingGap: 2,
+  // Binary extraction (valiant_28_32_data): 8 rings, gaps 2.6–4.1 mm (avg 3.6 mm).
+  // Using 4 proximal rings for PMEG planning zone.
+  interRingGap: 3.6,
   nRings: 4,
   foreshortening: 0.05,
   seamDeg: 180,
@@ -383,7 +383,7 @@ export const VALIANT: DeviceGeometry = {
   ],
   sources: [
     "Waveform extracted from compiled binary: 249 points, period 17.87 mm, amplitude 15.60 mm",
-    "interRingGap provisional (2 mm) — multi-ring data not available in binary extract",
+    "Binary extraction (valiant_28_32_data): 8 rings, gaps 2.6–4.1 mm (avg 3.6 mm), ring height ~15.5 mm",
   ],
 };
 
