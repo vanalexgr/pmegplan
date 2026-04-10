@@ -132,16 +132,3 @@ export async function postAuditEvent(payload: AuditEventPayload) {
   const json = (await response.json()) as { event: AuditEventRecord };
   return json.event;
 }
-
-export async function fetchAuditEvents(limit = 50) {
-  const response = await fetch(`/api/audit?limit=${limit}`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Could not load audit events.");
-  }
-
-  const json = (await response.json()) as { events: AuditEventRecord[] };
-  return json.events;
-}

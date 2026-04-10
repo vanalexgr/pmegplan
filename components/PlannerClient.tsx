@@ -20,14 +20,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   buildAuditActor,
-  fetchAuditEvents,
   getOrCreateAuditSessionId,
   loadOperatorProfile,
   postAuditEvent,
   saveOperatorProfile,
   type OperatorProfile,
 } from "@/lib/audit/client";
-import type { AuditEventRecord } from "@/lib/audit/types";
+import type { AuditEventType } from "@/lib/audit/types";
 import { ALL_DEVICES } from "@/lib/devices";
 import { downloadAllPdfs } from "@/lib/pdfExport";
 import type { SavedPlannerProject } from "@/lib/planning/persistence";
@@ -116,15 +115,6 @@ function formatTimestamp(value: string | null) {
   }).format(date);
 }
 
-function mergeAuditEntries(
-  currentEntries: AuditEventRecord[],
-  nextEntry: AuditEventRecord,
-) {
-  return [nextEntry, ...currentEntries.filter((entry) => entry.id !== nextEntry.id)]
-    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
-    .slice(0, 100);
-}
-
 function buildCaseSnapshot(
   caseInput: CaseInput,
   selectedDeviceIds: string[],
@@ -152,47 +142,6 @@ function buildResultSummary(results: DeviceAnalysisResult[]) {
       : null,
     compatibleDeviceCount: results.filter((result) => result.size).length,
   };
-}
-
-function formatAuditEventLabel(eventType: AuditEventRecord["type"]) {
-  switch (eventType) {
-    case "planner_opened":
-      return "Planner opened";
-    case "analysis_started":
-      return "Analysis started";
-    case "analysis_completed":
-      return "Analysis completed";
-    case "analysis_invalidated":
-      return "Analysis invalidated";
-    case "sample_loaded":
-      return "Sample case loaded";
-    case "saved_project_loaded":
-      return "Saved project loaded";
-    case "device_selection_changed":
-      return "Device selection changed";
-    case "workspace_edit":
-      return "Workspace edited";
-    case "share_link_copied":
-      return "Share link copied";
-    default:
-      return "Export bundle downloaded";
-  }
-}
-
-function formatActorLabel(event: AuditEventRecord) {
-  if (event.actor.name && event.actor.email) {
-    return `${event.actor.name} · ${event.actor.email}`;
-  }
-
-  if (event.actor.name) {
-    return event.actor.name;
-  }
-
-  if (event.actor.email) {
-    return event.actor.email;
-  }
-
-  return `Session ${event.actor.sessionId.slice(0, 8)}`;
 }
 
 function StatusCard({
@@ -339,101 +288,9 @@ function OperatorIdentityCard({
             {sessionId ? sessionId.slice(0, 12) : "Starting..."}
           </p>
           <p className="mt-2 text-xs leading-5">
-            These details are attached to shared audit events. Without sign-in this is
-            best-effort identity, so filling it in matters.
+            These details are attached to internal usage logs for this deployment.
+            Without sign-in this is best-effort identity, so filling it in matters.
           </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AuditTrailPanel({
-  entries,
-  isLoading,
-  error,
-  onRefresh,
-}: {
-  entries: AuditEventRecord[];
-  isLoading: boolean;
-  error: string | null;
-  onRefresh: () => void;
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
-        <div className="space-y-2">
-          <CardTitle>Shared audit trail</CardTitle>
-          <p className="max-w-2xl text-sm leading-6 text-[color:var(--muted-foreground)]">
-            This history is stored on the server for this deployment, so runs from
-            different users and browsers appear together.
-          </p>
-        </div>
-        <Button type="button" variant="outline" size="sm" onClick={onRefresh}>
-          Refresh
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error ? (
-          <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
-            {error}
-          </div>
-        ) : null}
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-[color:var(--muted-foreground)]">
-            <Loader2 className="size-4 animate-spin" />
-            Loading audit trail...
-          </div>
-        ) : null}
-        {!isLoading && entries.length === 0 ? (
-          <div className="rounded-[24px] border border-dashed border-[color:var(--border)] bg-[rgba(255,255,255,0.6)] p-5 text-sm text-[color:var(--muted-foreground)]">
-            Shared audit events will appear here after the first tracked action.
-          </div>
-        ) : null}
-        <div className="grid gap-3">
-          {entries.slice(0, 12).map((entry) => (
-            <div
-              key={entry.id}
-              className="rounded-[24px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.82)] p-4"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-[color:var(--foreground)]">
-                    {formatAuditEventLabel(entry.type)}
-                  </p>
-                  <p className="text-sm text-[color:var(--muted-foreground)]">
-                    {formatActorLabel(entry)}
-                  </p>
-                </div>
-                <p className="text-sm text-[color:var(--muted-foreground)]">
-                  {formatTimestamp(entry.occurredAt) ?? entry.occurredAt}
-                </p>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-3 text-sm text-[color:var(--muted-foreground)]">
-                {entry.actor.organization ? <span>{entry.actor.organization}</span> : null}
-                {entry.caseSnapshot?.patientId ? (
-                  <span>Patient {entry.caseSnapshot.patientId}</span>
-                ) : null}
-                {entry.caseSnapshot?.surgeonName ? (
-                  <span>Surgeon {entry.caseSnapshot.surgeonName}</span>
-                ) : null}
-                {entry.caseSnapshot?.fenestrationCount !== undefined ? (
-                  <span>
-                    {entry.caseSnapshot.fenestrationCount} fenestration
-                    {entry.caseSnapshot.fenestrationCount === 1 ? "" : "s"}
-                  </span>
-                ) : null}
-                {entry.resultSummary?.recommendedDeviceName ? (
-                  <span>
-                    Top fit {entry.resultSummary.recommendedDeviceName}
-                    {entry.resultSummary.recommendedGraftDiameterMm
-                      ? ` ${entry.resultSummary.recommendedGraftDiameterMm} mm`
-                      : ""}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          ))}
         </div>
       </CardContent>
     </Card>
@@ -475,9 +332,6 @@ export function PlannerClient() {
   const [sessionId, setSessionId] = useState("");
   const [operatorProfile, setOperatorProfile] =
     useState<OperatorProfile>(DEFAULT_OPERATOR_PROFILE);
-  const [auditEntries, setAuditEntries] = useState<AuditEventRecord[]>([]);
-  const [isAuditLoading, setIsAuditLoading] = useState(true);
-  const [auditError, setAuditError] = useState<string | null>(null);
   const plannerOpenedLoggedRef = useRef(false);
   const completedAuditRef = useRef<string | null>(null);
   const hasFormDraftChangesRef = useRef(false);
@@ -507,30 +361,9 @@ export function PlannerClient() {
     saveOperatorProfile(operatorProfile);
   }, [operatorProfile]);
 
-  const refreshAuditTrail = useCallback(() => {
-    setIsAuditLoading(true);
-
-    void fetchAuditEvents(100)
-      .then((entries) => {
-        setAuditEntries(entries);
-        setAuditError(null);
-      })
-      .catch((error) => {
-        console.error("Failed to load audit trail", error);
-        setAuditError("The shared audit trail could not be loaded.");
-      })
-      .finally(() => {
-        setIsAuditLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    refreshAuditTrail();
-  }, [refreshAuditTrail]);
-
   const trackAuditEvent = useCallback(
     async (input: {
-      type: AuditEventRecord["type"];
+      type: AuditEventType;
       caseInputOverride?: CaseInput;
       selectedDeviceIdsOverride?: string[];
       projectIdOverride?: string;
@@ -542,7 +375,7 @@ export function PlannerClient() {
       }
 
       try {
-        const event = await postAuditEvent({
+        await postAuditEvent({
           type: input.type,
           actor: buildAuditActor(sessionId, operatorProfile),
           caseSnapshot: buildCaseSnapshot(
@@ -553,12 +386,8 @@ export function PlannerClient() {
           resultSummary: buildResultSummary(input.resultsOverride ?? results),
           details: input.details,
         });
-
-        setAuditEntries((currentEntries) => mergeAuditEntries(currentEntries, event));
-        setAuditError(null);
       } catch (error) {
         console.error("Failed to store audit event", error);
-        setAuditError("Audit events are not being stored right now.");
       }
     },
     [caseInput, operatorProfile, planningProject.projectId, results, selectedDeviceIds, sessionId],
@@ -1043,12 +872,6 @@ export function PlannerClient() {
         </section>
       ) : null}
 
-      <AuditTrailPanel
-        entries={auditEntries}
-        isLoading={isAuditLoading}
-        error={auditError}
-        onRefresh={refreshAuditTrail}
-      />
     </main>
   );
 }
