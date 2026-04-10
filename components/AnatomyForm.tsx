@@ -86,6 +86,7 @@ interface AnatomyFormProps {
   initialValue: CaseFormValues;
   selectedDeviceIds: string[];
   onSubmit: (values: CaseFormValues) => void;
+  onDraftStateChange?: (hasDraftChanges: boolean) => void;
   onToggleDevice: (deviceId: string) => void;
   onSelectAllDevices: () => void;
   onLoadSample: () => void;
@@ -96,6 +97,7 @@ export function AnatomyForm({
   initialValue,
   selectedDeviceIds,
   onSubmit,
+  onDraftStateChange,
   onToggleDevice,
   onSelectAllDevices,
   onLoadSample,
@@ -103,7 +105,7 @@ export function AnatomyForm({
 }: AnatomyFormProps) {
   const {
     control,
-    formState: { errors },
+    formState: { errors, isDirty },
     handleSubmit,
     register,
     reset,
@@ -116,6 +118,10 @@ export function AnatomyForm({
   useEffect(() => {
     reset(initialValue);
   }, [initialValue, reset]);
+
+  useEffect(() => {
+    onDraftStateChange?.(isDirty);
+  }, [isDirty, onDraftStateChange]);
 
   const { fields, append, remove } = useFieldArray({
     control,
@@ -438,7 +444,7 @@ export function AnatomyForm({
               Enable all
             </Button>
             <Button type="submit" disabled={isPending || selectedDeviceIds.length === 0}>
-              {isPending ? "Analysing..." : "Run planning analysis"}
+              {isPending ? "Running analysis..." : "Run planning analysis"}
             </Button>
           </div>
         </CardContent>

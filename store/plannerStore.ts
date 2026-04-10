@@ -2,19 +2,25 @@
 
 import { create } from "zustand";
 
-import { analyseCase, analyseCaseProgressive } from "@/lib/analysis";
+import { analyseCaseProgressive } from "@/lib/analysis";
 import { normalizeCaseInput } from "@/lib/caseInput";
 import { ALL_DEVICES } from "@/lib/devices";
+import {
+  appendAnalysisLog,
+  readAnalysisLog,
+  type AnalysisLogEntry,
+} from "@/lib/planning/analysisLog";
+import { hashSnapshot } from "@/lib/planning/hash";
 import type { SavedPlannerProject } from "@/lib/planning/persistence";
 import { createPlanningProjectFromCaseInput } from "@/lib/planning/project";
-import { hashSnapshot } from "@/lib/planning/hash";
+import type { PlanningProject } from "@/lib/planning/types";
 import { sampleCase } from "@/lib/sampleCase";
 import type { CaseInput, DeviceAnalysisResult, Fenestration } from "@/lib/types";
-import type { PlanningProject } from "@/lib/planning/types";
 
 const HISTORY_LIMIT = 50;
 
 type FenestrationPatch = Partial<Fenestration>;
+type AnalysisStatus = "idle" | "running" | "ready" | "stale";
 
 interface PlannerSnapshot {
   caseInput: CaseInput;
@@ -22,23 +28,32 @@ interface PlannerSnapshot {
   projectId: string;
 }
 
+interface CompletedAnalysis {
+  snapshot: PlannerSnapshot;
+  results: DeviceAnalysisResult[];
+  completedAt: string;
+}
+
 interface PlannerStore {
   caseInput: CaseInput;
   planningProject: PlanningProject;
   selectedDeviceIds: string[];
   results: DeviceAnalysisResult[];
-  isReady: boolean;
-  isBootstrapping: boolean;
-  bootstrapProgress: number;
-  bootstrapLabel: string | null;
-  bootstrapCompleted: number;
-  bootstrapTotal: number;
+  analysisStatus: AnalysisStatus;
+  analysisProgress: number;
+  analysisLabel: string | null;
+  analysisCompleted: number;
+  analysisTotal: number;
+  lastCompletedAt: string | null;
+  analysisLogEntries: AnalysisLogEntry[];
   historyPast: PlannerSnapshot[];
   historyFuture: PlannerSnapshot[];
   canUndo: boolean;
   canRedo: boolean;
-  bootstrap: () => void;
-  analyse: (caseInput: CaseInput) => void;
+  lastCompletedAnalysis: CompletedAnalysis | null;
+  runAnalysis: (caseInput: CaseInput) => Promise<void>;
+  stageCaseInput: (caseInput: CaseInput) => void;
+  refreshAnalysisLog: () => void;
   updateFenestration: (index: number, patch: FenestrationPatch) => void;
   updateFenestrations: (
     patches: Array<{ index: number; patch: FenestrationPatch }>,
@@ -72,59 +87,23 @@ function cloneSnapshot(snapshot: PlannerSnapshot): PlannerSnapshot {
   };
 }
 
-function buildPlannerSnapshot(
-  caseInput: CaseInput,
-  selectedDeviceIds: string[],
-  projectId?: string,
-) {
-  const normalizedCaseInput = normalizeCaseInput(caseInput);
-  const results = analyseCase(normalizedCaseInput, selectedDeviceIds);
-  const preferredDeviceId =
-    results.find((result) => result.size)?.device.id ?? selectedDeviceIds[0] ?? null;
-
-  return {
-    results,
-    planningProject: createPlanningProjectFromCaseInput(
-      normalizedCaseInput,
-      preferredDeviceId,
-      projectId,
-    ),
-  };
-}
-
 function buildSnapshot(
   caseInput: CaseInput,
   selectedDeviceIds: string[],
   projectId: string,
 ): PlannerSnapshot {
-  const normalizedCaseInput = cloneCaseInput(caseInput);
-
   return {
-    caseInput: normalizedCaseInput,
+    caseInput: cloneCaseInput(caseInput),
     selectedDeviceIds: [...selectedDeviceIds],
     projectId,
   };
 }
 
-function buildStateFromSnapshot(snapshot: PlannerSnapshot) {
-  const nextCaseInput = cloneCaseInput(snapshot.caseInput);
-  const nextSelectedDeviceIds = [...snapshot.selectedDeviceIds];
-  const derived = buildPlannerSnapshot(
-    nextCaseInput,
-    nextSelectedDeviceIds,
-    snapshot.projectId,
-  );
-
-  return {
-    caseInput: nextCaseInput,
-    selectedDeviceIds: nextSelectedDeviceIds,
-    results: derived.results,
-    planningProject: derived.planningProject,
-  };
-}
-
 function snapshotEquals(left: PlannerSnapshot, right: PlannerSnapshot): boolean {
-  return hashSnapshot(left.caseInput, left.selectedDeviceIds, left.projectId) === hashSnapshot(right.caseInput, right.selectedDeviceIds, right.projectId);
+  return (
+    hashSnapshot(left.caseInput, left.selectedDeviceIds, left.projectId) ===
+    hashSnapshot(right.caseInput, right.selectedDeviceIds, right.projectId)
+  );
 }
 
 function pushPast(
@@ -139,6 +118,55 @@ function pushFuture(
   snapshot: PlannerSnapshot,
 ): PlannerSnapshot[] {
   return [cloneSnapshot(snapshot), ...history].slice(0, HISTORY_LIMIT);
+}
+
+function getPreferredDeviceId(
+  results: DeviceAnalysisResult[],
+  fallbackDeviceIds: string[],
+): string | null {
+  return results.find((result) => result.size)?.device.id ?? fallbackDeviceIds[0] ?? null;
+}
+
+function buildPlanningProject(
+  snapshot: PlannerSnapshot,
+  preferredDeviceId?: string | null,
+): PlanningProject {
+  return createPlanningProjectFromCaseInput(
+    snapshot.caseInput,
+    preferredDeviceId ?? snapshot.selectedDeviceIds[0] ?? null,
+    snapshot.projectId,
+  );
+}
+
+function buildStateFromSnapshot(
+  snapshot: PlannerSnapshot,
+  lastCompletedAnalysis: CompletedAnalysis | null,
+) {
+  const nextCaseInput = cloneCaseInput(snapshot.caseInput);
+  const nextSelectedDeviceIds = [...snapshot.selectedDeviceIds];
+  const matchesLastCompleted =
+    lastCompletedAnalysis !== null &&
+    snapshotEquals(snapshot, lastCompletedAnalysis.snapshot);
+  const preferredDeviceId = matchesLastCompleted
+    ? getPreferredDeviceId(lastCompletedAnalysis.results, nextSelectedDeviceIds)
+    : nextSelectedDeviceIds[0] ?? null;
+
+  return {
+    caseInput: nextCaseInput,
+    selectedDeviceIds: nextSelectedDeviceIds,
+    planningProject: buildPlanningProject(snapshot, preferredDeviceId),
+    results: matchesLastCompleted ? lastCompletedAnalysis.results : [],
+    analysisStatus: matchesLastCompleted
+      ? ("ready" as const)
+      : lastCompletedAnalysis
+        ? ("stale" as const)
+        : ("idle" as const),
+    analysisProgress: matchesLastCompleted ? 1 : 0,
+    analysisLabel: matchesLastCompleted ? "Analysis restored from the latest run." : null,
+    analysisCompleted: matchesLastCompleted ? nextSelectedDeviceIds.length : 0,
+    analysisTotal: nextSelectedDeviceIds.length,
+    lastCompletedAt: lastCompletedAnalysis?.completedAt ?? null,
+  };
 }
 
 function commitSnapshotChange(
@@ -156,13 +184,7 @@ function commitSnapshotChange(
   }
 
   return {
-    ...buildStateFromSnapshot(nextSnapshot),
-    isReady: true,
-    isBootstrapping: false,
-    bootstrapProgress: 1,
-    bootstrapCompleted: nextSnapshot.selectedDeviceIds.length,
-    bootstrapTotal: nextSnapshot.selectedDeviceIds.length,
-    bootstrapLabel: null,
+    ...buildStateFromSnapshot(nextSnapshot, state.lastCompletedAnalysis),
     historyPast: pushPast(state.historyPast, currentSnapshot),
     historyFuture: [],
     canUndo: true,
@@ -185,111 +207,131 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   planningProject: initialProject,
   selectedDeviceIds: [...initialSnapshot.selectedDeviceIds],
   results: [],
-  isReady: false,
-  isBootstrapping: false,
-  bootstrapProgress: 0,
-  bootstrapLabel: null,
-  bootstrapCompleted: 0,
-  bootstrapTotal: 0,
+  analysisStatus: "idle",
+  analysisProgress: 0,
+  analysisLabel: null,
+  analysisCompleted: 0,
+  analysisTotal: defaultDeviceIds.length,
+  lastCompletedAt: null,
+  analysisLogEntries: [],
   historyPast: [],
   historyFuture: [],
   canUndo: false,
   canRedo: false,
-  bootstrap: async () => {
+  lastCompletedAnalysis: null,
+  runAnalysis: async (nextCaseInput) => {
     const state = get();
-    if (state.isReady || state.isBootstrapping) {
-      return;
-    }
-
-    const caseInput = cloneCaseInput(state.caseInput);
-    const selectedDeviceIds = [...state.selectedDeviceIds];
-    const projectId = state.planningProject.projectId;
-    const snapshotKey = hashSnapshot(
-      caseInput,
-      selectedDeviceIds,
-      projectId,
+    const nextSnapshot = buildSnapshot(
+      nextCaseInput,
+      state.selectedDeviceIds,
+      state.planningProject.projectId,
     );
+    const currentSnapshot = buildSnapshot(
+      state.caseInput,
+      state.selectedDeviceIds,
+      state.planningProject.projectId,
+    );
+    const snapshotChanged = !snapshotEquals(currentSnapshot, nextSnapshot);
+    const selectedDeviceIds = [...nextSnapshot.selectedDeviceIds];
+    const analysisKey = hashSnapshot(
+      nextSnapshot.caseInput,
+      nextSnapshot.selectedDeviceIds,
+      nextSnapshot.projectId,
+    );
+    const nextHistoryPast = snapshotChanged
+      ? pushPast(state.historyPast, currentSnapshot)
+      : state.historyPast;
 
-    set({
-      isBootstrapping: true,
-      bootstrapProgress: 0,
-      bootstrapCompleted: 0,
-      bootstrapTotal: selectedDeviceIds.length,
-      bootstrapLabel:
+    set((current) => ({
+      ...current,
+      caseInput: cloneCaseInput(nextSnapshot.caseInput),
+      selectedDeviceIds: selectedDeviceIds,
+      planningProject: buildPlanningProject(nextSnapshot),
+      results: [],
+      analysisStatus: "running",
+      analysisProgress: 0,
+      analysisCompleted: 0,
+      analysisTotal: selectedDeviceIds.length,
+      analysisLabel:
         selectedDeviceIds.length > 0
           ? `Preparing device analysis (0/${selectedDeviceIds.length})`
           : "Preparing device analysis",
-    });
+      historyPast: nextHistoryPast,
+      historyFuture: snapshotChanged ? [] : current.historyFuture,
+      canUndo: nextHistoryPast.length > 0,
+      canRedo: snapshotChanged ? false : current.canRedo,
+    }));
 
     const results = await analyseCaseProgressive(
-      caseInput,
+      nextSnapshot.caseInput,
       selectedDeviceIds,
       (progress) => {
         set((current) => {
-          if (current.isReady) {
-            return current;
-          }
-
           const currentKey = hashSnapshot(
             current.caseInput,
             current.selectedDeviceIds,
             current.planningProject.projectId,
           );
 
-          if (currentKey !== snapshotKey) {
+          if (
+            current.analysisStatus !== "running" ||
+            currentKey !== analysisKey
+          ) {
             return current;
           }
 
           return {
             ...current,
-            isBootstrapping: true,
-            bootstrapProgress: progress.fraction,
-            bootstrapCompleted: progress.completed,
-            bootstrapTotal: progress.total,
-            bootstrapLabel: `Analysing ${progress.deviceName} (${progress.completed}/${progress.total})`,
+            analysisProgress: progress.fraction,
+            analysisCompleted: progress.completed,
+            analysisTotal: progress.total,
+            analysisLabel: `Analysing ${progress.deviceName} (${progress.completed}/${progress.total})`,
           };
         });
       },
     );
 
     set((current) => {
-      if (current.isReady) {
-        return current;
-      }
-
       const currentKey = hashSnapshot(
         current.caseInput,
         current.selectedDeviceIds,
         current.planningProject.projectId,
       );
 
-      if (currentKey !== snapshotKey) {
+      if (current.analysisStatus !== "running" || currentKey !== analysisKey) {
         return current;
       }
 
-      const preferredDeviceId =
-        results.find((result) => result.size)?.device.id ??
-        selectedDeviceIds[0] ??
-        null;
+      const completedAt = new Date().toISOString();
+      const preferredDeviceId = getPreferredDeviceId(results, selectedDeviceIds);
+      const completedAnalysis: CompletedAnalysis = {
+        snapshot: cloneSnapshot(nextSnapshot),
+        results,
+        completedAt,
+      };
 
       return {
         ...current,
         results,
-        planningProject: createPlanningProjectFromCaseInput(
-          caseInput,
-          preferredDeviceId,
-          projectId,
-        ),
-        isReady: true,
-        isBootstrapping: false,
-        bootstrapProgress: 1,
-        bootstrapCompleted: selectedDeviceIds.length,
-        bootstrapTotal: selectedDeviceIds.length,
-        bootstrapLabel: `Analysis complete (${selectedDeviceIds.length}/${selectedDeviceIds.length})`,
+        planningProject: buildPlanningProject(nextSnapshot, preferredDeviceId),
+        analysisStatus: "ready",
+        analysisProgress: 1,
+        analysisCompleted: selectedDeviceIds.length,
+        analysisTotal: selectedDeviceIds.length,
+        analysisLabel: `Analysis complete (${selectedDeviceIds.length}/${selectedDeviceIds.length})`,
+        lastCompletedAt: completedAt,
+        lastCompletedAnalysis: completedAnalysis,
+        analysisLogEntries: appendAnalysisLog({
+          projectId: nextSnapshot.projectId,
+          caseInput: nextSnapshot.caseInput,
+          selectedDeviceIds,
+          results,
+          completedAt,
+        }),
       };
     });
   },
-  analyse: (caseInput) =>
+  stageCaseInput: (caseInput) =>
     set((state) =>
       commitSnapshotChange(
         state,
@@ -300,6 +342,11 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
         ),
       ),
     ),
+  refreshAnalysisLog: () =>
+    set((state) => ({
+      ...state,
+      analysisLogEntries: readAnalysisLog(),
+    })),
   updateFenestration: (index, patch) =>
     get().updateFenestrations([{ index, patch }]),
   updateFenestrations: (patches) =>
@@ -376,13 +423,7 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
       const nextFuture = pushFuture(state.historyFuture, currentSnapshot);
 
       return {
-        ...buildStateFromSnapshot(previousSnapshot),
-        isReady: true,
-        isBootstrapping: false,
-        bootstrapProgress: 1,
-        bootstrapCompleted: previousSnapshot.selectedDeviceIds.length,
-        bootstrapTotal: previousSnapshot.selectedDeviceIds.length,
-        bootstrapLabel: null,
+        ...buildStateFromSnapshot(previousSnapshot, state.lastCompletedAnalysis),
         historyPast: nextPast,
         historyFuture: nextFuture,
         canUndo: nextPast.length > 0,
@@ -404,13 +445,7 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
       const nextPast = pushPast(state.historyPast, currentSnapshot);
 
       return {
-        ...buildStateFromSnapshot(nextSnapshot),
-        isReady: true,
-        isBootstrapping: false,
-        bootstrapProgress: 1,
-        bootstrapCompleted: nextSnapshot.selectedDeviceIds.length,
-        bootstrapTotal: nextSnapshot.selectedDeviceIds.length,
-        bootstrapLabel: null,
+        ...buildStateFromSnapshot(nextSnapshot, state.lastCompletedAnalysis),
         historyPast: nextPast,
         historyFuture: remainingFuture,
         canUndo: nextPast.length > 0,
