@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -17,14 +17,32 @@ import { PlanningWorkspace } from "@/components/PlanningWorkspace";
 import { RecommendationOverview } from "@/components/RecommendationOverview";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  buildAuditActor,
+  fetchAuditEvents,
+  getOrCreateAuditSessionId,
+  loadOperatorProfile,
+  postAuditEvent,
+  saveOperatorProfile,
+  type OperatorProfile,
+} from "@/lib/audit/client";
+import type { AuditEventRecord } from "@/lib/audit/types";
 import { ALL_DEVICES } from "@/lib/devices";
 import { downloadAllPdfs } from "@/lib/pdfExport";
 import type { SavedPlannerProject } from "@/lib/planning/persistence";
-import type { DeviceAnalysisResult } from "@/lib/types";
+import { sampleCase } from "@/lib/sampleCase";
+import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 import { caseSchema } from "@/lib/validation";
 import { usePlannerStore } from "@/store/plannerStore";
 
 type FeedbackTone = "info" | "success" | "warning";
+
+const DEFAULT_OPERATOR_PROFILE: OperatorProfile = {
+  name: "",
+  email: "",
+  organization: "",
+};
 
 function SummaryTable({ results }: { results: DeviceAnalysisResult[] }) {
   return (
@@ -96,6 +114,85 @@ function formatTimestamp(value: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function mergeAuditEntries(
+  currentEntries: AuditEventRecord[],
+  nextEntry: AuditEventRecord,
+) {
+  return [nextEntry, ...currentEntries.filter((entry) => entry.id !== nextEntry.id)]
+    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
+    .slice(0, 100);
+}
+
+function buildCaseSnapshot(
+  caseInput: CaseInput,
+  selectedDeviceIds: string[],
+  projectId: string,
+) {
+  return {
+    projectId,
+    patientId: caseInput.patientId?.trim() || undefined,
+    surgeonName: caseInput.surgeonName?.trim() || undefined,
+    neckDiameterMm: caseInput.neckDiameterMm,
+    fenestrationCount: caseInput.fenestrations.length,
+    selectedDeviceIds,
+  };
+}
+
+function buildResultSummary(results: DeviceAnalysisResult[]) {
+  const recommendedResult = results.find((result) => result.size) ?? results[0] ?? null;
+
+  return {
+    recommendedDeviceId: recommendedResult?.device.id ?? null,
+    recommendedDeviceName: recommendedResult?.device.shortName ?? null,
+    recommendedGraftDiameterMm: recommendedResult?.size?.graftDiameter ?? null,
+    recommendedScore: recommendedResult
+      ? Number(recommendedResult.manufacturabilityScore.toFixed(1))
+      : null,
+    compatibleDeviceCount: results.filter((result) => result.size).length,
+  };
+}
+
+function formatAuditEventLabel(eventType: AuditEventRecord["type"]) {
+  switch (eventType) {
+    case "planner_opened":
+      return "Planner opened";
+    case "analysis_started":
+      return "Analysis started";
+    case "analysis_completed":
+      return "Analysis completed";
+    case "analysis_invalidated":
+      return "Analysis invalidated";
+    case "sample_loaded":
+      return "Sample case loaded";
+    case "saved_project_loaded":
+      return "Saved project loaded";
+    case "device_selection_changed":
+      return "Device selection changed";
+    case "workspace_edit":
+      return "Workspace edited";
+    case "share_link_copied":
+      return "Share link copied";
+    default:
+      return "Export bundle downloaded";
+  }
+}
+
+function formatActorLabel(event: AuditEventRecord) {
+  if (event.actor.name && event.actor.email) {
+    return `${event.actor.name} · ${event.actor.email}`;
+  }
+
+  if (event.actor.name) {
+    return event.actor.name;
+  }
+
+  if (event.actor.email) {
+    return event.actor.email;
+  }
+
+  return `Session ${event.actor.sessionId.slice(0, 8)}`;
 }
 
 function StatusCard({
@@ -180,74 +277,164 @@ function StatusCard({
   );
 }
 
-function AnalysisLogPanel({
-  entries,
+function OperatorIdentityCard({
+  profile,
+  sessionId,
+  onChange,
 }: {
-  entries: Array<{
-    id: string;
-    completedAt: string;
-    patientId?: string;
-    surgeonName?: string;
-    neckDiameterMm: number;
-    fenestrationCount: number;
-    selectedDeviceNames: string[];
-    recommendedDeviceName: string | null;
-    recommendedGraftDiameterMm: number | null;
-    recommendedScore: number | null;
-  }>;
+  profile: OperatorProfile;
+  sessionId: string;
+  onChange: (nextProfile: OperatorProfile) => void;
 }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Analysis log</CardTitle>
+        <CardTitle>Operator identity</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto]">
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-[color:var(--foreground)]">Name</p>
+          <Input
+            value={profile.name}
+            placeholder="Operator name"
+            onChange={(event) =>
+              onChange({
+                ...profile,
+                name: event.target.value,
+              })
+            }
+          />
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-[color:var(--foreground)]">Email</p>
+          <Input
+            value={profile.email}
+            placeholder="name@hospital.org"
+            onChange={(event) =>
+              onChange({
+                ...profile,
+                email: event.target.value,
+              })
+            }
+          />
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-[color:var(--foreground)]">
+            Organisation
+          </p>
+          <Input
+            value={profile.organization}
+            placeholder="Hospital or team"
+            onChange={(event) =>
+              onChange({
+                ...profile,
+                organization: event.target.value,
+              })
+            }
+          />
+        </div>
+        <div className="rounded-[24px] border border-dashed border-[color:var(--border)] bg-[rgba(255,255,255,0.6)] p-4 text-sm text-[color:var(--muted-foreground)]">
+          <p className="font-medium text-[color:var(--foreground)]">Audit session</p>
+          <p className="mt-1 font-mono text-xs">
+            {sessionId ? sessionId.slice(0, 12) : "Starting..."}
+          </p>
+          <p className="mt-2 text-xs leading-5">
+            These details are attached to shared audit events. Without sign-in this is
+            best-effort identity, so filling it in matters.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AuditTrailPanel({
+  entries,
+  isLoading,
+  error,
+  onRefresh,
+}: {
+  entries: AuditEventRecord[];
+  isLoading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div className="space-y-2">
+          <CardTitle>Shared audit trail</CardTitle>
+          <p className="max-w-2xl text-sm leading-6 text-[color:var(--muted-foreground)]">
+            This history is stored on the server for this deployment, so runs from
+            different users and browsers appear together.
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onRefresh}>
+          Refresh
+        </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm leading-6 text-[color:var(--muted-foreground)]">
-          Recent runs are stored locally in this browser so the team can review who
-          planned what, when the case was analysed, and what the top recommendation was.
-        </p>
-        {entries.length === 0 ? (
-          <div className="rounded-[24px] border border-dashed border-[color:var(--border)] bg-[rgba(255,255,255,0.6)] p-5 text-sm text-[color:var(--muted-foreground)]">
-            Completed analyses will appear here after the first run.
+        {error ? (
+          <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
+            {error}
           </div>
-        ) : (
-          <div className="grid gap-3">
-            {entries.slice(0, 8).map((entry) => (
-              <div
-                key={entry.id}
-                className="rounded-[24px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.82)] p-4"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-[color:var(--foreground)]">
-                      {entry.patientId || "Unnamed case"}
-                    </p>
-                    <p className="text-sm text-[color:var(--muted-foreground)]">
-                      Surgeon {entry.surgeonName || "Not recorded"} ·{" "}
-                      {formatTimestamp(entry.completedAt) ?? entry.completedAt}
-                    </p>
-                  </div>
-                  <p className="text-sm font-medium text-[color:var(--brand)]">
-                    {entry.recommendedDeviceName
-                      ? `${entry.recommendedDeviceName}${entry.recommendedGraftDiameterMm ? ` ${entry.recommendedGraftDiameterMm} mm` : ""}`
-                      : "No compatible recommendation"}
+        ) : null}
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-[color:var(--muted-foreground)]">
+            <Loader2 className="size-4 animate-spin" />
+            Loading audit trail...
+          </div>
+        ) : null}
+        {!isLoading && entries.length === 0 ? (
+          <div className="rounded-[24px] border border-dashed border-[color:var(--border)] bg-[rgba(255,255,255,0.6)] p-5 text-sm text-[color:var(--muted-foreground)]">
+            Shared audit events will appear here after the first tracked action.
+          </div>
+        ) : null}
+        <div className="grid gap-3">
+          {entries.slice(0, 12).map((entry) => (
+            <div
+              key={entry.id}
+              className="rounded-[24px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.82)] p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-[color:var(--foreground)]">
+                    {formatAuditEventLabel(entry.type)}
+                  </p>
+                  <p className="text-sm text-[color:var(--muted-foreground)]">
+                    {formatActorLabel(entry)}
                   </p>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-3 text-sm text-[color:var(--muted-foreground)]">
-                  <span>Neck {entry.neckDiameterMm.toFixed(1)} mm</span>
-                  <span>
-                    {entry.fenestrationCount} fenestration
-                    {entry.fenestrationCount === 1 ? "" : "s"}
-                  </span>
-                  <span>{entry.selectedDeviceNames.join(", ")}</span>
-                  {entry.recommendedScore !== null ? (
-                    <span>Score {entry.recommendedScore.toFixed(1)}</span>
-                  ) : null}
-                </div>
+                <p className="text-sm text-[color:var(--muted-foreground)]">
+                  {formatTimestamp(entry.occurredAt) ?? entry.occurredAt}
+                </p>
               </div>
-            ))}
-          </div>
-        )}
+              <div className="mt-3 flex flex-wrap gap-3 text-sm text-[color:var(--muted-foreground)]">
+                {entry.actor.organization ? <span>{entry.actor.organization}</span> : null}
+                {entry.caseSnapshot?.patientId ? (
+                  <span>Patient {entry.caseSnapshot.patientId}</span>
+                ) : null}
+                {entry.caseSnapshot?.surgeonName ? (
+                  <span>Surgeon {entry.caseSnapshot.surgeonName}</span>
+                ) : null}
+                {entry.caseSnapshot?.fenestrationCount !== undefined ? (
+                  <span>
+                    {entry.caseSnapshot.fenestrationCount} fenestration
+                    {entry.caseSnapshot.fenestrationCount === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+                {entry.resultSummary?.recommendedDeviceName ? (
+                  <span>
+                    Top fit {entry.resultSummary.recommendedDeviceName}
+                    {entry.resultSummary.recommendedGraftDiameterMm
+                      ? ` ${entry.resultSummary.recommendedGraftDiameterMm} mm`
+                      : ""}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
@@ -265,10 +452,8 @@ export function PlannerClient() {
     analysisCompleted,
     analysisTotal,
     lastCompletedAt,
-    analysisLogEntries,
     runAnalysis,
     stageCaseInput,
-    refreshAnalysisLog,
     loadSampleCase,
     loadSavedProject,
     canUndo,
@@ -287,6 +472,15 @@ export function PlannerClient() {
     tone: FeedbackTone;
     message: string;
   } | null>(null);
+  const [sessionId, setSessionId] = useState("");
+  const [operatorProfile, setOperatorProfile] =
+    useState<OperatorProfile>(DEFAULT_OPERATOR_PROFILE);
+  const [auditEntries, setAuditEntries] = useState<AuditEventRecord[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(true);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const plannerOpenedLoggedRef = useRef(false);
+  const completedAuditRef = useRef<string | null>(null);
+  const hasFormDraftChangesRef = useRef(false);
   const hasCompletedAnalysis = lastCompletedAt !== null;
   const showWorkspace = hasCompletedAnalysis && !hasFormDraftChanges;
   const showResults = analysisStatus === "ready" && !hasFormDraftChanges;
@@ -297,6 +491,111 @@ export function PlannerClient() {
   const progressPercent = Math.round(analysisProgress * 100);
   const lastCompletedLabel = formatTimestamp(lastCompletedAt);
 
+  useEffect(() => {
+    hasFormDraftChangesRef.current = hasFormDraftChanges;
+  }, [hasFormDraftChanges]);
+
+  useEffect(() => {
+    const nextProfile = loadOperatorProfile();
+    const nextSessionId = getOrCreateAuditSessionId();
+
+    setOperatorProfile(nextProfile);
+    setSessionId(nextSessionId);
+  }, []);
+
+  useEffect(() => {
+    saveOperatorProfile(operatorProfile);
+  }, [operatorProfile]);
+
+  const refreshAuditTrail = useCallback(() => {
+    setIsAuditLoading(true);
+
+    void fetchAuditEvents(100)
+      .then((entries) => {
+        setAuditEntries(entries);
+        setAuditError(null);
+      })
+      .catch((error) => {
+        console.error("Failed to load audit trail", error);
+        setAuditError("The shared audit trail could not be loaded.");
+      })
+      .finally(() => {
+        setIsAuditLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshAuditTrail();
+  }, [refreshAuditTrail]);
+
+  const trackAuditEvent = useCallback(
+    async (input: {
+      type: AuditEventRecord["type"];
+      caseInputOverride?: CaseInput;
+      selectedDeviceIdsOverride?: string[];
+      projectIdOverride?: string;
+      resultsOverride?: DeviceAnalysisResult[];
+      details?: Record<string, string | number | boolean | null>;
+    }) => {
+      if (!sessionId) {
+        return;
+      }
+
+      try {
+        const event = await postAuditEvent({
+          type: input.type,
+          actor: buildAuditActor(sessionId, operatorProfile),
+          caseSnapshot: buildCaseSnapshot(
+            input.caseInputOverride ?? caseInput,
+            input.selectedDeviceIdsOverride ?? selectedDeviceIds,
+            input.projectIdOverride ?? planningProject.projectId,
+          ),
+          resultSummary: buildResultSummary(input.resultsOverride ?? results),
+          details: input.details,
+        });
+
+        setAuditEntries((currentEntries) => mergeAuditEntries(currentEntries, event));
+        setAuditError(null);
+      } catch (error) {
+        console.error("Failed to store audit event", error);
+        setAuditError("Audit events are not being stored right now.");
+      }
+    },
+    [caseInput, operatorProfile, planningProject.projectId, results, selectedDeviceIds, sessionId],
+  );
+
+  useEffect(() => {
+    if (!sessionId || plannerOpenedLoggedRef.current) {
+      return;
+    }
+
+    plannerOpenedLoggedRef.current = true;
+    void trackAuditEvent({
+      type: "planner_opened",
+      details: {
+        selectedDeviceCount: selectedDeviceIds.length,
+      },
+    });
+  }, [selectedDeviceIds.length, sessionId, trackAuditEvent]);
+
+  useEffect(() => {
+    if (analysisStatus !== "ready" || !lastCompletedAt) {
+      return;
+    }
+
+    if (completedAuditRef.current === lastCompletedAt) {
+      return;
+    }
+
+    completedAuditRef.current = lastCompletedAt;
+    void trackAuditEvent({
+      type: "analysis_completed",
+      details: {
+        selectedDeviceCount: selectedDeviceIds.length,
+      },
+    });
+  }, [analysisStatus, lastCompletedAt, selectedDeviceIds.length, trackAuditEvent]);
+
   const copyShareLink = useCallback(async () => {
     try {
       const shareToken = btoa(JSON.stringify(caseInput));
@@ -306,6 +605,9 @@ export function PlannerClient() {
         tone: "success",
         message: "Share link copied to the clipboard.",
       });
+      void trackAuditEvent({
+        type: "share_link_copied",
+      });
     } catch (error) {
       console.error("Failed to generate share link", error);
       setFeedback({
@@ -313,11 +615,9 @@ export function PlannerClient() {
         message: "Could not copy a share link for this case.",
       });
     }
-  }, [caseInput]);
+  }, [caseInput, trackAuditEvent]);
 
   useEffect(() => {
-    refreshAnalysisLog();
-
     if (typeof window === "undefined") {
       return;
     }
@@ -352,31 +652,44 @@ export function PlannerClient() {
         message: "The shared case link could not be read.",
       });
     }
-  }, [refreshAnalysisLog, stageCaseInput]);
+  }, [stageCaseInput]);
 
   const handleDownloadAll = async () => {
     setIsDownloadingAll(true);
 
     try {
       await downloadAllPdfs(availableResults, caseInput);
+      void trackAuditEvent({
+        type: "export_bundle_downloaded",
+      });
     } finally {
       setIsDownloadingAll(false);
     }
   };
 
-  const handleDraftStateChange = useCallback((hasDraftChanges: boolean) => {
-    setHasFormDraftChanges((current) => {
-      if (hasDraftChanges && !current) {
+  const handleDraftStateChange = useCallback(
+    (hasDraftChanges: boolean) => {
+      const wasDirty = hasFormDraftChangesRef.current;
+      hasFormDraftChangesRef.current = hasDraftChanges;
+
+      if (hasDraftChanges && !wasDirty && lastCompletedAt) {
         setFeedback({
           tone: "warning",
           message:
             "Inputs changed. Previous recommendations are hidden until the planner is run again.",
         });
+        void trackAuditEvent({
+          type: "analysis_invalidated",
+          details: {
+            source: "form",
+          },
+        });
       }
 
-      return hasDraftChanges;
-    });
-  }, []);
+      setHasFormDraftChanges(hasDraftChanges);
+    },
+    [lastCompletedAt, trackAuditEvent],
+  );
 
   const statusTone: FeedbackTone =
     analysisStatus === "ready"
@@ -440,6 +753,12 @@ export function PlannerClient() {
         </div>
       </section>
 
+      <OperatorIdentityCard
+        profile={operatorProfile}
+        sessionId={sessionId}
+        onChange={setOperatorProfile}
+      />
+
       <AnatomyForm
         initialValue={caseInput}
         selectedDeviceIds={selectedDeviceIds}
@@ -447,35 +766,76 @@ export function PlannerClient() {
         onDraftStateChange={handleDraftStateChange}
         onSubmit={(values) => {
           setHasFormDraftChanges(false);
+          hasFormDraftChangesRef.current = false;
           setFeedback({
             tone: "info",
             message: "Planning analysis started.",
           });
+          void trackAuditEvent({
+            type: "analysis_started",
+            caseInputOverride: values,
+            details: {
+              selectedDeviceCount: selectedDeviceIds.length,
+            },
+          });
           void runAnalysis(values);
         }}
         onToggleDevice={(deviceId) => {
+          const nextSelectedDeviceIds = selectedDeviceIds.includes(deviceId)
+            ? selectedDeviceIds.filter((current) => current !== deviceId)
+            : [...selectedDeviceIds, deviceId];
+
+          if (nextSelectedDeviceIds.length === 0) {
+            return;
+          }
+
           setFeedback({
             tone: "info",
             message: "Device selection updated. Run planning analysis to refresh the comparison.",
+          });
+          void trackAuditEvent({
+            type: "device_selection_changed",
+            selectedDeviceIdsOverride: nextSelectedDeviceIds,
+            details: {
+              selectedDeviceCount: nextSelectedDeviceIds.length,
+            },
           });
           startTransition(() => {
             toggleDeviceSelection(deviceId);
           });
         }}
         onSelectAllDevices={() => {
+          const allDeviceIds = ALL_DEVICES.map((device) => device.id);
+
           setFeedback({
             tone: "success",
             message: "All device platforms enabled for the next run.",
           });
+          void trackAuditEvent({
+            type: "device_selection_changed",
+            selectedDeviceIdsOverride: allDeviceIds,
+            details: {
+              selectedDeviceCount: allDeviceIds.length,
+              source: "enable_all",
+            },
+          });
           startTransition(() => {
-            setSelectedDeviceIds(ALL_DEVICES.map((device) => device.id));
+            setSelectedDeviceIds(allDeviceIds);
           });
         }}
         onLoadSample={() => {
+          const allDeviceIds = ALL_DEVICES.map((device) => device.id);
+
           setHasFormDraftChanges(false);
+          hasFormDraftChangesRef.current = false;
           setFeedback({
             tone: "info",
             message: "Sample case loaded. Press Run planning analysis when you are ready.",
+          });
+          void trackAuditEvent({
+            type: "sample_loaded",
+            caseInputOverride: sampleCase,
+            selectedDeviceIdsOverride: allDeviceIds,
           });
           startTransition(() => {
             loadSampleCase();
@@ -517,6 +877,13 @@ export function PlannerClient() {
               tone: "warning",
               message: "Workspace edits applied. Run planning analysis to refresh recommendations.",
             });
+            void trackAuditEvent({
+              type: "workspace_edit",
+              details: {
+                source: "single_fenestration",
+                fenestrationIndex: index + 1,
+              },
+            });
             startTransition(() => {
               updateFenestration(index, patch);
             });
@@ -526,6 +893,13 @@ export function PlannerClient() {
               tone: "warning",
               message:
                 "Fenestration positions changed together. Run planning analysis to refresh recommendations.",
+            });
+            void trackAuditEvent({
+              type: "workspace_edit",
+              details: {
+                source: "move_all",
+                affectedFenestrations: patches.length,
+              },
             });
             startTransition(() => {
               updateFenestrations(patches);
@@ -543,9 +917,16 @@ export function PlannerClient() {
           }}
           onLoadSavedProject={(savedProject: SavedPlannerProject) => {
             setHasFormDraftChanges(false);
+            hasFormDraftChangesRef.current = false;
             setFeedback({
               tone: "info",
               message: "Saved project loaded. Run planning analysis to generate fresh recommendations.",
+            });
+            void trackAuditEvent({
+              type: "saved_project_loaded",
+              caseInputOverride: savedProject.caseInput,
+              selectedDeviceIdsOverride: savedProject.selectedDeviceIds,
+              projectIdOverride: savedProject.projectId,
             });
             startTransition(() => {
               loadSavedProject(savedProject);
@@ -662,7 +1043,12 @@ export function PlannerClient() {
         </section>
       ) : null}
 
-      <AnalysisLogPanel entries={analysisLogEntries} />
+      <AuditTrailPanel
+        entries={auditEntries}
+        isLoading={isAuditLoading}
+        error={auditError}
+        onRefresh={refreshAuditTrail}
+      />
     </main>
   );
 }

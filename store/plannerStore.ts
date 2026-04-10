@@ -5,11 +5,6 @@ import { create } from "zustand";
 import { analyseCaseProgressive } from "@/lib/analysis";
 import { normalizeCaseInput } from "@/lib/caseInput";
 import { ALL_DEVICES } from "@/lib/devices";
-import {
-  appendAnalysisLog,
-  readAnalysisLog,
-  type AnalysisLogEntry,
-} from "@/lib/planning/analysisLog";
 import { hashSnapshot } from "@/lib/planning/hash";
 import type { SavedPlannerProject } from "@/lib/planning/persistence";
 import { createPlanningProjectFromCaseInput } from "@/lib/planning/project";
@@ -45,7 +40,6 @@ interface PlannerStore {
   analysisCompleted: number;
   analysisTotal: number;
   lastCompletedAt: string | null;
-  analysisLogEntries: AnalysisLogEntry[];
   historyPast: PlannerSnapshot[];
   historyFuture: PlannerSnapshot[];
   canUndo: boolean;
@@ -53,7 +47,6 @@ interface PlannerStore {
   lastCompletedAnalysis: CompletedAnalysis | null;
   runAnalysis: (caseInput: CaseInput) => Promise<void>;
   stageCaseInput: (caseInput: CaseInput) => void;
-  refreshAnalysisLog: () => void;
   updateFenestration: (index: number, patch: FenestrationPatch) => void;
   updateFenestrations: (
     patches: Array<{ index: number; patch: FenestrationPatch }>,
@@ -213,7 +206,6 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   analysisCompleted: 0,
   analysisTotal: defaultDeviceIds.length,
   lastCompletedAt: null,
-  analysisLogEntries: [],
   historyPast: [],
   historyFuture: [],
   canUndo: false,
@@ -321,13 +313,6 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
         analysisLabel: `Analysis complete (${selectedDeviceIds.length}/${selectedDeviceIds.length})`,
         lastCompletedAt: completedAt,
         lastCompletedAnalysis: completedAnalysis,
-        analysisLogEntries: appendAnalysisLog({
-          projectId: nextSnapshot.projectId,
-          caseInput: nextSnapshot.caseInput,
-          selectedDeviceIds,
-          results,
-          completedAt,
-        }),
       };
     });
   },
@@ -342,11 +327,6 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
         ),
       ),
     ),
-  refreshAnalysisLog: () =>
-    set((state) => ({
-      ...state,
-      analysisLogEntries: readAnalysisLog(),
-    })),
   updateFenestration: (index, patch) =>
     get().updateFenestrations([{ index, patch }]),
   updateFenestrations: (patches) =>
