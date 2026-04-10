@@ -16,7 +16,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "PMEGplan.io",
   description:
-    "AI-assisted PMEG fenestration planning workspace for device comparison, rotation optimisation, and printable punch-card generation.",
+    "AI-assisted PMEG fenestration planning workspace with shared audit logging, device comparison, rotation optimisation, and printable punch-card generation.",
 };
 
 export default function RootLayout({
