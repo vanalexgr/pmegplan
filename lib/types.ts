@@ -91,6 +91,10 @@ export interface CaseInput {
   patientId?: string;
   surgeonName?: string;
   surgeonNote?: string;
+  /** Clock positions (1–12) for reduction tie guides on punch card, e.g. [4, 6, 8]. */
+  tieClock?: number[];
+  /** Height of transparent film in mm. When set, draws a reference line on punch card. */
+  filmHeightMm?: number;
 }
 
 export type StrutSegment = [number, number, number, number];

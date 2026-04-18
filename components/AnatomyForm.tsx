@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFieldArray, useForm, useWatch } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { Plus, RotateCcw, Trash2, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 
 import { useLiveConflict } from "@/lib/hooks/useLiveConflict";
@@ -384,6 +384,57 @@ export function AnatomyForm({
               placeholder="Optional planning note for the export footer."
               {...register("surgeonNote")}
             />
+          </div>
+
+          <div className="rounded-[22px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.62)] p-4 space-y-4">
+            <div>
+              <p className="text-sm font-semibold text-[color:var(--foreground)]">Punch card options</p>
+              <p className="text-xs text-[color:var(--muted-foreground)] mt-0.5">Controls rendered on the back-table template.</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="tieClock">Reduction tie positions (o'clock)</Label>
+                <Controller
+                  control={control}
+                  name="tieClock"
+                  render={({ field }) => (
+                    <Input
+                      id="tieClock"
+                      placeholder="4, 6, 8"
+                      value={(field.value ?? [4, 6, 8]).join(", ")}
+                      onChange={(e) => {
+                        const parsed = e.target.value
+                          .split(",")
+                          .map((s) => parseInt(s.trim(), 10))
+                          .filter((n) => !isNaN(n) && n >= 1 && n <= 12);
+                        field.onChange(parsed.length > 0 ? parsed : [4, 6, 8]);
+                      }}
+                    />
+                  )}
+                />
+                <p className="text-xs text-[color:var(--muted-foreground)]">Comma-separated, 1–12. E.g. 4, 6, 8</p>
+                <FieldError message={errors.tieClock?.message} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="filmHeightMm">Film height (mm)</Label>
+                <Input
+                  id="filmHeightMm"
+                  type="number"
+                  step="1"
+                  min="20"
+                  max="400"
+                  placeholder="Optional, e.g. 130"
+                  {...register("filmHeightMm", {
+                    setValueAs: (v: string) => {
+                      const n = parseFloat(v);
+                      return isNaN(n) ? undefined : n;
+                    },
+                  })}
+                />
+                <p className="text-xs text-[color:var(--muted-foreground)]">Draws film boundary line on punch card.</p>
+                <FieldError message={errors.filmHeightMm?.message} />
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>

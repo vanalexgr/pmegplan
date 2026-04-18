@@ -24,6 +24,12 @@ export const caseSchema = z.object({
   surgeonName: z.string().max(80).optional().or(z.literal("")),
   surgeonNote: z.string().max(400).optional().or(z.literal("")),
   fenestrations: z.array(fenestrationSchema).min(1).max(4),
+  tieClock: z
+    .array(z.number().int().min(1).max(12))
+    .min(1)
+    .max(6)
+    .optional(),
+  filmHeightMm: z.number().min(20).max(400).optional(),
 });
 
 export type CaseFormValues = z.input<typeof caseSchema>;

@@ -232,6 +232,7 @@ export function computePunchCardHeight(
   const maxDepth  = Math.max(
     sealZoneH + 12,
     ...caseInput.fenestrations.map((f) => f.depthMm + 28),
+    ...(caseInput.filmHeightMm != null ? [caseInput.filmHeightMm + 12] : []),
   );
   const chartH = (chartW / result.circumferenceMm) * maxDepth;
   return Math.ceil(sc.v_80_52 + chartH + sc.v_52_20 + sc.v_56_36);
@@ -250,6 +251,8 @@ export interface PunchCardRenderOptions {
   cutMarginMm?:        number;
   /** Show calibration square in bottom-left corner. Default true. */
   showCalibration?:    boolean;
+  /** Height of transparent film in mm. When set, draws a horizontal reference line. */
+  filmHeightMm?:       number;
 }
 
 export function renderPunchCard({
@@ -262,6 +265,7 @@ export function renderPunchCard({
   tieClock        = [4, 6, 8],
   cutMarginMm     = 8,
   showCalibration = true,
+  filmHeightMm,
 }: PunchCardRenderOptions): void {
 
   ctx.clearRect(0, 0, width, height);
@@ -295,6 +299,7 @@ export function renderPunchCard({
   const maxDepth     = Math.max(
     sealZoneH + 12,
     ...caseInput.fenestrations.map((f) => f.depthMm + 28),
+    ...(filmHeightMm != null ? [filmHeightMm + 12] : []),
   );
   // Uniform scale: both axes use the same px/mm so ring geometry is not distorted.
   // chartH is derived from content depth, not from the canvas height.
@@ -517,6 +522,25 @@ export function renderPunchCard({
   ctx.textAlign = "right";
   ctx.fillText(`Tie pos: ${tieClock.join(", ")} o'clock`, chartX + chartW - 4, chartY + (sc.fontSub));
   ctx.textAlign = "left";
+
+  // ── Film boundary line ────────────────────────────────────────────────────
+  if (filmHeightMm != null) {
+    const filmY = chartY + filmHeightMm * yScale;
+    if (filmY >= chartY - 2 && filmY <= chartY + chartH + 40) {
+      ctx.save();
+      ctx.setLineDash([sc.v_6_4, sc.v_4_3]);
+      ctx.strokeStyle = "rgba(59,130,246,0.85)";
+      ctx.lineWidth   = sc.v_1_4_1_0;
+      ctx.beginPath();
+      ctx.moveTo(chartX - 10, filmY);
+      ctx.lineTo(chartX + chartW + 10, filmY);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = "rgba(59,130,246,0.85)";
+      ctx.font      = `400 ${fs(7)}px sans-serif`;
+      ctx.fillText(`Film boundary  ${filmHeightMm} mm`, chartX + 4, filmY - 3);
+    }
+  }
 
   // ── Fenestrations ─────────────────────────────────────────────────────────
   const delta = result.rotation.optimalDeltaMm;

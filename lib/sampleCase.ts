@@ -5,6 +5,7 @@ export const sampleCase: CaseInput = {
   patientId: "Demo-2026-002",
   surgeonName: "VGA",
   surgeonNote: "Two-renal demonstration case.",
+  tieClock: [4, 6, 8],
   fenestrations: [
     {
       vessel: "RRA",

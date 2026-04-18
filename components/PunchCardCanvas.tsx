@@ -63,9 +63,10 @@ export function PunchCardCanvas({
       result,
       caseInput,
       mode: "preview",
-      tieClock: [4, 6, 8],
+      tieClock: caseInput.tieClock ?? [4, 6, 8],
       showCalibration: true,
       cutMarginMm: 8,
+      filmHeightMm: caseInput.filmHeightMm,
     });
   }, [caseInput, result, width]);
 
