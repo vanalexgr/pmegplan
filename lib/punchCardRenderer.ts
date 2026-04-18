@@ -3,17 +3,18 @@
  *
  * Renders the PMEG back-table punch card template.
  *
- * Additions vs v1 (matching Lazaris PMEG Layout Tool feature parity):
+ * Features:
  *   • Calibration square (100 × 100 mm corner box) — critical for print verification
  *   • AP markers: arrows at 12:00 (anterior) and 6:00 (posterior) at proximal edge
  *   • Anti-rotation ✓ mark at 12:00 / proximal corner
  *   • Cut guides (dashed border with configurable margin)
- *   • Reduction tie position lines (3 clock positions, configurable)
- *   • Bolder device-coloured strut wires (2× Lazaris weight)
+ *   • Reduction tie position lines (configurable clock positions)
+ *   • Device-coloured strut wires
  *   • Dual scale bar — mm ruler + "10 mm" callout
  *   • True-scale print note ("Print at 100% — Actual Size")
  *   • Per-fenestration ARCSEP from seam
  *   • Wrap edge labels ("LEFT WRAP EDGE ↺" / "RIGHT WRAP EDGE")
+ *   • Film boundary reference line (optional)
  */
 
 import { getSealZoneHeightMm } from "@/lib/stentGeometry";
