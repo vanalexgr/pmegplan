@@ -4,17 +4,21 @@
  * Renders the PMEG back-table punch card template.
  *
  * Features:
- *   • Calibration square (100 × 100 mm corner box) — critical for print verification
- *   • AP markers: arrows at 12:00 (anterior) and 6:00 (posterior) at proximal edge
+ *   • Full-width chart (graft footprint) — the cuttable punch card section
+ *   • Top ruler showing nominal perimeter with mm ticks, clock marks, tie markers
+ *   • Left + right depth axes with 10 mm ruler marks
+ *   • Cut corner registration marks at chart corners
+ *   • Proximal edge label + distal seal-zone boundary line
+ *   • Film boundary reference line + right-edge height bracket
+ *   • AP markers: arrows at 12:00 (anterior) and 6:00 (posterior)
  *   • Anti-rotation ✓ mark at 12:00 / proximal corner
- *   • Cut guides (dashed border with configurable margin)
  *   • Reduction tie position lines (configurable clock positions)
  *   • Device-coloured strut wires
- *   • Dual scale bar — mm ruler + "10 mm" callout
- *   • True-scale print note ("Print at 100% — Actual Size")
- *   • Per-fenestration ARCSEP from seam
- *   • Wrap edge labels ("LEFT WRAP EDGE ↺" / "RIGHT WRAP EDGE")
- *   • Film boundary reference line (optional)
+ *   • Per-fenestration horizontal depth guide lines + depth labels
+ *   • Diameter labels inside fenestration ellipses
+ *   • Wrap edge labels ("LEFT WRAP EDGE" / "RIGHT WRAP EDGE")
+ *   • 3-column device plan strip below the chart (easy to cut apart)
+ *   • 10 mm scale bar + calibration note
  */
 
 import { getSealZoneHeightMm } from "@/lib/stentGeometry";
@@ -68,6 +72,11 @@ export interface PunchCardScaleContext {
   v_1_5_1_0: number;
   v_8_6: number;
   v_22_16: number;
+  // New layout values
+  leftAxisW:  number;   // px reserved left of chart for depth labels
+  rightAnnotW: number;  // px reserved right of chart for ticks + film bracket
+  rulerH:     number;   // px height of top circumference ruler strip
+  infoH:      number;   // px height of info strip below chart
 }
 
 export function buildPunchCardScaleContext(mode: "preview" | "print"): PunchCardScaleContext {
@@ -117,6 +126,10 @@ export function buildPunchCardScaleContext(mode: "preview" | "print"): PunchCard
     v_1_5_1_0: isPrint ? 1.5 : 1.0,
     v_8_6: isPrint ? 8 : 6,
     v_22_16: isPrint ? 22 : 16,
+    leftAxisW:   isPrint ? 40 : 28,
+    rightAnnotW: isPrint ? 32 : 22,
+    rulerH:      isPrint ? 38 : 26,
+    infoH:       isPrint ? 230 : 155,
   };
 }
 import {
@@ -211,6 +224,24 @@ function drawArrowHead(
   ctx.fill();
 }
 
+// Registration cross-hair for cut corners (arms point AWAY from chart)
+function drawCutMark(
+  ctx:  CanvasRenderingContext2D,
+  cx:   number,
+  cy:   number,
+  dh:   number,   // horizontal direction: -1 = left, +1 = right
+  dv:   number,   // vertical direction:   -1 = up,   +1 = down
+  len:  number,
+  gap:  number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(cx + dh * gap, cy);
+  ctx.lineTo(cx + dh * (gap + len), cy);
+  ctx.moveTo(cx, cy + dv * gap);
+  ctx.lineTo(cx, cy + dv * (gap + len));
+  ctx.stroke();
+}
+
 // ── Main export ────────────────────────────────────────────────────────────────
 
 /**
@@ -226,17 +257,18 @@ export function computePunchCardHeight(
   mode:      "preview" | "print",
 ): number {
   if (!result.size) return mode === "print" ? 400 : 300;
-  const sc = buildPunchCardScaleContext(mode);
-  const sidePanelW = sc.isPrint ? Math.min(380, width * 0.27) : Math.min(295, width * 0.34);
-  const chartW  = width - sc.v_52_20 * 2 - sidePanelW - sc.v_28_20;
+  const sc        = buildPunchCardScaleContext(mode);
+  const margin    = sc.v_52_20;
+  const chartW    = width - margin - sc.leftAxisW - sc.rightAnnotW - margin;
   const sealZoneH = getSealZoneHeightMm(result.device);
   const maxDepth  = Math.max(
     sealZoneH + 12,
     ...caseInput.fenestrations.map((f) => f.depthMm + 28),
     ...(caseInput.filmHeightMm != null ? [caseInput.filmHeightMm + 12] : []),
   );
-  const chartH = (chartW / result.circumferenceMm) * maxDepth;
-  return Math.ceil(sc.v_80_52 + chartH + sc.v_52_20 + sc.v_56_36);
+  const xScale = chartW / result.circumferenceMm;
+  const chartH = maxDepth * xScale;
+  return Math.ceil(sc.v_80_52 + sc.rulerH + chartH + sc.infoH + margin);
 }
 
 export interface PunchCardRenderOptions {
@@ -250,7 +282,7 @@ export interface PunchCardRenderOptions {
   tieClock?:           number[];
   /** Cut margin in mm (printed dashed border). Default 8 mm. */
   cutMarginMm?:        number;
-  /** Show calibration square in bottom-left corner. Default true. */
+  /** Show calibration note. Default true. */
   showCalibration?:    boolean;
   /** Height of transparent film in mm. When set, draws a horizontal reference line. */
   filmHeightMm?:       number;
@@ -285,28 +317,26 @@ export function renderPunchCard({
   }
 
   const sc = buildPunchCardScaleContext(mode);
-  const fs = (base: number) => (sc.isPrint ? base * 1.45 : base); // font scale helper
+  const fs = (base: number) => (sc.isPrint ? base * 1.45 : base);
 
   // ── Layout constants ──────────────────────────────────────────────────────
-  const margin       = sc.v_52_20;
-  const headerH      = sc.v_80_52;
-  const sidePanelW   = sc.isPrint ? Math.min(380, width * 0.27) : Math.min(295, width * 0.34);
-  const chartX       = margin;
-  const chartY       = headerH;
-  const chartW       = width - margin * 2 - sidePanelW - (sc.v_28_20);
-  const sidePanelX   = chartX + chartW + (sc.v_28_20);
+  const margin      = sc.v_52_20;
+  const headerH     = sc.v_80_52;
+  const chartX      = margin + sc.leftAxisW;
+  const chartY      = headerH + sc.rulerH;
+  const chartW      = width - chartX - sc.rightAnnotW - margin;
 
-  const sealZoneH    = getSealZoneHeightMm(result.device);
-  const maxDepth     = Math.max(
+  const sealZoneH   = getSealZoneHeightMm(result.device);
+  const maxDepth    = Math.max(
     sealZoneH + 12,
     ...caseInput.fenestrations.map((f) => f.depthMm + 28),
     ...(filmHeightMm != null ? [filmHeightMm + 12] : []),
   );
-  // Uniform scale: both axes use the same px/mm so ring geometry is not distorted.
-  // chartH is derived from content depth, not from the canvas height.
   const xScale = chartW / result.circumferenceMm;
   const yScale = xScale;
   const chartH = maxDepth * yScale;
+
+  const { ringHeight: effectiveRingH, interRingGap: effectiveGap } = getEffectiveRingGeometry(result.device, result.size);
 
   // ── Card background ───────────────────────────────────────────────────────
   drawRoundedRect(ctx, 6, 6, width - 12, height - 12, sc.v_28_18);
@@ -320,13 +350,12 @@ export function renderPunchCard({
   const cutPx = cutMarginMm * xScale;
   ctx.save();
   ctx.setLineDash([sc.v_10_7, sc.v_6_4]);
-  ctx.strokeStyle = "rgba(16,33,31,0.28)";
+  ctx.strokeStyle = "rgba(16,33,31,0.22)";
   ctx.lineWidth = sc.v_1_2_0_8;
   ctx.strokeRect(cutPx, cutPx, width - cutPx * 2, height - cutPx * 2);
   ctx.restore();
-  // CUT GUIDE label
-  ctx.fillStyle = "rgba(16,33,31,0.30)";
-  ctx.font = `400 ${fs(7)}px sans-serif`;
+  ctx.fillStyle = "rgba(16,33,31,0.28)";
+  ctx.font = `400 ${fs(6.5)}px sans-serif`;
   ctx.fillText("CUT GUIDE", cutPx + 4, cutPx - 3);
 
   // ── Header ────────────────────────────────────────────────────────────────
@@ -349,58 +378,136 @@ export function renderPunchCard({
     );
   }
 
+  // ── Top circumference ruler strip ─────────────────────────────────────────
+  // Zone: from y=headerH to y=chartY (height = sc.rulerH)
+  const rulerBandY  = headerH;
+  const rulerBandH  = sc.rulerH;
+  const rulerTickY  = chartY - (sc.isPrint ? 4 : 3);   // bottom of tick marks
+  const rulerLabelY = chartY - (sc.isPrint ? 14 : 9);  // mm labels above ticks
+  const rulerArrY   = headerH + (sc.isPrint ? 10 : 7); // circumference bracket line
+
+  // Ruler background
+  ctx.fillStyle = "rgba(248,244,237,0.7)";
+  ctx.fillRect(chartX, rulerBandY, chartW, rulerBandH);
+
+  // Double-headed bracket showing total circumference
+  ctx.strokeStyle = "#334155";
+  ctx.fillStyle   = "#334155";
+  ctx.lineWidth   = 0.8;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(chartX + 3, rulerArrY);
+  ctx.lineTo(chartX + chartW - 3, rulerArrY);
+  ctx.stroke();
+  // End ticks
+  for (const ex of [chartX + 1, chartX + chartW - 1]) {
+    ctx.beginPath();
+    ctx.moveTo(ex, rulerArrY - (sc.isPrint ? 4 : 3));
+    ctx.lineTo(ex, rulerArrY + (sc.isPrint ? 4 : 3));
+    ctx.stroke();
+  }
+  // Circumference label
+  ctx.font      = `600 ${fs(7)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.fillText(
+    `Nominal perimeter  ${result.circumferenceMm.toFixed(1)} mm  (Ø${result.size.graftDiameter} mm graft)`,
+    chartX + chartW / 2,
+    rulerArrY - (sc.isPrint ? 6 : 4),
+  );
+  ctx.textAlign = "left";
+
+  // Tick marks every 5 mm, labels every 10 mm
+  for (let mm = 0; mm <= Math.ceil(result.circumferenceMm); mm += 5) {
+    const tx      = chartX + mm * xScale;
+    const isMaj   = mm % 10 === 0;
+    const tickLen = isMaj ? (sc.isPrint ? 6 : 5) : (sc.isPrint ? 3 : 2);
+    ctx.strokeStyle = isMaj ? "#475569" : "#94a3b8";
+    ctx.lineWidth   = isMaj ? 0.8 : 0.5;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(tx, rulerTickY - tickLen);
+    ctx.lineTo(tx, rulerTickY);
+    ctx.stroke();
+    if (isMaj) {
+      ctx.fillStyle = "#475569";
+      ctx.font      = `400 ${fs(6.5)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(`${mm}`, tx, rulerLabelY);
+      ctx.textAlign = "left";
+    }
+  }
+
+  // Clock-hour positions on ruler
+  for (let h = 3; h <= 9; h += 3) {
+    const arc = (h / 12) * result.circumferenceMm;
+    const cx  = chartX + arc * xScale;
+    ctx.fillStyle = "rgba(29,78,216,0.65)";
+    ctx.font      = `400 ${fs(6)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(`${h}:00`, cx, rulerArrY + (sc.isPrint ? 11 : 8));
+    ctx.textAlign = "left";
+  }
+
+  // Tie position markers in ruler
+  for (const clockHour of tieClock) {
+    const tieArc = ((clockHour % 12) * 60 / 720) * result.circumferenceMm;
+    const tx     = chartX + tieArc * xScale;
+    if (tx < chartX || tx > chartX + chartW) continue;
+    ctx.fillStyle   = "rgba(107,114,128,0.90)";
+    ctx.strokeStyle = "rgba(107,114,128,0.90)";
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(tx, rulerTickY - (sc.isPrint ? 8 : 6));
+    ctx.lineTo(tx, rulerTickY);
+    ctx.stroke();
+    ctx.font      = `700 ${fs(6.5)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(`T${clockHour}`, tx, rulerArrY + (sc.isPrint ? 11 : 8));
+    ctx.textAlign = "left";
+  }
+
   // ── Chart background with ring/gap tint bands ─────────────────────────────
   ctx.save();
   ctx.beginPath();
   ctx.rect(chartX, chartY, chartW, chartH);
   ctx.clip();
 
-  // Slight off-white background for chart area
   ctx.fillStyle = "rgba(255,255,255,0.60)";
   ctx.fillRect(chartX, chartY, chartW, chartH);
 
-  // Ring danger zones (light red)  and safe inter-ring zones (light green)
-  let bandY = 0;
+  // Ring danger zones (light red) and safe inter-ring zones (light green)
   const proximalRingOffset = result.device.proximalRingOffsetMm ?? 0;
-  const { ringHeight: effectiveRingH, interRingGap: effectiveGap } = getEffectiveRingGeometry(result.device, result.size);
-  bandY = proximalRingOffset;
+  let bandY = proximalRingOffset;
   for (let ri = 0; ri < result.device.nRings; ri++) {
-    // Ring band
     const ringTop  = chartY + bandY * yScale;
     const ringH_px = effectiveRingH * yScale;
     ctx.fillStyle = "rgba(220,38,38,0.10)";
     ctx.fillRect(chartX, ringTop, chartW, ringH_px);
-
-    if (ringH_px > (sc.v_18_11)) {
+    if (ringH_px > sc.v_18_11) {
       ctx.fillStyle = "rgba(185,28,28,0.50)";
-      ctx.font = `400 ${fs(8)}px sans-serif`;
-      ctx.fillText(`Ring ${ri + 1}`, chartX + 4, ringTop + (sc.v_13_10));
+      ctx.font      = `400 ${fs(8)}px sans-serif`;
+      ctx.fillText(`Ring ${ri + 1}`, chartX + 4, ringTop + sc.v_13_10);
     }
     bandY += effectiveRingH;
-
     if (ri < result.device.nRings - 1) {
       const gapTop  = chartY + bandY * yScale;
       const gapH_px = effectiveGap * yScale;
       ctx.fillStyle = "rgba(15,118,110,0.11)";
       ctx.fillRect(chartX, gapTop, chartW, gapH_px);
-
-      if (gapH_px > (sc.v_16_10)) {
+      if (gapH_px > sc.v_16_10) {
         ctx.fillStyle = "rgba(15,118,110,0.60)";
-        ctx.font = `600 ${fs(7.5)}px sans-serif`;
-        ctx.fillText(
-          `safe  ${effectiveGap} mm`,
-          chartX + 4,
-          gapTop + gapH_px / 2 + 3,
-        );
+        ctx.font      = `600 ${fs(7.5)}px sans-serif`;
+        ctx.fillText(`safe  ${effectiveGap} mm`, chartX + 4, gapTop + gapH_px / 2 + 3);
       }
       bandY += effectiveGap;
     }
   }
 
-
-  // ── Horizontal depth grid lines (every 10 mm) ─────────────────────────────
+  // ── Horizontal depth grid (every 10 mm) ──────────────────────────────────
   ctx.strokeStyle = "rgba(16,33,31,0.08)";
-  ctx.lineWidth = 0.7;
+  ctx.lineWidth   = 0.6;
+  ctx.setLineDash([]);
   for (let d = 0; d <= maxDepth; d += 10) {
     const gy = chartY + d * yScale;
     ctx.beginPath();
@@ -409,44 +516,33 @@ export function renderPunchCard({
     ctx.stroke();
   }
 
-  // ── Vertical clock guide lines (12:00, 3:00, 6:00, 9:00) ─────────────────
-  const clockMarks = [
-    { label: "12:00 (A)", arc: 0 },
-    { label: "3:00",      arc: result.circumferenceMm / 4 },
-    { label: "6:00 (P)",  arc: result.circumferenceMm / 2 },
-    { label: "9:00",      arc: (result.circumferenceMm * 3) / 4 },
-  ];
-  ctx.strokeStyle = "rgba(16,33,31,0.12)";
-  ctx.lineWidth = 0.8;
-  ctx.font = `600 ${fs(8)}px sans-serif`;
-  for (const { label, arc } of clockMarks) {
-    const gx = chartX + arc * xScale;
+  // ── Vertical clock guide lines — all 12 hours ────────────────────────────
+  for (let h = 1; h <= 12; h++) {
+    const isCard = h % 3 === 0;
+    const arc    = ((h % 12) / 12) * result.circumferenceMm;
+    const gx     = chartX + arc * xScale;
+    ctx.strokeStyle = isCard ? "rgba(16,33,31,0.12)" : "rgba(16,33,31,0.06)";
+    ctx.lineWidth   = isCard ? 0.8 : 0.5;
+    ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(gx, chartY);
     ctx.lineTo(gx, chartY + chartH);
     ctx.stroke();
-    // Label above chart
-    ctx.fillStyle = "#334155";
-    ctx.textAlign = "center";
-    ctx.fillText(label, gx, chartY - (sc.v_8_5));
-    ctx.textAlign = "left";
   }
 
-  // ── AP markers: prominent arrows at 12:00 and 6:00 ────────────────────────
-  // Anterior (12:00) — filled triangle + "A"
-  const ap12x   = chartX + 0 * xScale;  // 12:00 arc = 0
+  // ── AP markers ────────────────────────────────────────────────────────────
+  const ap12x   = chartX;
   const ap6x    = chartX + (result.circumferenceMm / 2) * xScale;
   const apArrow = sc.v_9_6;
-  ctx.fillStyle  = "#1d4ed8";
+  ctx.fillStyle   = "#1d4ed8";
   ctx.strokeStyle = "#1d4ed8";
-  ctx.lineWidth  = sc.v_1_8_1_2;
-  // 12:00 arrow pointing DOWN (proximal = top = anterior)
-  drawArrowHead(ctx, ap12x, chartY - (sc.v_3_2), "down", apArrow);
+  ctx.lineWidth   = sc.v_1_8_1_2;
+  ctx.setLineDash([]);
+  drawArrowHead(ctx, ap12x, chartY - sc.v_3_2, "down", apArrow);
   ctx.font = `700 ${fs(8)}px sans-serif`;
-  ctx.fillText("A", ap12x + apArrow + 2, chartY - (sc.v_4_3));
-  // 6:00 arrow
-  drawArrowHead(ctx, ap6x, chartY - (sc.v_3_2), "down", apArrow);
-  ctx.fillText("P", ap6x + apArrow + 2, chartY - (sc.v_4_3));
+  ctx.fillText("A", ap12x + apArrow + 2, chartY - sc.v_4_3);
+  drawArrowHead(ctx, ap6x, chartY - sc.v_3_2, "down", apArrow);
+  ctx.fillText("P", ap6x + apArrow + 2, chartY - sc.v_4_3);
 
   // ── Seam dashed line ──────────────────────────────────────────────────────
   const seamArc = (result.device.seamDeg / 360) * result.circumferenceMm;
@@ -462,36 +558,37 @@ export function renderPunchCard({
   ctx.fillStyle = "rgba(217,119,6,0.70)";
   ctx.font      = `600 ${fs(7)}px sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillText("SEAM", chartX + seamArc * xScale, chartY + (sc.v_11_8));
+  ctx.fillText("SEAM", chartX + seamArc * xScale, chartY + sc.v_11_8);
   ctx.textAlign = "left";
 
-  // ── Z-stent struts (DEVICE COLOURED, bold) ────────────────────────────────
-  const strutColor    = result.device.color;
-  const strutWeight   = sc.v_2_4_1_8;
-  const strutOffsets  = [-result.circumferenceMm, 0, result.circumferenceMm];
+  // ── Z-stent struts ────────────────────────────────────────────────────────
+  const strutColor   = result.device.color;
+  const strutWeight  = sc.v_2_4_1_8;
+  const strutOffsets = [-result.circumferenceMm, 0, result.circumferenceMm];
 
-  // Pass 1: white outline for contrast against hatching
+  // Pass 1: white outline for contrast
   ctx.strokeStyle = "rgba(255,255,255,0.85)";
-  ctx.lineWidth   = strutWeight + (sc.v_2_5_2);
+  ctx.lineWidth   = strutWeight + sc.v_2_5_2;
+  ctx.setLineDash([]);
   for (const [ax, ay, bx, by] of result.strutSegments as StrutSegment[]) {
     for (const off of strutOffsets) {
       const sx = chartX + (ax + off) * xScale;
       const ex = chartX + (bx + off) * xScale;
-      if (Math.max(sx,ex) < chartX - 8 || Math.min(sx,ex) > chartX + chartW + 8) continue;
+      if (Math.max(sx, ex) < chartX - 8 || Math.min(sx, ex) > chartX + chartW + 8) continue;
       ctx.beginPath();
       ctx.moveTo(sx, chartY + ay * yScale);
       ctx.lineTo(ex, chartY + by * yScale);
       ctx.stroke();
     }
   }
-  // Pass 2: device-coloured wire
+  // Pass 2: device-colour wire
   ctx.strokeStyle = strutColor;
   ctx.lineWidth   = strutWeight;
   for (const [ax, ay, bx, by] of result.strutSegments as StrutSegment[]) {
     for (const off of strutOffsets) {
       const sx = chartX + (ax + off) * xScale;
       const ex = chartX + (bx + off) * xScale;
-      if (Math.max(sx,ex) < chartX - 8 || Math.min(sx,ex) > chartX + chartW + 8) continue;
+      if (Math.max(sx, ex) < chartX - 8 || Math.min(sx, ex) > chartX + chartW + 8) continue;
       ctx.beginPath();
       ctx.moveTo(sx, chartY + ay * yScale);
       ctx.lineTo(ex, chartY + by * yScale);
@@ -500,7 +597,6 @@ export function renderPunchCard({
   }
 
   // ── Reduction tie position lines ──────────────────────────────────────────
-  // Three vertical dashed lines at configurable clock positions
   for (const clockHour of tieClock) {
     const tieArc = ((clockHour % 12) * 60 / 720) * result.circumferenceMm;
     for (const off of strutOffsets) {
@@ -508,7 +604,7 @@ export function renderPunchCard({
       if (tx < chartX - 2 || tx > chartX + chartW + 2) continue;
       ctx.save();
       ctx.setLineDash([sc.v_6_4, sc.v_4_3]);
-      ctx.strokeStyle = "rgba(107,114,128,0.70)";
+      ctx.strokeStyle = "rgba(107,114,128,0.75)";
       ctx.lineWidth   = sc.v_1_4_1_0;
       ctx.beginPath();
       ctx.moveTo(tx, chartY);
@@ -517,14 +613,8 @@ export function renderPunchCard({
       ctx.restore();
     }
   }
-  // Tie guide legend (top-right of chart)
-  ctx.fillStyle = "rgba(107,114,128,0.80)";
-  ctx.font      = `400 ${fs(7)}px sans-serif`;
-  ctx.textAlign = "right";
-  ctx.fillText(`Tie pos: ${tieClock.join(", ")} o'clock`, chartX + chartW - 4, chartY + (sc.fontSub));
-  ctx.textAlign = "left";
 
-  // ── Film boundary line ────────────────────────────────────────────────────
+  // ── Film boundary line (inside chart) ────────────────────────────────────
   if (filmHeightMm != null) {
     const filmY = chartY + filmHeightMm * yScale;
     if (filmY >= chartY - 2 && filmY <= chartY + chartH + 40) {
@@ -533,13 +623,13 @@ export function renderPunchCard({
       ctx.strokeStyle = "rgba(59,130,246,0.85)";
       ctx.lineWidth   = sc.v_1_4_1_0;
       ctx.beginPath();
-      ctx.moveTo(chartX - 10, filmY);
-      ctx.lineTo(chartX + chartW + 10, filmY);
+      ctx.moveTo(chartX, filmY);
+      ctx.lineTo(chartX + chartW, filmY);
       ctx.stroke();
       ctx.restore();
       ctx.fillStyle = "rgba(59,130,246,0.85)";
-      ctx.font      = `400 ${fs(7)}px sans-serif`;
-      ctx.fillText(`Film boundary  ${filmHeightMm} mm`, chartX + 4, filmY - 3);
+      ctx.font      = `600 ${fs(7)}px sans-serif`;
+      ctx.fillText(`Film  ${filmHeightMm} mm`, chartX + 4, filmY - 3);
     }
   }
 
@@ -547,15 +637,27 @@ export function renderPunchCard({
   const delta = result.rotation.optimalDeltaMm;
 
   caseInput.fenestrations.forEach((fen, idx) => {
-    const conflict   = result.optimalConflicts[idx];
-    const isConf     = conflict?.conflict ?? false;
-    const adjArc     = clockTextToArcMm(conflict?.adjustedClock ?? fen.clock, result.circumferenceMm);
-    const fenY       = chartY + fen.depthMm * yScale;
-    const col        = VESSEL_COLORS[fen.vessel] ?? "#475569";
-    const rW_px      = Math.max((fen.widthMm / 2) * xScale, sc.v_10_6);
-    const rH_px      = Math.max((fen.heightMm / 2) * yScale, sc.v_10_6);
+    const conflict = result.optimalConflicts[idx];
+    const isConf   = conflict?.conflict ?? false;
+    const adjArc   = clockTextToArcMm(conflict?.adjustedClock ?? fen.clock, result.circumferenceMm);
+    const fenY     = chartY + fen.depthMm * yScale;
+    const col      = VESSEL_COLORS[fen.vessel] ?? "#475569";
+    const rW_px    = Math.max((fen.widthMm / 2) * xScale, sc.v_10_6);
+    const rH_px    = Math.max((fen.heightMm / 2) * yScale, sc.v_10_6);
 
-    // Render at arc + optional wrap copies
+    // Full-width depth guide line
+    if (fen.ftype !== "SCALLOP") {
+      ctx.save();
+      ctx.setLineDash([sc.v_3_2, sc.v_2_1_5]);
+      ctx.strokeStyle = `${col}55`;
+      ctx.lineWidth   = sc.v_1_2_0_8;
+      ctx.beginPath();
+      ctx.moveTo(chartX, fenY);
+      ctx.lineTo(chartX + chartW, fenY);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     for (const off of strutOffsets) {
       const fenX = chartX + (adjArc + off) * xScale;
       if (fenX < chartX - rW_px * 2 || fenX > chartX + chartW + rW_px * 2) continue;
@@ -563,12 +665,12 @@ export function renderPunchCard({
       ctx.save();
 
       if (fen.ftype === "SCALLOP") {
-        // U-shaped notch at proximal edge
         const nW = Math.max(fen.widthMm * xScale, sc.v_16_10);
         const nH = Math.max(fen.heightMm * yScale, sc.v_12_8);
-        ctx.fillStyle  = `${col}28`;
+        ctx.fillStyle   = `${col}28`;
         ctx.strokeStyle = col;
-        ctx.lineWidth  = sc.strokeCore;
+        ctx.lineWidth   = sc.strokeCore;
+        ctx.setLineDash([]);
         ctx.beginPath();
         ctx.moveTo(fenX - nW / 2, chartY);
         ctx.lineTo(fenX - nW / 2, chartY + nH);
@@ -576,14 +678,12 @@ export function renderPunchCard({
         ctx.lineTo(fenX + nW / 2, chartY);
         ctx.fill();
         ctx.stroke();
-        // Notch label
-        ctx.fillStyle   = col;
-        ctx.font        = `700 ${fs(8)}px sans-serif`;
-        ctx.textAlign   = "center";
-        ctx.fillText("SCALLOP", fenX, chartY - (sc.v_4_3));
-        ctx.fillText(fen.vessel,  fenX, chartY - (sc.v_14_11));
+        ctx.fillStyle = col;
+        ctx.font      = `700 ${fs(8)}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText("SCALLOP", fenX, chartY - sc.v_4_3);
+        ctx.fillText(fen.vessel,  fenX, chartY - sc.v_14_11);
         ctx.textAlign = "left";
-
       } else {
         // Conflict halo
         if (isConf) {
@@ -591,14 +691,15 @@ export function renderPunchCard({
           ctx.setLineDash([sc.v_5_4, sc.v_4_3]);
           ctx.strokeStyle = "#dc2626";
           ctx.lineWidth   = sc.v_2_0_1_4;
-          const hr = Math.max(rW_px, rH_px) + (sc.v_9_6);
+          const hr = Math.max(rW_px, rH_px) + sc.v_9_6;
           ctx.beginPath();
           ctx.arc(fenX, fenY, hr, 0, Math.PI * 2);
           ctx.stroke();
           ctx.restore();
         }
 
-        // Filled fenestration (white punch-out style with device-colour border)
+        // Fenestration ellipse
+        ctx.setLineDash([]);
         ctx.beginPath();
         ctx.ellipse(fenX, fenY, rW_px, rH_px, 0, 0, Math.PI * 2);
         ctx.fillStyle   = "#ffffff";
@@ -607,7 +708,7 @@ export function renderPunchCard({
         ctx.lineWidth   = sc.v_2_4_2_0;
         ctx.stroke();
 
-        // Center crosshair (Cook CMD convention)
+        // Center crosshair
         const cs = sc.v_5_3;
         ctx.strokeStyle = col;
         ctx.lineWidth   = sc.v_1_4_1_0;
@@ -618,81 +719,60 @@ export function renderPunchCard({
         ctx.lineTo(fenX, fenY + cs);
         ctx.stroke();
 
-        // Vessel label
-        ctx.fillStyle  = col;
-        ctx.font       = `700 ${fs(9)}px sans-serif`;
-        ctx.textAlign  = "center";
-        ctx.fillText(fen.vessel, fenX, fenY + rH_px + (sc.v_13_10));
-        ctx.fillStyle  = isConf ? "#dc2626" : "#334155";
-        ctx.font       = `${isConf ? "700" : "400"} ${fs(7.5)}px sans-serif`;
+        // Diameter label inside ellipse
+        ctx.fillStyle = col;
+        ctx.font      = `700 ${fs(8)}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(`Ø${fen.widthMm}`, fenX, fenY + rH_px * 0.42 + fs(8) * 0.35);
+        ctx.textAlign = "left";
+
+        // Vessel label below ellipse
+        ctx.fillStyle = col;
+        ctx.font      = `700 ${fs(9)}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(fen.vessel, fenX, fenY + rH_px + sc.v_13_10);
+        ctx.fillStyle = isConf ? "#dc2626" : "#334155";
+        ctx.font      = `${isConf ? "700" : "400"} ${fs(7.5)}px sans-serif`;
         ctx.fillText(
           isConf
             ? `⚠ CONFLICT  ${conflict.minDist.toFixed(1)} mm`
             : `✓ ${conflict.minDist.toFixed(1)} mm clear`,
           fenX,
-          fenY + rH_px + (sc.v_24_18),
+          fenY + rH_px + sc.v_24_18,
         );
-        // Adjusted clock
+        // Clock label above ellipse
         ctx.fillStyle = "#374151";
         ctx.font      = `400 ${fs(7)}px sans-serif`;
-        ctx.fillText(arcToClockStr(adjArc, result.circumferenceMm), fenX, fenY - rH_px - (sc.v_5_3));
+        ctx.fillText(arcToClockStr(adjArc, result.circumferenceMm), fenX, fenY - rH_px - sc.v_5_3);
         ctx.textAlign = "left";
 
-        // Horizontal leader to depth axis
-        ctx.strokeStyle = `${col}50`;
-        ctx.lineWidth   = 0.6;
-        ctx.setLineDash([sc.v_3_2, sc.v_2_1_5]);
-        ctx.beginPath();
-        ctx.moveTo(chartX, fenY);
-        ctx.lineTo(fenX - rW_px - (sc.v_3_2), fenY);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        // Depth label on right side of chart (main copy only)
+        if (off === 0) {
+          ctx.fillStyle = col;
+          ctx.font      = `400 ${fs(7)}px sans-serif`;
+          ctx.textAlign = "right";
+          ctx.fillText(`${fen.depthMm} mm`, chartX + chartW - sc.v_3_2, fenY - 3);
+          ctx.textAlign = "left";
+        }
       }
 
       ctx.restore();
     }
   });
 
-  // ── Depth axis labels (left of chart) ─────────────────────────────────────
-  ctx.fillStyle   = "#374151";
-  ctx.font        = `400 ${fs(8)}px sans-serif`;
-  ctx.textAlign   = "right";
-  ctx.strokeStyle = "rgba(55,65,81,0.4)";
-  ctx.lineWidth   = 0.5;
-  for (let d = 0; d <= maxDepth; d += 10) {
-    const gy = chartY + d * yScale;
-    if (gy > chartY + chartH + 4) break;
-    ctx.beginPath();
-    ctx.moveTo(chartX - (sc.v_4_3), gy);
-    ctx.lineTo(chartX, gy);
-    ctx.stroke();
-    ctx.fillText(`${d}`, chartX - (sc.v_6_4), gy + (sc.v_4_3));
-  }
-  ctx.textAlign = "left";
-  // Y-axis label
-  ctx.save();
-  ctx.translate(chartX - (sc.v_22_14), chartY + chartH / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.font      = `400 ${fs(7.5)}px sans-serif`;
-  ctx.fillStyle = "#374151";
+  // ── Anti-rotation ✓ mark ─────────────────────────────────────────────────
+  ctx.font      = `700 ${fs(sc.v_24_16)}px sans-serif`;
+  ctx.fillStyle = "#0f766e";
   ctx.textAlign = "center";
-  ctx.fillText("Distance from proximal edge (mm)", 0, 0);
-  ctx.restore();
-
-  // ── Anti-rotation ✓ mark at 12:00 / proximal corner ─────────────────────
-  // A large ✓ check visible from the operating field to confirm orientation
-  ctx.font = `700 ${fs(sc.v_24_16)}px sans-serif`;
-  ctx.fillStyle  = "#0f766e";
-  ctx.textAlign  = "center";
-  ctx.fillText("✓", chartX + 0 * xScale, chartY + (sc.v_28_20));
-  ctx.font       = `400 ${fs(7)}px sans-serif`;
-  ctx.fillStyle  = "rgba(15,118,110,0.55)";
-  ctx.fillText("12:00 / A", chartX + 0 * xScale, chartY + (sc.v_40_29));
-  ctx.textAlign  = "left";
+  ctx.fillText("✓", chartX, chartY + sc.v_28_20);
+  ctx.font      = `400 ${fs(7)}px sans-serif`;
+  ctx.fillStyle = "rgba(15,118,110,0.55)";
+  ctx.fillText("12:00 / A", chartX, chartY + sc.v_40_29);
+  ctx.textAlign = "left";
 
   // ── Wrap edge labels ──────────────────────────────────────────────────────
   ctx.save();
-  ctx.translate(chartX + (sc.v_4_3), chartY + chartH / 2);
+  ctx.translate(chartX + sc.v_4_3, chartY + chartH / 2);
   ctx.rotate(-Math.PI / 2);
   ctx.font      = `600 ${fs(7)}px sans-serif`;
   ctx.fillStyle = "rgba(16,33,31,0.35)";
@@ -701,7 +781,7 @@ export function renderPunchCard({
   ctx.restore();
 
   ctx.save();
-  ctx.translate(chartX + chartW - (sc.v_4_3), chartY + chartH / 2);
+  ctx.translate(chartX + chartW - sc.v_4_3, chartY + chartH / 2);
   ctx.rotate(Math.PI / 2);
   ctx.font      = `600 ${fs(7)}px sans-serif`;
   ctx.fillStyle = "rgba(16,33,31,0.35)";
@@ -709,204 +789,378 @@ export function renderPunchCard({
   ctx.fillText("RIGHT WRAP EDGE →", 0, 0);
   ctx.restore();
 
-  ctx.restore(); // end clip
+  ctx.restore(); // end chart clip
 
-  // ── Side panel ────────────────────────────────────────────────────────────
-  let sy        = chartY;
-  const lineH   = fs(sc.v_14_11);
-  const sw      = sidePanelW - (sc.v_8_4);
+  // ── Left depth axis ───────────────────────────────────────────────────────
+  ctx.fillStyle   = "#374151";
+  ctx.strokeStyle = "rgba(55,65,81,0.4)";
+  ctx.lineWidth   = 0.6;
+  ctx.setLineDash([]);
+  for (let d = 0; d <= maxDepth; d += 10) {
+    const gy = chartY + d * yScale;
+    if (gy > chartY + chartH + 4) break;
+    // Tick into chart
+    ctx.beginPath();
+    ctx.moveTo(chartX - sc.v_4_3, gy);
+    ctx.lineTo(chartX + sc.v_3_2, gy);
+    ctx.stroke();
+    // Label
+    ctx.font      = `400 ${fs(8)}px sans-serif`;
+    ctx.textAlign = "right";
+    ctx.fillText(`${d}`, chartX - sc.v_6_4, gy + sc.v_4_3);
+    ctx.textAlign = "left";
+  }
+  // Minor ticks every 5 mm
+  ctx.strokeStyle = "rgba(55,65,81,0.2)";
+  ctx.lineWidth   = 0.4;
+  for (let d = 5; d <= maxDepth; d += 10) {
+    const gy = chartY + d * yScale;
+    if (gy > chartY + chartH + 4) break;
+    ctx.beginPath();
+    ctx.moveTo(chartX - sc.v_3_2, gy);
+    ctx.lineTo(chartX + 1, gy);
+    ctx.stroke();
+  }
+  // Y-axis label
+  ctx.save();
+  ctx.translate(chartX - sc.v_22_14, chartY + chartH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font      = `400 ${fs(7.5)}px sans-serif`;
+  ctx.fillStyle = "#374151";
+  ctx.textAlign = "center";
+  ctx.fillText("Distance from proximal edge (mm)", 0, 0);
+  ctx.restore();
 
-  function sectionTitle(t: string) {
+  // ── Right depth axis (tick marks + depth labels) ──────────────────────────
+  const rightAxisX = chartX + chartW;
+  ctx.strokeStyle = "rgba(55,65,81,0.4)";
+  ctx.lineWidth   = 0.6;
+  ctx.setLineDash([]);
+  for (let d = 0; d <= maxDepth; d += 10) {
+    const gy = chartY + d * yScale;
+    if (gy > chartY + chartH + 4) break;
+    ctx.beginPath();
+    ctx.moveTo(rightAxisX - sc.v_3_2, gy);
+    ctx.lineTo(rightAxisX + sc.v_4_3, gy);
+    ctx.stroke();
+    ctx.fillStyle = "#374151";
+    ctx.font      = `400 ${fs(7.5)}px sans-serif`;
+    ctx.textAlign = "left";
+    ctx.fillText(`${d}`, rightAxisX + sc.v_6_4, gy + sc.v_4_3);
+  }
+  // Minor ticks right
+  ctx.strokeStyle = "rgba(55,65,81,0.2)";
+  ctx.lineWidth   = 0.4;
+  for (let d = 5; d <= maxDepth; d += 10) {
+    const gy = chartY + d * yScale;
+    if (gy > chartY + chartH + 4) break;
+    ctx.beginPath();
+    ctx.moveTo(rightAxisX - 1, gy);
+    ctx.lineTo(rightAxisX + sc.v_3_2, gy);
+    ctx.stroke();
+  }
+
+  // ── Film height bracket on right edge ─────────────────────────────────────
+  if (filmHeightMm != null) {
+    const filmY    = chartY + filmHeightMm * yScale;
+    const brkX     = rightAxisX + (sc.isPrint ? 18 : 12);
+    const brkW     = sc.isPrint ? 5 : 3;
+    if (filmY >= chartY && filmY <= chartY + chartH + 20) {
+      ctx.strokeStyle = "rgba(59,130,246,0.80)";
+      ctx.fillStyle   = "rgba(59,130,246,0.80)";
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([]);
+      // Vertical bracket
+      ctx.beginPath();
+      ctx.moveTo(brkX, chartY);
+      ctx.lineTo(brkX, filmY);
+      ctx.stroke();
+      // Top cap
+      ctx.beginPath();
+      ctx.moveTo(brkX - brkW, chartY);
+      ctx.lineTo(brkX + brkW, chartY);
+      ctx.stroke();
+      // Bottom cap
+      ctx.beginPath();
+      ctx.moveTo(brkX - brkW, filmY);
+      ctx.lineTo(brkX + brkW, filmY);
+      ctx.stroke();
+      // Label (rotated)
+      ctx.save();
+      ctx.translate(brkX + (sc.isPrint ? 8 : 5), (chartY + filmY) / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.font      = `600 ${fs(6.5)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(`Film  ${filmHeightMm} mm`, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  // ── Graft boundary markers ────────────────────────────────────────────────
+  // Proximal edge label (above chart, left side)
+  ctx.fillStyle = "rgba(16,33,31,0.65)";
+  ctx.font      = `700 ${fs(7)}px sans-serif`;
+  ctx.fillText("▲ PROXIMAL EDGE", chartX + sc.v_3_2, chartY - (sc.isPrint ? 5 : 3));
+
+  // Distal seal zone boundary line + label
+  const sealY = chartY + sealZoneH * yScale;
+  if (sealY < chartY + chartH) {
+    ctx.save();
+    ctx.setLineDash([sc.v_10_7, sc.v_6_4]);
+    ctx.strokeStyle = "rgba(180,83,9,0.55)";
+    ctx.lineWidth   = sc.v_1_2_0_8;
+    ctx.beginPath();
+    ctx.moveTo(chartX, sealY);
+    ctx.lineTo(chartX + chartW, sealY);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = "rgba(180,83,9,0.65)";
+    ctx.font      = `600 ${fs(6.5)}px sans-serif`;
+    ctx.textAlign = "right";
+    ctx.fillText(`▼ Seal zone  ${sealZoneH} mm`, chartX + chartW - sc.v_3_2, sealY - 2);
+    ctx.textAlign = "left";
+  }
+
+  // ── Clock tick marks and labels above chart (outside clip) ────────────────
+  for (let h = 1; h <= 12; h++) {
+    const isCard = h % 3 === 0;
+    const arc    = ((h % 12) / 12) * result.circumferenceMm;
+    const gx     = chartX + arc * xScale;
+    ctx.strokeStyle = "#64748b";
+    ctx.lineWidth   = isCard ? 1.0 : 0.7;
+    ctx.setLineDash([]);
+    const tickH = isCard ? sc.v_8_5 : sc.v_5_3;
+    ctx.beginPath();
+    ctx.moveTo(gx, chartY);
+    ctx.lineTo(gx, chartY - tickH);
+    ctx.stroke();
+    ctx.fillStyle = isCard ? "#334155" : "#64748b";
+    ctx.font      = `${isCard ? "600" : "400"} ${fs(isCard ? 8 : 7)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(String(h), gx, chartY - tickH - sc.v_3_2);
+    ctx.textAlign = "left";
+  }
+
+  // ── Chart border (solid rect — the cut line) ──────────────────────────────
+  ctx.strokeStyle = "rgba(16,33,31,0.50)";
+  ctx.lineWidth   = 1.0;
+  ctx.setLineDash([]);
+  ctx.strokeRect(chartX, chartY, chartW, chartH);
+
+  // ── Cut corner registration marks ────────────────────────────────────────
+  const cmLen = sc.isPrint ? 10 : 7;
+  const cmGap = sc.isPrint ? 3 : 2;
+  ctx.strokeStyle = "rgba(16,33,31,0.55)";
+  ctx.lineWidth   = 0.8;
+  ctx.setLineDash([]);
+  // Top-left
+  drawCutMark(ctx, chartX, chartY,       -1, -1, cmLen, cmGap);
+  // Top-right
+  drawCutMark(ctx, chartX + chartW, chartY,       +1, -1, cmLen, cmGap);
+  // Bottom-left
+  drawCutMark(ctx, chartX, chartY + chartH,       -1, +1, cmLen, cmGap);
+  // Bottom-right
+  drawCutMark(ctx, chartX + chartW, chartY + chartH, +1, +1, cmLen, cmGap);
+
+  // ── 3-column info strip below chart ──────────────────────────────────────
+  const infoTop  = chartY + chartH + (sc.isPrint ? 18 : 12);
+  const infoW    = width - margin * 2;
+  const colW     = infoW / 3;
+  const col1X    = margin;
+  const col2X    = margin + colW;
+  const col3X    = margin + colW * 2;
+
+  // Separator line
+  ctx.strokeStyle = "rgba(16,33,31,0.15)";
+  ctx.lineWidth   = 0.8;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(margin, infoTop - (sc.isPrint ? 8 : 6));
+  ctx.lineTo(width - margin, infoTop - (sc.isPrint ? 8 : 6));
+  ctx.stroke();
+
+  // Vertical column dividers
+  for (const divX of [col2X, col3X]) {
+    ctx.strokeStyle = "rgba(16,33,31,0.10)";
+    ctx.lineWidth   = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(divX - (sc.isPrint ? 6 : 4), infoTop);
+    ctx.lineTo(divX - (sc.isPrint ? 6 : 4), infoTop + sc.infoH - (sc.isPrint ? 20 : 14));
+    ctx.stroke();
+  }
+
+  const lineH    = fs(sc.v_14_11) * 0.92;
+  const valOffX  = colW * 0.48;
+
+  function colTitle(x: number, y: { v: number }, t: string) {
     ctx.fillStyle = "#10211f";
-    ctx.font      = `700 ${fs(10)}px sans-serif`;
-    ctx.fillText(t, sidePanelX, sy);
-    sy += lineH * 0.35;
+    ctx.font      = `700 ${fs(9.5)}px sans-serif`;
+    ctx.fillText(t, x, y.v);
+    y.v += lineH * 0.3;
     ctx.strokeStyle = "rgba(16,33,31,0.15)";
     ctx.lineWidth   = 0.5;
+    ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.moveTo(sidePanelX, sy);
-    ctx.lineTo(sidePanelX + sw, sy);
+    ctx.moveTo(x, y.v);
+    ctx.lineTo(x + colW - (sc.isPrint ? 12 : 8), y.v);
     ctx.stroke();
-    sy += lineH * 0.85;
+    y.v += lineH * 0.85;
   }
 
-  function spec(key: string, val: string, valColor?: string) {
+  function colSpec(x: number, y: { v: number }, key: string, val: string, valColor?: string) {
     ctx.fillStyle = "rgba(69,96,91,0.75)";
-    ctx.font      = `400 ${fs(8.5)}px sans-serif`;
-    ctx.fillText(key, sidePanelX, sy);
+    ctx.font      = `400 ${fs(8)}px sans-serif`;
+    ctx.fillText(key, x, y.v);
     ctx.fillStyle = valColor ?? "#10211f";
-    ctx.font      = `600 ${fs(8.5)}px sans-serif`;
-    ctx.fillText(val, sidePanelX + sw * 0.52, sy);
-    sy += lineH;
+    ctx.font      = `600 ${fs(8)}px sans-serif`;
+    ctx.fillText(val, x + valOffX, y.v);
+    y.v += lineH;
   }
 
-  sectionTitle("DEVICE");
-  spec("Platform",    result.device.shortName,                              result.device.color);
-  spec("Diameter",    `${result.size.graftDiameter} mm`);
-  spec("Circ",        `${result.circumferenceMm.toFixed(1)} mm`);
-  spec("Sheath",      `${result.size.sheathFr} Fr`);
-  spec("Foreshorten", `${(result.device.foreshortening * 100).toFixed(0)}%`);
-  spec("Ring height", `${effectiveRingH} mm`);
-  spec("Gap",         `${effectiveGap} mm`,
+  // ─ Column 1: DEVICE ───────────────────────────────────────────────────────
+  const c1 = { v: infoTop };
+  colTitle(col1X, c1, "DEVICE");
+  colSpec(col1X, c1, "Platform",    result.device.shortName, result.device.color);
+  colSpec(col1X, c1, "Diameter",    `${result.size.graftDiameter} mm`);
+  colSpec(col1X, c1, "Circ",        `${result.circumferenceMm.toFixed(1)} mm`);
+  colSpec(col1X, c1, "Sheath",      `${result.size.sheathFr} Fr`);
+  colSpec(col1X, c1, "Foreshorten", `${(result.device.foreshortening * 100).toFixed(0)}%`);
+  colSpec(col1X, c1, "Ring height", `${effectiveRingH} mm`);
+  colSpec(col1X, c1, "Gap",         `${effectiveGap} mm`,
     effectiveGap >= 12 ? "#15803d" : "#c2410c");
+  colSpec(col1X, c1, "Peaks / ring", `${result.nPeaks}`);
+  // Tie positions
+  colSpec(col1X, c1, "Tie pos",     `${tieClock.join(", ")} o'clock`);
+  if (filmHeightMm != null) {
+    colSpec(col1X, c1, "Film height", `${filmHeightMm} mm`);
+  }
 
-  spec("Peaks / ring", `${result.nPeaks}`);
-  sy += lineH * 0.4;
-
-  sectionTitle("ROTATION PLAN");
+  // ─ Column 2: ROTATION PLAN + SPACING ──────────────────────────────────────
+  const c2 = { v: infoTop };
+  colTitle(col2X, c2, "ROTATION PLAN");
   if (result.rotation.hasConflictFreeRotation) {
     ctx.fillStyle = "#15803d";
-    ctx.font      = `700 ${fs(9)}px sans-serif`;
-    sy = wrapText(
+    ctx.font      = `700 ${fs(8.5)}px sans-serif`;
+    c2.v = wrapText(
       ctx,
       `Rotate ${result.rotation.optimalDeltaDeg.toFixed(0)}° CW (${result.rotation.optimalDeltaMm.toFixed(1)} mm). Valid window: ${result.rotation.validWindows.map((w) => `${w.startDeg.toFixed(0)}°–${w.endDeg.toFixed(0)}°`).join(", ")}.`,
-      sidePanelX, sy, sw, lineH, 5,
+      col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4,
     );
   } else {
     ctx.fillStyle = "#b45309";
-    ctx.font      = `700 ${fs(9)}px sans-serif`;
-    sy = wrapText(
+    ctx.font      = `700 ${fs(8.5)}px sans-serif`;
+    c2.v = wrapText(
       ctx,
-      `No conflict-free rotation. Best compromise: ${result.rotation.bestCompromiseDeg.toFixed(0)}° CW. Strut bending technique may be required.`,
-      sidePanelX, sy, sw, lineH, 5,
+      `No conflict-free rotation. Best compromise: ${result.rotation.bestCompromiseDeg.toFixed(0)}° CW. Strut bending may be required.`,
+      col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4,
     );
   }
-  sy += lineH * 0.5;
+  c2.v += lineH * 0.6;
 
-  sectionTitle("FENESTRATIONS");
+  const spacingFens = caseInput.fenestrations
+    .filter((f) => f.ftype !== "SCALLOP")
+    .slice()
+    .sort((a, b) => a.depthMm - b.depthMm);
+  if (spacingFens.length >= 2) {
+    colTitle(col2X, c2, "SPACING  (center-to-center)");
+    colSpec(col2X, c2, `Prox → ${spacingFens[0].vessel}`, `${spacingFens[0].depthMm} mm`);
+    for (let i = 1; i < spacingFens.length; i++) {
+      const dist = spacingFens[i].depthMm - spacingFens[i - 1].depthMm;
+      colSpec(col2X, c2, `${spacingFens[i - 1].vessel} → ${spacingFens[i].vessel}`, `${dist} mm`);
+    }
+  }
+
+  // ─ Column 3: FENESTRATIONS ─────────────────────────────────────────────────
+  const c3 = { v: infoTop };
+  colTitle(col3X, c3, "FENESTRATIONS");
   const fcnt: Record<string, number> = { SCALLOP: 0, LARGE_FEN: 0, SMALL_FEN: 0 };
+
   caseInput.fenestrations.forEach((fen, idx) => {
-    const conflict   = result.optimalConflicts[idx];
-    const adjClock   = conflict?.adjustedClock ?? fen.clock;
-    const isConf     = conflict?.conflict ?? false;
-    const col        = VESSEL_COLORS[fen.vessel] ?? "#334155";
-    fcnt[fen.ftype]  = (fcnt[fen.ftype] ?? 0) + 1;
-    const typeLabel  =
-      fen.ftype === "SCALLOP"   ? `SCALLOP #${fcnt.SCALLOP}`    :
+    const conflict  = result.optimalConflicts[idx];
+    const adjClock  = conflict?.adjustedClock ?? fen.clock;
+    const isConf    = conflict?.conflict ?? false;
+    const fenCol    = VESSEL_COLORS[fen.vessel] ?? "#334155";
+    fcnt[fen.ftype] = (fcnt[fen.ftype] ?? 0) + 1;
+    const typeLabel =
+      fen.ftype === "SCALLOP"   ? `SCALLOP #${fcnt.SCALLOP}`     :
       fen.ftype === "LARGE_FEN" ? `LARGE FEN #${fcnt.LARGE_FEN}` :
                                   `SMALL FEN #${fcnt.SMALL_FEN}`;
 
-    ctx.fillStyle = col;
-    ctx.font      = `700 ${fs(9)}px sans-serif`;
-    ctx.fillText(`${fen.vessel}  ${typeLabel}`, sidePanelX, sy);
-    sy += lineH;
+    ctx.fillStyle = fenCol;
+    ctx.font      = `700 ${fs(8.5)}px sans-serif`;
+    ctx.fillText(`${fen.vessel}  ${typeLabel}`, col3X, c3.v);
+    c3.v += lineH;
 
     ctx.fillStyle = "#334155";
-    ctx.font      = `400 ${fs(8)}px sans-serif`;
+    ctx.font      = `400 ${fs(7.5)}px sans-serif`;
     if (fen.ftype !== "SCALLOP") {
-      const seam    = result.device.seamDeg;
-      const adjArcMm = clockTextToArcMm(adjClock, result.circumferenceMm);
+      const seam     = result.device.seamDeg;
+      const adjArcMm  = clockTextToArcMm(adjClock, result.circumferenceMm);
       const seamArcMm = (seam / 360) * result.circumferenceMm + delta;
-      const arcSep  = adjArcMm - seamArcMm;
-      const specRows = [
+      const arcSep    = adjArcMm - seamArcMm;
+      for (const row of [
         `Clock: ${fen.clock} → ${adjClock}`,
         `Depth: ${fen.depthMm} mm  ·  ${fen.widthMm}×${fen.heightMm} mm`,
         `ARCSEP: ${arcSep > 0 ? "+" : ""}${arcSep.toFixed(1)} mm from seam`,
-      ];
-      for (const row of specRows) { ctx.fillText(row, sidePanelX + (sc.v_6_4), sy); sy += lineH; }
+      ]) {
+        ctx.fillText(row, col3X + sc.v_6_4, c3.v);
+        c3.v += lineH;
+      }
       ctx.fillStyle = isConf ? "#dc2626" : "#15803d";
-      ctx.font      = `700 ${fs(8)}px sans-serif`;
+      ctx.font      = `700 ${fs(7.5)}px sans-serif`;
       ctx.fillText(
         isConf ? `⚠ Conflict  (${conflict.minDist.toFixed(1)} mm)` : `✓ Clear  (${conflict.minDist.toFixed(1)} mm)`,
-        sidePanelX + (sc.v_6_4), sy,
+        col3X + sc.v_6_4, c3.v,
       );
-      sy += lineH;
+      c3.v += lineH;
     } else {
-      ctx.fillText(`Clock: ${adjClock}  ·  ${fen.widthMm}×${fen.heightMm} mm`, sidePanelX + (sc.v_6_4), sy);
-      sy += lineH;
-      ctx.fillStyle = "rgba(107,114,128,0.75)";
-      ctx.font      = `400 italic ${fs(7.5)}px sans-serif`;
-      ctx.fillText("Scallop — strut conflict irrelevant", sidePanelX + (sc.v_6_4), sy);
-      sy += lineH;
+      ctx.fillText(`Clock: ${adjClock}  ·  ${fen.widthMm}×${fen.heightMm} mm`, col3X + sc.v_6_4, c3.v);
+      c3.v += lineH;
     }
-    sy += lineH * 0.4;
+    c3.v += lineH * 0.5;
   });
 
   // ── Footer ────────────────────────────────────────────────────────────────
-  const footerY = height - margin + (sc.v_8_4);
+  const footerY = height - margin + sc.v_8_4;
   ctx.fillStyle = "rgba(69,96,91,0.55)";
   ctx.font      = `400 ${fs(7)}px sans-serif`;
   ctx.fillText(
-    `FOR RESEARCH / PLANNING USE ONLY  ·  Print at 100% Actual Size — verify calibration square  ·  PMEGplan.io`,
+    `FOR RESEARCH / PLANNING USE ONLY  ·  Print at 100% Actual Size  ·  Width = ${result.circumferenceMm.toFixed(1)} mm  ·  PMEGplan.io`,
     margin,
     footerY,
   );
 
-  // ── Scale bar (bottom-left of chart area) ─────────────────────────────────
-  const sbX    = margin;
-  const sbY    = height - margin + (sc.v_m14_m10);
-  // 10 mm physical = 10 * xScale pixels
-  const sbLen  = 10 * xScale;
+  // ── Scale bar ─────────────────────────────────────────────────────────────
+  const sbX   = margin;
+  const sbY   = height - margin + sc.v_m14_m10;
+  const sbLen = 10 * xScale;
   ctx.strokeStyle = "#10211f";
   ctx.fillStyle   = "#10211f";
   ctx.lineWidth   = sc.v_1_8_1_2;
+  ctx.setLineDash([]);
   ctx.beginPath();
   ctx.moveTo(sbX, sbY);
   ctx.lineTo(sbX + sbLen, sbY);
-  ctx.moveTo(sbX, sbY - (sc.v_4_3));
-  ctx.lineTo(sbX, sbY + (sc.v_4_3));
-  ctx.moveTo(sbX + sbLen, sbY - (sc.v_4_3));
-  ctx.lineTo(sbX + sbLen, sbY + (sc.v_4_3));
+  ctx.moveTo(sbX, sbY - sc.v_4_3);
+  ctx.lineTo(sbX, sbY + sc.v_4_3);
+  ctx.moveTo(sbX + sbLen, sbY - sc.v_4_3);
+  ctx.lineTo(sbX + sbLen, sbY + sc.v_4_3);
   ctx.stroke();
   ctx.font      = `700 ${fs(8)}px sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillText("10 mm", sbX + sbLen / 2, sbY - (sc.v_6_4));
+  ctx.fillText("10 mm", sbX + sbLen / 2, sbY - sc.v_6_4);
   ctx.textAlign = "left";
 
-  // ── Calibration square (100 × 100 mm in bottom-right corner) ─────────────
-  // Drawn ONLY in print mode or when showCalibration = true and wide enough
-  if (showCalibration && (sc.isPrint || width > 400)) {
-    const calSide  = 100 * xScale;          // 100 mm → pixels
-    const calX     = width - margin - calSide;
-    const calY     = height - margin - calSide;
-
-    if (calX > sidePanelX + sidePanelW + 10 || sc.isPrint) {
-      ctx.fillStyle   = "rgba(16,33,31,0.04)";
-      ctx.strokeStyle = "#10211f";
-      ctx.lineWidth   = sc.v_1_5_1_0;
-      ctx.fillRect(calX, calY, calSide, calSide);
-      ctx.strokeRect(calX, calY, calSide, calSide);
-
-      // Corner ticks every 10 mm
-      ctx.lineWidth = 0.6;
-      for (let t = 10; t < 100; t += 10) {
-        const tp = t * xScale;
-        ctx.beginPath();
-        // top tick
-        ctx.moveTo(calX + tp, calY);
-        ctx.lineTo(calX + tp, calY + (sc.v_4_3));
-        // bottom tick
-        ctx.moveTo(calX + tp, calY + calSide);
-        ctx.lineTo(calX + tp, calY + calSide - (sc.v_4_3));
-        // left tick
-        ctx.moveTo(calX, calY + tp);
-        ctx.lineTo(calX + (sc.v_4_3), calY + tp);
-        // right tick
-        ctx.moveTo(calX + calSide, calY + tp);
-        ctx.lineTo(calX + calSide - (sc.v_4_3), calY + tp);
-        ctx.stroke();
-      }
-
-      ctx.fillStyle = "#10211f";
-      ctx.font      = `700 ${fs(8)}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillText("100 mm", calX + calSide / 2, calY - (sc.v_5_4));
-      ctx.textAlign = "left";
-
-      ctx.save();
-      ctx.translate(calX - (sc.v_5_4), calY + calSide / 2);
-      ctx.rotate(-Math.PI / 2);
-      ctx.textAlign = "center";
-      ctx.fillText("100 mm", 0, 0);
-      ctx.restore();
-
-      ctx.fillStyle = "rgba(16,33,31,0.38)";
-      ctx.font      = `400 italic ${fs(7)}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillText("CALIBRATION", calX + calSide / 2, calY + calSide / 2 - (sc.v_6_4));
-      ctx.fillText("SQUARE",      calX + calSide / 2, calY + calSide / 2 + (sc.v_8_6));
-      ctx.fillText("Verify = 100 mm", calX + calSide / 2, calY + calSide / 2 + (sc.v_22_16));
-      ctx.textAlign = "left";
-    }
+  // ── Calibration note ──────────────────────────────────────────────────────
+  if (showCalibration) {
+    ctx.fillStyle = "rgba(16,33,31,0.40)";
+    ctx.font      = `400 italic ${fs(7)}px sans-serif`;
+    ctx.textAlign = "right";
+    ctx.fillText(
+      `Verify: chart width = ${result.circumferenceMm.toFixed(1)} mm`,
+      width - margin,
+      height - margin + sc.v_8_4,
+    );
+    ctx.textAlign = "left";
   }
 }
