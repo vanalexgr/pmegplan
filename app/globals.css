@@ -48,9 +48,21 @@ a {
 }
 
 @media print {
+  @page {
+    /* Let the canvas control its own margins; browser adds none */
+    margin: 0;
+    size: auto;
+  }
+
   body {
     background: white;
     background-image: none;
+  }
+
+  /* Never let the browser shrink the canvas to fit */
+  canvas {
+    max-width: none !important;
+    page-break-inside: avoid;
   }
 }
 

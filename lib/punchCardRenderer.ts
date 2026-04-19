@@ -1208,29 +1208,60 @@ export function renderPunchCard({
     margin, footerY,
   );
 
-  // ── Scale bar ─────────────────────────────────────────────────────────────
-  const sbX   = margin;
-  const sbY   = height - margin + sc.v_m14_m10;
-  const sbLen = 10 * xScale;
+  // ── Scale bars (10 mm + 100 mm calibration) ──────────────────────────────
+  const sbY     = height - margin + sc.v_m14_m10;
+  const tickH   = sc.v_4_3;
+  const sb10Len = 10  * xScale;
+  const sb100Len= 100 * xScale;
+
+  // 10 mm bar
+  const sb10X = margin;
   ctx.strokeStyle = "#10211f";
   ctx.fillStyle   = "#10211f";
   ctx.lineWidth   = sc.v_1_8_1_2;
   ctx.setLineDash([]);
   ctx.beginPath();
-  ctx.moveTo(sbX, sbY); ctx.lineTo(sbX + sbLen, sbY);
-  ctx.moveTo(sbX, sbY - sc.v_4_3); ctx.lineTo(sbX, sbY + sc.v_4_3);
-  ctx.moveTo(sbX + sbLen, sbY - sc.v_4_3); ctx.lineTo(sbX + sbLen, sbY + sc.v_4_3);
+  ctx.moveTo(sb10X, sbY);             ctx.lineTo(sb10X + sb10Len, sbY);
+  ctx.moveTo(sb10X, sbY - tickH);     ctx.lineTo(sb10X, sbY + tickH);
+  ctx.moveTo(sb10X + sb10Len, sbY - tickH); ctx.lineTo(sb10X + sb10Len, sbY + tickH);
   ctx.stroke();
   ctx.font      = `700 ${fs(8)}px sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillText("10 mm", sbX + sbLen / 2, sbY - sc.v_6_4);
+  ctx.fillText("10 mm", sb10X + sb10Len / 2, sbY - tickH - (sc.isPrint ? 2 : 1));
+  ctx.textAlign = "left";
+
+  // 100 mm calibration bar — thick, prominent
+  const sb100X = margin;
+  const sb100Y = sbY + (sc.isPrint ? 16 : 11);
+  ctx.strokeStyle = "rgba(16,33,31,0.70)";
+  ctx.lineWidth   = sc.isPrint ? 1.5 : 1.0;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(sb100X, sb100Y);                ctx.lineTo(sb100X + sb100Len, sb100Y);
+  ctx.moveTo(sb100X, sb100Y - tickH * 1.5); ctx.lineTo(sb100X, sb100Y + tickH * 1.5);
+  ctx.moveTo(sb100X + sb100Len, sb100Y - tickH * 1.5); ctx.lineTo(sb100X + sb100Len, sb100Y + tickH * 1.5);
+  ctx.stroke();
+  // Segment ticks every 10 mm
+  ctx.lineWidth = 0.5;
+  ctx.strokeStyle = "rgba(16,33,31,0.35)";
+  for (let t = 10; t < 100; t += 10) {
+    const tx = sb100X + t * xScale;
+    ctx.beginPath();
+    ctx.moveTo(tx, sb100Y - tickH * 0.8);
+    ctx.lineTo(tx, sb100Y + tickH * 0.8);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#10211f";
+  ctx.font      = `700 ${fs(8)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.fillText("100 mm — measure to verify scale before use", sb100X + sb100Len / 2, sb100Y - tickH * 1.5 - (sc.isPrint ? 2 : 1));
   ctx.textAlign = "left";
 
   if (showCalibration) {
     ctx.fillStyle = "rgba(16,33,31,0.40)";
     ctx.font      = `400 italic ${fs(7)}px sans-serif`;
     ctx.textAlign = "right";
-    ctx.fillText(`Verify: chart width = ${circ.toFixed(1)} mm`, width - margin, height - margin + sc.v_8_4);
+    ctx.fillText(`Chart width = ${circ.toFixed(1)} mm`, width - margin, sbY - tickH - (sc.isPrint ? 2 : 1));
     ctx.textAlign = "left";
   }
 }

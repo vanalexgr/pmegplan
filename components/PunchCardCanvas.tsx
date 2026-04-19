@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { computePunchCardHeight, renderPunchCard } from "@/lib/punchCardRenderer";
+import {
+  buildPunchCardScaleContext,
+  computePunchCardHeight,
+  renderPunchCard,
+} from "@/lib/punchCardRenderer";
 import { cn } from "@/lib/utils";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
@@ -34,6 +38,11 @@ export function PunchCardCanvas({
 
     return () => observer.disconnect();
   }, []);
+
+  // 1 CSS px = 1/96 inch = 25.4/96 mm at standard screen/print resolution.
+  // Setting canvas.style.width in mm before window.print() ensures the
+  // browser prints the canvas at exactly the declared physical size.
+  const MM_TO_CSS_PX = 96 / 25.4;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -69,6 +78,62 @@ export function PunchCardCanvas({
       filmHeightMm: caseInput.filmHeightMm,
     });
   }, [caseInput, result, width]);
+
+  // Re-render at physical scale before printing; restore after.
+  useEffect(() => {
+    function handleBeforePrint() {
+      const canvas = canvasRef.current;
+      if (!canvas || !result.size) return;
+
+      // Calculate canvas width so that chart = circumferenceMm mm exactly.
+      const sc = buildPunchCardScaleContext("print");
+      const physW = sc.v_52_20 + sc.leftAxisW
+        + result.circumferenceMm * MM_TO_CSS_PX
+        + sc.rightAnnotW + sc.v_52_20;
+      const physH = computePunchCardHeight(physW, result, caseInput, "print");
+
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width  = Math.floor(physW * dpr);
+      canvas.height = Math.floor(physH * dpr);
+      // CSS mm units → browser prints at exactly these physical dimensions.
+      canvas.style.width  = `${physW / MM_TO_CSS_PX}mm`;
+      canvas.style.height = `${physH / MM_TO_CSS_PX}mm`;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+      renderPunchCard({
+        ctx,
+        width: physW,
+        height: physH,
+        result,
+        caseInput,
+        mode: "print",
+        tieClock: caseInput.tieClock ?? [4, 6, 8],
+        showCalibration: true,
+        filmHeightMm: caseInput.filmHeightMm,
+      });
+    }
+
+    function handleAfterPrint() {
+      const canvas = canvasRef.current;
+      const frame  = frameRef.current;
+      if (!canvas || !frame) return;
+      canvas.style.width  = "";
+      canvas.style.height = "";
+      // Restore preview render at current container width.
+      const w = frame.getBoundingClientRect().width;
+      if (w > 0) setWidth(w);
+    }
+
+    window.addEventListener("beforeprint", handleBeforePrint);
+    window.addEventListener("afterprint",  handleAfterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", handleBeforePrint);
+      window.removeEventListener("afterprint",  handleAfterPrint);
+    };
+  }, [result, caseInput, MM_TO_CSS_PX]);
 
   return (
     <div ref={frameRef} className={cn("w-full", className)}>
