@@ -49,11 +49,14 @@ a {
 
 @media print {
   @page {
-    /* 10 mm top/bottom gives the browser room for its own header/footer
-       text without overlapping the canvas. The dynamic @page rule injected
-       by PunchCardCanvas adds the same margin + extra page height. */
-    margin: 10mm 0;
+    margin: 0;
     size: auto;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
   }
 
   body {

@@ -92,40 +92,48 @@ export function PunchCardCanvas({
       const physW = sc.v_52_20 + sc.leftAxisW
         + result.circumferenceMm * MM_TO_CSS_PX
         + sc.rightAnnotW + sc.v_52_20;
-      const physH = computePunchCardHeight(physW, result, caseInput, "print");
+      const cardH = computePunchCardHeight(physW, result, caseInput, "print");
 
       // Physical dimensions in mm.
       const physW_mm = physW / MM_TO_CSS_PX;
-      const physH_mm = physH / MM_TO_CSS_PX;
+      const cardH_mm = cardH / MM_TO_CSS_PX;
 
-      // Inject a @page rule so the page is sized to the card exactly.
-      // We add 10 mm top + 10 mm bottom margin so the browser has room to
-      // render its own header/footer text without overlapping the canvas.
-      // The page HEIGHT is increased by the same amount so the canvas still
-      // fits at its true physical size inside the content area.
-      const MARGIN_MM = 10;
+      // Reserve physical top/bottom gutters inside the canvas itself so
+      // browser print headers/footers, when enabled, can land in blank space
+      // instead of overlapping the card artwork.
+      const GUTTER_MM = 12;
+      const gutterPx = GUTTER_MM * MM_TO_CSS_PX;
+      const pageH = cardH + gutterPx * 2;
+      const pageH_mm = cardH_mm + GUTTER_MM * 2;
+
+      // Inject a @page rule sized to the full printable page, with zero
+      // browser margins. The canvas already includes its own header/footer
+      // gutters, so we do not depend on browser margin handling.
       let styleEl = document.getElementById("pmeg-page-style") as HTMLStyleElement | null;
       if (!styleEl) {
         styleEl = document.createElement("style");
         styleEl.id = "pmeg-page-style";
         document.head.appendChild(styleEl);
       }
-      styleEl.textContent = `@page { size: ${physW_mm.toFixed(2)}mm ${(physH_mm + MARGIN_MM * 2).toFixed(2)}mm; margin: ${MARGIN_MM}mm 0; }`;
+      styleEl.textContent = `@page { size: ${physW_mm.toFixed(2)}mm ${pageH_mm.toFixed(2)}mm; margin: 0; }`;
 
       const dpr = window.devicePixelRatio || 1;
       canvas.width  = Math.floor(physW * dpr);
-      canvas.height = Math.floor(physH * dpr);
+      canvas.height = Math.floor(pageH * dpr);
       canvas.style.width  = `${physW_mm}mm`;
-      canvas.style.height = `${physH_mm}mm`;
+      canvas.style.height = `${pageH_mm}mm`;
 
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, physW, pageH);
+      ctx.save();
+      ctx.translate(0, gutterPx);
       renderPunchCard({
         ctx,
         width: physW,
-        height: physH,
+        height: cardH,
         result,
         caseInput,
         mode: "print",
@@ -133,6 +141,7 @@ export function PunchCardCanvas({
         showCalibration: true,
         filmHeightMm: caseInput.filmHeightMm,
       });
+      ctx.restore();
     }
 
     function handleAfterPrint() {
