@@ -7,11 +7,13 @@ import {
   getSafeThreshold,
   wrapMm,
 } from "@/lib/conflictDetection";
+import { optimiseDepth } from "@/lib/depthOptimizer";
 import { optimiseRotation } from "@/lib/rotationOptimizer";
-import { buildStrutSegmentsForDevice } from "@/lib/stentGeometry";
+import { buildStrutSegmentsForDevice, getSealZoneHeightMm } from "@/lib/stentGeometry";
 import type {
   CaseInput,
   ConflictResult,
+  DepthResult,
   DeviceAnalysisResult,
   DeviceGeometry,
   Fenestration,
@@ -363,6 +365,16 @@ function analyseDevice(
       strutSegments: [],
       baselineConflicts: [],
       optimalConflicts: [],
+      depthOptimisation: {
+        optimalDeltaMm: 0,
+        hasConflictFreeDepth: false,
+        validWindows: [],
+        bestCompromiseDeltaMm: 0,
+        adjustedDepths: [],
+        clearancePerFen: [],
+        scanMin: 0,
+        scanMax: 0,
+      },
       rotation: {
         optimalDeltaMm: 0,
         optimalDeltaDeg: 0,
@@ -439,6 +451,17 @@ function analyseDevice(
     );
   });
 
+  // ── Global depth-offset optimisation (all fens shift together) ───────────
+  const sealZoneH = getSealZoneHeightMm(device);
+  const depthOptimisation: DepthResult = optimiseDepth(
+    caseInput.fenestrations,
+    rotation.optimalDeltaMm,
+    strutSegments,
+    circumferenceMm,
+    device.wireRadius,
+    sealZoneH,
+  );
+
   const minimumOptimalDistance = optimalConflicts
     .map((result) => result.minDist)
     .filter(Number.isFinite);
@@ -473,6 +496,7 @@ function analyseDevice(
     strutSegments,
     baselineConflicts,
     optimalConflicts,
+    depthOptimisation,
     rotation,
     minClearanceAtOptimal,
     totalValidWindowMm,
@@ -585,6 +609,59 @@ export function getRotationSummary(result: DeviceAnalysisResult) {
   }
   
   return baseString;
+}
+
+/**
+ * Plain-English deployment plan combining rotation AND depth adjustment.
+ * Used in both the DeviceCard UI and the punch card renderer.
+ */
+export function getDeploymentPlanSummary(
+  result: DeviceAnalysisResult,
+  caseInput: CaseInput,
+): string {
+  if (!result.size) return "No compatible graft size for this anatomy.";
+
+  const { rotation, depthOptimisation } = result;
+  const rotInfo    = getDeploymentTorqueInfo(rotation.optimalDeltaDeg);
+  const dirLabel   = rotInfo.deploymentTorqueDirection === "clockwise"  ? " CW"
+                   : rotInfo.deploymentTorqueDirection === "counter-clockwise" ? " CCW"
+                   : "";
+  const noRotation = rotInfo.deploymentTorqueDirection === "none";
+
+  // ── Rotation part ──────────────────────────────────────────────────────────
+  const rotStr = noRotation
+    ? "No graft rotation needed."
+    : `Rotate ${rotInfo.deploymentTorqueDeg.toFixed(0)}°${dirLabel} (${rotation.optimalDeltaMm.toFixed(1)} mm).`;
+
+  // ── Depth part ─────────────────────────────────────────────────────────────
+  const needsDepth = Math.abs(depthOptimisation.optimalDeltaMm) >= 0.1;
+  const depthSign  = depthOptimisation.optimalDeltaMm > 0 ? "+" : "";
+  const depthStr   = needsDepth
+    ? `Shift all fenestrations ${depthSign}${depthOptimisation.optimalDeltaMm.toFixed(1)} mm from proximal edge.`
+    : "No depth adjustment needed.";
+
+  // ── Per-fenestration adjusted positions ────────────────────────────────────
+  const fenLines = caseInput.fenestrations
+    .filter((f) => f.ftype !== "SCALLOP")
+    .map((fen, i) => {
+      const idx        = caseInput.fenestrations.indexOf(fen);
+      const adjClock   = result.optimalConflicts[idx]?.adjustedClock ?? fen.clock;
+      const adjDepth   = depthOptimisation.adjustedDepths[idx] ?? fen.depthMm;
+      const depthPart  = needsDepth ? ` · depth ${fen.depthMm}→${adjDepth} mm` : ` · depth ${fen.depthMm} mm`;
+      return `${fen.vessel}: clock ${fen.clock}→${adjClock}${depthPart}`;
+    })
+    .join("\n");
+
+  // ── Overall outcome ────────────────────────────────────────────────────────
+  const rotClear   = rotation.hasConflictFreeRotation;
+  const depthClear = depthOptimisation.hasConflictFreeDepth;
+  const outcome    = rotClear
+    ? "✓ Conflict-free placement achieved."
+    : depthClear
+      ? "✓ Conflict-free with combined rotation + depth adjustment."
+      : "⚠ Best compromise — strut bending may be required.";
+
+  return [rotStr, depthStr, "", fenLines, "", outcome].join("\n");
 }
 
 export function getConflictCount(results: ConflictResult[]) {

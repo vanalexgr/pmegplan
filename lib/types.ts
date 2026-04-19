@@ -99,6 +99,39 @@ export interface CaseInput {
 
 export type StrutSegment = [number, number, number, number];
 
+/**
+ * A contiguous window of global depth-shift delta (mm) where all
+ * fenestrations are simultaneously clear of struts.
+ */
+export interface DepthWindow {
+  startMm: number;
+  endMm: number;
+}
+
+/**
+ * Result of global depth-offset optimisation.
+ * All fenestrations are shifted by the same delta (mm) to maintain
+ * their relative axial spacing.
+ */
+export interface DepthResult {
+  /** Best depth-shift delta (mm). 0 means no adjustment needed. */
+  optimalDeltaMm: number;
+  /** True if at least one conflict-free delta exists. */
+  hasConflictFreeDepth: boolean;
+  /** Windows of delta (mm) where all fens are simultaneously clear. */
+  validWindows: DepthWindow[];
+  /** Best delta even when no conflict-free solution exists. */
+  bestCompromiseDeltaMm: number;
+  /** Absolute depth (mm) for each fenestration after applying optimalDeltaMm. */
+  adjustedDepths: number[];
+  /** Clearance (mm) for each fenestration at the optimal delta. */
+  clearancePerFen: number[];
+  /** Minimum valid delta (mm) — determined by MIN_PROX_DEPTH_MM constraint. */
+  scanMin: number;
+  /** Maximum valid delta (mm) — determined by seal-zone height. */
+  scanMax: number;
+}
+
 export interface ConflictResult {
   conflict: boolean;
   minDist: number;
@@ -164,6 +197,8 @@ export interface DeviceAnalysisResult {
   strutSegments: StrutSegment[];
   baselineConflicts: ConflictResult[];
   optimalConflicts: ConflictResult[];
+  /** Global depth-shift optimisation (all fens shifted together). */
+  depthOptimisation: DepthResult;
   rotation: RotationResult;
   minClearanceAtOptimal: number;
   totalValidWindowMm: number;

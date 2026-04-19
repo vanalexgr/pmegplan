@@ -14,7 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { getConflictCount, getRotationSummary } from "@/lib/analysis";
+import { getConflictCount, getDeploymentPlanSummary } from "@/lib/analysis";
 import { buildPrintUrl, downloadDevicePdf } from "@/lib/pdfExport";
 import { normalizeClockText } from "@/lib/planning/clock";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
@@ -102,19 +102,20 @@ export function DeviceCard({
               <PunchCardCanvas result={result} caseInput={caseInput} />
 
               <div className="space-y-4">
+                {/* ── Combined deployment plan ─────────────────────────── */}
                 <div className="rounded-[24px] border border-[color:var(--border)] bg-[rgba(248,244,237,0.76)] p-4">
                   <p className="text-sm font-semibold text-[color:var(--foreground)]">
-                    Rotation result
+                    Deployment plan
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-[color:var(--muted-foreground)]">
-                    {getRotationSummary(result)}
-                  </p>
+                  <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-[color:var(--muted-foreground)]">
+                    {getDeploymentPlanSummary(result, caseInput)}
+                  </pre>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-[22px] border border-[color:var(--border)] bg-white p-4">
                     <p className="text-sm font-semibold text-[color:var(--foreground)]">
-                      Conflicts at δ=0
+                      Conflicts before plan
                     </p>
                     <p className="mt-2 text-2xl font-semibold text-[color:var(--foreground)]">
                       {baselineCount}
@@ -122,7 +123,7 @@ export function DeviceCard({
                   </div>
                   <div className="rounded-[22px] border border-[color:var(--border)] bg-white p-4">
                     <p className="text-sm font-semibold text-[color:var(--foreground)]">
-                      Conflicts at optimal
+                      Conflicts after plan
                     </p>
                     <p className="mt-2 text-2xl font-semibold text-[color:var(--foreground)]">
                       {optimalCount}
@@ -161,21 +162,20 @@ export function DeviceCard({
 
                 <div className="rounded-[24px] border border-[color:var(--border)] bg-white p-4">
                   <p className="text-sm font-semibold text-[color:var(--foreground)]">
-                    Fenestration comparison
+                    Fenestration positions after plan
                   </p>
                   <div className="mt-4 space-y-3 text-sm">
                     {caseInput.fenestrations.map((fenestration, index) => {
                       const normalizedClock = normalizeClockText(fenestration.clock, {
-                        separator: ":",
-                        padHour: false,
+                        separator: ":", padHour: false,
                       });
                       const adjustedClock = normalizeClockText(
                         result.optimalConflicts[index].adjustedClock,
-                        {
-                          separator: ":",
-                          padHour: false,
-                        },
+                        { separator: ":", padHour: false },
                       );
+                      const adjDepth = result.depthOptimisation.adjustedDepths[index];
+                      const depthChanged = adjDepth != null
+                        && Math.abs(adjDepth - fenestration.depthMm) >= 0.1;
 
                       return (
                         <div
@@ -187,15 +187,16 @@ export function DeviceCard({
                               {fenestration.vessel}
                             </p>
                             <p className="text-xs text-[color:var(--muted-foreground)]">
-                              {normalizedClock}
-                              {" -> "}
-                              {adjustedClock}
+                              {normalizedClock} → {adjustedClock}
+                              {depthChanged
+                                ? ` · ${fenestration.depthMm}→${adjDepth} mm`
+                                : ` · ${fenestration.depthMm} mm`}
                             </p>
                           </div>
                           <span className="text-xs text-[color:var(--muted-foreground)]">
                             {formatConflictLabel(result.baselineConflicts[index].conflict)}
                           </span>
-                          <span className="text-xs font-medium text-[color:var(--foreground)]">
+                          <span className={`text-xs font-medium ${result.optimalConflicts[index].conflict ? "text-red-600" : "text-green-700"}`}>
                             {formatConflictLabel(result.optimalConflicts[index].conflict)}
                           </span>
                         </div>

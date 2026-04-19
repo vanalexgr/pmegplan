@@ -1176,34 +1176,76 @@ export function renderPunchCard({
   if (filmHeightMm != null) colSpec(col1X, c1, "Film height", `${filmHeightMm} mm`);
 
   const c2 = { v: infoTop };
-  colTitle(col2X, c2, "ROTATION PLAN");
+  colTitle(col2X, c2, "DEPLOYMENT PLAN");
+
+  // ── Rotation ─────────────────────────────────────────────────────────────────
   if (result.rotation.hasConflictFreeRotation) {
     const rotInfo = getDeploymentTorqueInfo(result.rotation.optimalDeltaDeg);
-    const rotDir  = rotInfo.deploymentTorqueDirection !== "none"
-      ? ` ${rotInfo.deploymentTorqueDirection === "clockwise" ? "CW" : "CCW"}`
-      : "";
+    const noRot   = rotInfo.deploymentTorqueDirection === "none";
+    const rotDir  = noRot ? ""
+      : ` ${rotInfo.deploymentTorqueDirection === "clockwise" ? "CW" : "CCW"}`;
     ctx.fillStyle = "#15803d";
     ctx.font      = `700 ${fs(8.5)}px sans-serif`;
-    c2.v = wrapText(
-      ctx,
-      `Rotate ${rotInfo.deploymentTorqueDeg.toFixed(0)}°${rotDir} (${result.rotation.optimalDeltaMm.toFixed(1)} mm). Valid window: ${result.rotation.validWindows.map((w) => `${w.startDeg.toFixed(0)}°–${w.endDeg.toFixed(0)}°`).join(", ")}.`,
-      col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4,
-    );
+    const rotText = noRot
+      ? "No graft rotation needed."
+      : `Rotate ${rotInfo.deploymentTorqueDeg.toFixed(0)}°${rotDir} (${result.rotation.optimalDeltaMm.toFixed(1)} mm). Window: ${result.rotation.validWindows.map((w) => `${w.startDeg.toFixed(0)}°–${w.endDeg.toFixed(0)}°`).join(", ")}.`;
+    c2.v = wrapText(ctx, rotText, col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4);
   } else {
     const compInfo = getDeploymentTorqueInfo(result.rotation.bestCompromiseDeg);
     const compDir  = compInfo.deploymentTorqueDirection !== "none"
-      ? ` ${compInfo.deploymentTorqueDirection === "clockwise" ? "CW" : "CCW"}`
-      : "";
+      ? ` ${compInfo.deploymentTorqueDirection === "clockwise" ? "CW" : "CCW"}` : "";
     ctx.fillStyle = "#b45309";
     ctx.font      = `700 ${fs(8.5)}px sans-serif`;
     c2.v = wrapText(
       ctx,
-      `No conflict-free rotation. Best compromise: ${compInfo.deploymentTorqueDeg.toFixed(0)}°${compDir}. Strut bending may be required.`,
+      `No conflict-free rotation. Best: ${compInfo.deploymentTorqueDeg.toFixed(0)}°${compDir}.`,
       col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4,
     );
   }
-  c2.v += lineH * 0.6;
+  c2.v += lineH * 0.35;
 
+  // ── Depth ─────────────────────────────────────────────────────────────────────
+  {
+    const dp     = result.depthOptimisation;
+    const noMove = Math.abs(dp.optimalDeltaMm) < 0.1;
+    if (dp.hasConflictFreeDepth) {
+      const sign   = dp.optimalDeltaMm > 0 ? "+" : "";
+      const winStr = dp.validWindows
+        .map((w) => `${w.startMm >= 0 ? "+" : ""}${w.startMm.toFixed(0)} to ${w.endMm >= 0 ? "+" : ""}${w.endMm.toFixed(0)} mm`)
+        .join(", ");
+      ctx.fillStyle = "#15803d";
+      ctx.font      = `700 ${fs(8.5)}px sans-serif`;
+      const depthText = noMove
+        ? "No depth adjustment needed."
+        : `Shift all fens ${sign}${dp.optimalDeltaMm.toFixed(1)} mm. Window: ${winStr}.`;
+      c2.v = wrapText(ctx, depthText, col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4);
+    } else {
+      ctx.fillStyle = "#b45309";
+      ctx.font      = `700 ${fs(8.5)}px sans-serif`;
+      c2.v = wrapText(
+        ctx,
+        `No conflict-free depth. Best: ${dp.bestCompromiseDeltaMm >= 0 ? "+" : ""}${dp.bestCompromiseDeltaMm.toFixed(1)} mm. Strut bending may be required.`,
+        col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4,
+      );
+    }
+    // Per-fenestration depth breakdown (only when a shift is applied)
+    if (!noMove) {
+      c2.v += lineH * 0.25;
+      ctx.fillStyle = "#334155";
+      ctx.font      = `400 ${fs(7.5)}px sans-serif`;
+      caseInput.fenestrations.forEach((fen, idx) => {
+        if (fen.ftype === "SCALLOP") return;
+        const adjD = dp.adjustedDepths[idx];
+        if (adjD != null) {
+          ctx.fillText(`${fen.vessel}: ${fen.depthMm} → ${adjD} mm`, col2X + sc.v_6_4, c2.v);
+          c2.v += lineH;
+        }
+      });
+    }
+  }
+  c2.v += lineH * 0.5;
+
+  // ── Spacing ───────────────────────────────────────────────────────────────────
   const spacingFens = caseInput.fenestrations
     .filter((f) => f.ftype !== "SCALLOP")
     .slice()
@@ -1216,6 +1258,7 @@ export function renderPunchCard({
       colSpec(col2X, c2, `${spacingFens[i - 1].vessel} → ${spacingFens[i].vessel}`, `${dist} mm`);
     }
   }
+  c2.v += lineH * 0.4;
 
   const c3 = { v: infoTop };
   colTitle(col3X, c3, "FENESTRATIONS");
