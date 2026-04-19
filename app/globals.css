@@ -70,11 +70,6 @@ a {
     page-break-inside: avoid;
   }
 
-  .print-card-page {
-    break-after: page;
-    page-break-after: always;
-  }
-
   .print-details-page {
     break-before: page;
     page-break-before: always;

@@ -98,13 +98,16 @@ export function PunchCardCanvas({
       const physW_mm = physW / MM_TO_CSS_PX;
       const cardH_mm = cardH / MM_TO_CSS_PX;
 
-      // Reserve physical top/bottom gutters inside the canvas itself so
-      // browser print headers/footers, when enabled, can land in blank space
-      // instead of overlapping the card artwork.
-      const GUTTER_MM = 12;
-      const gutterPx = GUTTER_MM * MM_TO_CSS_PX;
-      const pageH = cardH + gutterPx * 2;
-      const pageH_mm = cardH_mm + GUTTER_MM * 2;
+      // Reserve extra physical blank space inside the first printed page so
+      // browser print headers/footers can land there without colliding with
+      // the card artwork. The top gutter is intentionally larger because the
+      // browser header occupies more vertical space than the footer.
+      const TOP_GUTTER_MM = 26;
+      const BOTTOM_GUTTER_MM = 14;
+      const topGutterPx = TOP_GUTTER_MM * MM_TO_CSS_PX;
+      const bottomGutterPx = BOTTOM_GUTTER_MM * MM_TO_CSS_PX;
+      const pageH = cardH + topGutterPx + bottomGutterPx;
+      const pageH_mm = cardH_mm + TOP_GUTTER_MM + BOTTOM_GUTTER_MM;
 
       // Inject a @page rule sized to the full printable page, with zero
       // browser margins. The canvas already includes its own header/footer
@@ -129,7 +132,7 @@ export function PunchCardCanvas({
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, physW, pageH);
       ctx.save();
-      ctx.translate(0, gutterPx);
+      ctx.translate(0, topGutterPx);
       renderPunchCard({
         ctx,
         width: physW,
