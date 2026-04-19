@@ -75,11 +75,9 @@ export function PrintCardClient() {
         >
           {isExporting ? "Building clean PDF..." : "Download Clean PDF"}
         </Button>
-        <Button variant="outline" onClick={() => window.print()}>
-          Browser Print
-        </Button>
         <p className="text-sm text-[color:var(--muted-foreground)]">
-          Browser print may add its own headers and footers. Use the PDF download for a clean card.
+          Browser print is intentionally unsupported here because Chrome adds its own headers and footers.
+          Use the PDF download for a clean card.
         </p>
       </div>
 

@@ -218,11 +218,11 @@ export function DeviceCard({
                   );
                 }}
               >
-                View full card
+                Open preview
               </Button>
-              <Button variant="secondary" onClick={handleExport} disabled={isExporting}>
+              <Button onClick={handleExport} disabled={isExporting}>
                 <Download className="mr-2 size-4" />
-                {isExporting ? "Building PDF..." : "Download PDF"}
+                {isExporting ? "Building clean PDF..." : "Download Clean PDF"}
               </Button>
               <Button variant="ghost" onClick={() => setShowChart((current) => !current)}>
                 <LineChartIcon className="mr-2 size-4" />
