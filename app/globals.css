@@ -49,8 +49,10 @@ a {
 
 @media print {
   @page {
-    /* Let the canvas control its own margins; browser adds none */
-    margin: 0;
+    /* 10 mm top/bottom gives the browser room for its own header/footer
+       text without overlapping the canvas. The dynamic @page rule injected
+       by PunchCardCanvas adds the same margin + extra page height. */
+    margin: 10mm 0;
     size: auto;
   }
 
