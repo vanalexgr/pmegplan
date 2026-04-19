@@ -69,6 +69,22 @@ a {
     max-width: none !important;
     page-break-inside: avoid;
   }
+
+  .print-card-page {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .print-details-page {
+    break-before: page;
+    page-break-before: always;
+    min-height: 100vh;
+    padding: 16mm;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+  }
 }
 
 .conflict-indicator-clear {

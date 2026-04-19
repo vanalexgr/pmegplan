@@ -56,10 +56,44 @@ export function PrintCardClient() {
         <Button onClick={() => window.print()}>Print / Save as PDF</Button>
       </div>
 
-      <section className="grid gap-6 rounded-[30px] border border-[color:var(--border)] bg-white/90 p-4 print:rounded-none print:border-none print:bg-white print:p-0">
+      <section className="print-card-page grid gap-6 rounded-[30px] border border-[color:var(--border)] bg-white/90 p-4 print:block print:rounded-none print:border-none print:bg-white print:p-0">
         <PunchCardCanvas result={result} caseInput={caseInput} />
+      </section>
 
-        <div className="grid gap-4 rounded-[26px] border border-[color:var(--border)] bg-[rgba(248,244,237,0.6)] p-5 print:hidden">
+      <section className="print-details-page grid gap-4 rounded-[26px] border border-[color:var(--border)] bg-[rgba(248,244,237,0.6)] p-5">
+        <div className="print:hidden grid gap-4 md:grid-cols-3">
+          <div>
+            <p className="text-sm font-semibold text-[color:var(--foreground)]">Patient</p>
+            <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">
+              {caseInput.patientId || "N/A"}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-[color:var(--foreground)]">Device</p>
+            <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">
+              {result.device.name}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-[color:var(--foreground)]">
+              Rotation instruction
+            </p>
+            <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">
+              {getRotationSummary(result)}
+            </p>
+          </div>
+        </div>
+
+        <div className="hidden print:block">
+          <div className="mb-6">
+            <h1 className="text-2xl font-semibold text-[color:var(--foreground)]">
+              Planning Summary
+            </h1>
+            <p className="mt-2 text-sm text-[color:var(--muted-foreground)]">
+              Supplementary patient, device, and printing notes for the punch card.
+            </p>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <p className="text-sm font-semibold text-[color:var(--foreground)]">Patient</p>
@@ -82,13 +116,13 @@ export function PrintCardClient() {
               </p>
             </div>
           </div>
+        </div>
 
-          <div className="grid gap-2 text-sm text-[color:var(--muted-foreground)]">
-            <p>Print at 100%. Do not scale to fit.</p>
-            <p>Measure the 10 mm scale bar before clinical use to confirm print scale is correct.</p>
-            <p>For research and planning use only. Clinical responsibility remains with the surgeon.</p>
-            {caseInput.surgeonNote ? <p>Note: {caseInput.surgeonNote}</p> : null}
-          </div>
+        <div className="grid gap-2 text-sm text-[color:var(--muted-foreground)]">
+          <p>Print at 100%. Do not scale to fit.</p>
+          <p>Measure the 10 mm scale bar before clinical use to confirm print scale is correct.</p>
+          <p>For research and planning use only. Clinical responsibility remains with the surgeon.</p>
+          {caseInput.surgeonNote ? <p>Note: {caseInput.surgeonNote}</p> : null}
         </div>
       </section>
     </main>
