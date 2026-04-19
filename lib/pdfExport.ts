@@ -25,6 +25,7 @@ function slugify(input: string) {
 function renderOffscreenCanvas(
   result: DeviceAnalysisResult,
   caseInput: CaseInput,
+  mode: "preview" | "print" = "print",
 ): { canvas: HTMLCanvasElement; widthMm: number; heightMm: number } {
   if (!result.size) {
     const canvas = document.createElement("canvas");
@@ -34,11 +35,11 @@ function renderOffscreenCanvas(
   }
 
   // Derive canvas width so the chart = circumferenceMm exactly at 96 dpi
-  const sc = buildPunchCardScaleContext("print");
+  const sc = buildPunchCardScaleContext(mode);
   const physW = sc.v_52_20 + sc.leftAxisW
     + result.circumferenceMm * MM_TO_CSS_PX
     + sc.rightAnnotW + sc.v_52_20;
-  const physH = computePunchCardHeight(physW, result, caseInput, "print");
+  const physH = computePunchCardHeight(physW, result, caseInput, mode);
 
   const canvas = document.createElement("canvas");
   canvas.width  = Math.round(physW);
@@ -52,7 +53,7 @@ function renderOffscreenCanvas(
     height: physH,
     result,
     caseInput,
-    mode: "print",
+    mode,
     tieClock: caseInput.tieClock ?? [4, 6, 8],
     showCalibration: true,
     filmHeightMm: caseInput.filmHeightMm,
@@ -202,6 +203,30 @@ async function buildDevicePdfBlob(
   return pdf.output("blob");
 }
 
+function makePngFileName(result: DeviceAnalysisResult, caseInput: CaseInput) {
+  const patient = caseInput.patientId ? `-${slugify(caseInput.patientId)}` : "";
+  return `${slugify(result.device.shortName)}${patient}-punch-card.png`;
+}
+
+async function buildDevicePngBlob(
+  result: DeviceAnalysisResult,
+  caseInput: CaseInput,
+) {
+  // Export the same visual layout the user sees in preview, but at physical
+  // print width so the PNG can be printed at actual size.
+  const { canvas } = renderOffscreenCanvas(result, caseInput, "preview");
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => {
+      if (value) {
+        resolve(value);
+        return;
+      }
+      reject(new Error("Unable to encode punch card PNG."));
+    }, "image/png");
+  });
+  return blob;
+}
+
 async function buildSummaryPdfBlob(
   results: DeviceAnalysisResult[],
   caseInput: CaseInput,
@@ -281,6 +306,63 @@ export async function downloadDevicePdf(
 ) {
   const blob = await buildDevicePdfBlob(result, caseInput);
   saveAs(blob, makeFileName(result, caseInput));
+}
+
+export async function downloadDevicePng(
+  result: DeviceAnalysisResult,
+  caseInput: CaseInput,
+) {
+  const blob = await buildDevicePngBlob(result, caseInput);
+  saveAs(blob, makePngFileName(result, caseInput));
+}
+
+export async function openDevicePngPrintView(
+  result: DeviceAnalysisResult,
+  caseInput: CaseInput,
+) {
+  const { widthMm, heightMm } = renderOffscreenCanvas(result, caseInput, "preview");
+  const blob = await buildDevicePngBlob(result, caseInput);
+  const objectUrl = URL.createObjectURL(blob);
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+
+  if (!printWindow) {
+    URL.revokeObjectURL(objectUrl);
+    throw new Error("Unable to open PNG print sheet window.");
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html>
+<html>
+  <head>
+    <title>Punch Card PNG Print</title>
+    <meta charset="utf-8" />
+    <style>
+      @page { size: ${widthMm.toFixed(2)}mm ${heightMm.toFixed(2)}mm; margin: 0; }
+      html, body { margin: 0; padding: 0; background: white; }
+      body { width: ${widthMm.toFixed(2)}mm; }
+      img { display: block; width: ${widthMm.toFixed(2)}mm; height: ${heightMm.toFixed(2)}mm; }
+      @media screen {
+        body { padding: 16px; width: auto; }
+        img { box-shadow: 0 12px 32px rgba(0,0,0,0.12); }
+      }
+    </style>
+  </head>
+  <body>
+    <img src="${objectUrl}" alt="Punch card PNG" />
+    <script>
+      window.addEventListener("load", () => {
+        setTimeout(() => window.print(), 150);
+      });
+      window.addEventListener("afterprint", () => {
+        window.close();
+      });
+    </script>
+  </body>
+</html>`);
+  printWindow.document.close();
+  printWindow.addEventListener("beforeunload", () => {
+    URL.revokeObjectURL(objectUrl);
+  });
 }
 
 export async function downloadAllPdfs(

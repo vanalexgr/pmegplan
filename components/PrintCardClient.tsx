@@ -7,7 +7,7 @@ import { PunchCardCanvas } from "@/components/PunchCardCanvas";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { analyseCase, getRotationSummary } from "@/lib/analysis";
-import { downloadDevicePdf } from "@/lib/pdfExport";
+import { downloadDevicePdf, downloadDevicePng, openDevicePngPrintView } from "@/lib/pdfExport";
 import { sampleCase } from "@/lib/sampleCase";
 import type { CaseInput } from "@/lib/types";
 
@@ -66,6 +66,34 @@ export function PrintCardClient() {
           onClick={async () => {
             try {
               setIsExporting(true);
+              await openDevicePngPrintView(result, caseInput);
+            } finally {
+              setIsExporting(false);
+            }
+          }}
+          disabled={isExporting}
+        >
+          {isExporting ? "Preparing PNG..." : "Print Preview PNG"}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={async () => {
+            try {
+              setIsExporting(true);
+              await downloadDevicePng(result, caseInput);
+            } finally {
+              setIsExporting(false);
+            }
+          }}
+          disabled={isExporting}
+        >
+          {isExporting ? "Building PNG..." : "Download PNG"}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={async () => {
+            try {
+              setIsExporting(true);
               await downloadDevicePdf(result, caseInput);
             } finally {
               setIsExporting(false);
@@ -73,11 +101,10 @@ export function PrintCardClient() {
           }}
           disabled={isExporting}
         >
-          {isExporting ? "Building clean PDF..." : "Download Clean PDF"}
+          {isExporting ? "Building PDF..." : "Download PDF"}
         </Button>
         <p className="text-sm text-[color:var(--muted-foreground)]">
-          Browser print is intentionally unsupported here because Chrome adds its own headers and footers.
-          Use the PDF download for a clean card.
+          Use the PNG options if you want the exact preview card printed at actual size.
         </p>
       </div>
 
