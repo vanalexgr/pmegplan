@@ -127,7 +127,7 @@ export function buildPunchCardScaleContext(mode: "preview" | "print"): PunchCard
     leftAxisW:   isPrint ? 40 : 28,
     rightAnnotW: isPrint ? 108 : 75,
     rulerH:      isPrint ? 54 : 36,
-    infoH:       isPrint ? 230 : 155,
+    infoH:       isPrint ? 210 : 140,
   };
 }
 import {
@@ -610,39 +610,7 @@ export function renderPunchCard({
     ctx.stroke();
   }
 
-  // ── Vertical clock guide lines — centred on 12:00 ────────────────────────
-  for (let h = 1; h <= 12; h++) {
-    const isCard = h % 3 === 0;
-    const arc    = ((h % 12) / 12) * circ;
-    const gx     = arcToGx(arc);
-    ctx.strokeStyle = isCard ? "rgba(16,33,31,0.14)" : "rgba(16,33,31,0.06)";
-    ctx.lineWidth   = isCard ? 0.9 : 0.5;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(gx, chartY);
-    ctx.lineTo(gx, chartY + chartH);
-    ctx.stroke();
-  }
-
-  // ── AP markers (12:00 at centre, 6:00 at both edges) ─────────────────────
-  const ap12x   = arcToGx(0);          // centre
-  const ap6xL   = arcToGx(circ / 2);   // left edge (≈ chartX)
-  const ap6xR   = ap6xL + chartW;      // right edge copy
-  const apArrow = sc.v_9_6;
-  ctx.fillStyle   = "#1d4ed8";
-  ctx.strokeStyle = "#1d4ed8";
-  ctx.lineWidth   = sc.v_1_8_1_2;
-  ctx.setLineDash([]);
-  drawArrowHead(ctx, ap12x, chartY - sc.v_3_2, "down", apArrow);
-  ctx.font = `700 ${fs(8)}px sans-serif`;
-  ctx.textAlign = "center";
-  ctx.fillText("A  12:00", ap12x, chartY - sc.v_4_3 - (sc.isPrint ? 5 : 3));
-  for (const px of [ap6xL, ap6xR]) {
-    if (px < chartX - 2 || px > chartX + chartW + 2) continue;
-    drawArrowHead(ctx, px, chartY - sc.v_3_2, "down", apArrow);
-    ctx.fillText("P  6:00", px, chartY - sc.v_4_3 - (sc.isPrint ? 5 : 3));
-  }
-  ctx.textAlign = "left";
+  // Vertical clock guide lines removed — ruler pills already identify positions.
 
   // ── Seam dashed line ──────────────────────────────────────────────────────
   const seamArc = (result.device.seamDeg / 360) * circ;
@@ -826,9 +794,6 @@ export function renderPunchCard({
   ctx.fillStyle = "#0f766e";
   ctx.textAlign = "center";
   ctx.fillText("✓", ant12x, chartY + sc.v_28_20);
-  ctx.font      = `400 ${fs(7)}px sans-serif`;
-  ctx.fillStyle = "rgba(15,118,110,0.55)";
-  ctx.fillText("12:00 / A", ant12x, chartY + sc.v_40_29);
   ctx.textAlign = "left";
 
   // ── WRAP EDGE lines (at chart left and right = 6:00 position) ────────────
@@ -1093,8 +1058,7 @@ export function renderPunchCard({
     ctx.textAlign = "left";
   }
 
-  // ── Clock tick marks at top of chart (dropping from ruler) ──────────────
-  // Cardinal positions (3/6/9/12) get colored ticks; others are subtle.
+  // ── Clock tick marks at top of chart border (no labels — ruler has pills) ─
   const chartClockColors: Record<number, string> = {
     12: "#0f766e", 6: "#1d4ed8", 3: "#7c3aed", 9: "#b45309",
   };
@@ -1104,20 +1068,13 @@ export function renderPunchCard({
     const gx     = arcToGx(arc);
     const col    = isCard ? (chartClockColors[h] ?? "#475569") : "#94a3b8";
     ctx.strokeStyle = col;
-    ctx.lineWidth   = isCard ? (sc.isPrint ? 1.2 : 1.0) : (sc.isPrint ? 0.7 : 0.5);
+    ctx.lineWidth   = isCard ? (sc.isPrint ? 1.2 : 1.0) : (sc.isPrint ? 0.5 : 0.4);
     ctx.setLineDash([]);
-    const tickH = isCard ? sc.v_8_5 : sc.v_5_3;
+    const tickH = isCard ? sc.v_8_5 : sc.v_3_2;
     ctx.beginPath();
     ctx.moveTo(gx, chartY);
     ctx.lineTo(gx, chartY - tickH);
     ctx.stroke();
-    if (isCard) {
-      ctx.fillStyle = col;
-      ctx.font      = `700 ${fs(8)}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillText(String(h), gx, chartY - tickH - sc.v_3_2);
-      ctx.textAlign = "left";
-    }
   }
 
   // ── Chart border (solid rect — the cut line) ──────────────────────────────
@@ -1292,60 +1249,22 @@ export function renderPunchCard({
     margin, footerY,
   );
 
-  // ── Scale bars (10 mm + 100 mm calibration) ──────────────────────────────
-  const sbY     = height - margin + sc.v_m14_m10;
-  const tickH   = sc.v_4_3;
-  const sb10Len = 10  * xScale;
-  const sb100Len= 100 * xScale;
-
-  // 10 mm bar
-  const sb10X = margin;
+  // ── 10 mm scale bar ───────────────────────────────────────────────────────
+  const sbY    = height - margin + sc.v_m14_m10;
+  const sbTickH = sc.v_4_3;
+  const sb10Len = 10 * xScale;
+  const sb10X   = margin;
   ctx.strokeStyle = "#10211f";
   ctx.fillStyle   = "#10211f";
   ctx.lineWidth   = sc.v_1_8_1_2;
   ctx.setLineDash([]);
   ctx.beginPath();
-  ctx.moveTo(sb10X, sbY);             ctx.lineTo(sb10X + sb10Len, sbY);
-  ctx.moveTo(sb10X, sbY - tickH);     ctx.lineTo(sb10X, sbY + tickH);
-  ctx.moveTo(sb10X + sb10Len, sbY - tickH); ctx.lineTo(sb10X + sb10Len, sbY + tickH);
+  ctx.moveTo(sb10X, sbY);                   ctx.lineTo(sb10X + sb10Len, sbY);
+  ctx.moveTo(sb10X, sbY - sbTickH);         ctx.lineTo(sb10X, sbY + sbTickH);
+  ctx.moveTo(sb10X + sb10Len, sbY - sbTickH); ctx.lineTo(sb10X + sb10Len, sbY + sbTickH);
   ctx.stroke();
   ctx.font      = `700 ${fs(8)}px sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillText("10 mm", sb10X + sb10Len / 2, sbY - tickH - (sc.isPrint ? 2 : 1));
+  ctx.fillText("10 mm", sb10X + sb10Len / 2, sbY - sbTickH - (sc.isPrint ? 2 : 1));
   ctx.textAlign = "left";
-
-  // 100 mm calibration bar — thick, prominent
-  const sb100X = margin;
-  const sb100Y = sbY + (sc.isPrint ? 16 : 11);
-  ctx.strokeStyle = "rgba(16,33,31,0.70)";
-  ctx.lineWidth   = sc.isPrint ? 1.5 : 1.0;
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.moveTo(sb100X, sb100Y);                ctx.lineTo(sb100X + sb100Len, sb100Y);
-  ctx.moveTo(sb100X, sb100Y - tickH * 1.5); ctx.lineTo(sb100X, sb100Y + tickH * 1.5);
-  ctx.moveTo(sb100X + sb100Len, sb100Y - tickH * 1.5); ctx.lineTo(sb100X + sb100Len, sb100Y + tickH * 1.5);
-  ctx.stroke();
-  // Segment ticks every 10 mm
-  ctx.lineWidth = 0.5;
-  ctx.strokeStyle = "rgba(16,33,31,0.35)";
-  for (let t = 10; t < 100; t += 10) {
-    const tx = sb100X + t * xScale;
-    ctx.beginPath();
-    ctx.moveTo(tx, sb100Y - tickH * 0.8);
-    ctx.lineTo(tx, sb100Y + tickH * 0.8);
-    ctx.stroke();
-  }
-  ctx.fillStyle = "#10211f";
-  ctx.font      = `700 ${fs(8)}px sans-serif`;
-  ctx.textAlign = "center";
-  ctx.fillText("100 mm — measure to verify scale before use", sb100X + sb100Len / 2, sb100Y - tickH * 1.5 - (sc.isPrint ? 2 : 1));
-  ctx.textAlign = "left";
-
-  if (showCalibration) {
-    ctx.fillStyle = "rgba(16,33,31,0.40)";
-    ctx.font      = `400 italic ${fs(7)}px sans-serif`;
-    ctx.textAlign = "right";
-    ctx.fillText(`Chart width = ${circ.toFixed(1)} mm`, width - margin, sbY - tickH - (sc.isPrint ? 2 : 1));
-    ctx.textAlign = "left";
-  }
 }

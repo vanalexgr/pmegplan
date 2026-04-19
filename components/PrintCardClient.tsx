@@ -85,7 +85,7 @@ export function PrintCardClient() {
 
           <div className="grid gap-2 text-sm text-[color:var(--muted-foreground)]">
             <p>Print at 100%. Do not scale to fit.</p>
-            <p>Measure the 100 x 100 mm calibration square and printed ruler before clinical use.</p>
+            <p>Measure the 10 mm scale bar before clinical use to confirm print scale is correct.</p>
             <p>For research and planning use only. Clinical responsibility remains with the surgeon.</p>
             {caseInput.surgeonNote ? <p>Note: {caseInput.surgeonNote}</p> : null}
           </div>
