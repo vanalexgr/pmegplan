@@ -70,12 +70,20 @@ export function normalizeClockText(
   return formatClockFraction(parseClockFraction(clockText), options);
 }
 
-/** Clock text → degrees CW from 12:00 (0–360). */
+/**
+ * Clock text → signed degrees from 12:00.
+ * CW (right side) = positive, CCW (left side) = negative.
+ * Range: (-180, +180]. e.g. 9:30 → -75°, 2:30 → +75°, 6:00 → +180°.
+ */
 export function clockTextToDeg(clockText: string): number {
-  return parseClockFraction(clockText) * 360;
+  const deg = parseClockFraction(clockText) * 360;
+  return deg > 180 ? deg - 360 : deg;
 }
 
-/** Degrees CW from 12:00 → clock text (e.g. 285 → "9:30"). */
+/**
+ * Signed degrees → clock text.
+ * Accepts (-180, +180]. e.g. -75 → "9:30", +75 → "2:30".
+ */
 export function degToClockText(deg: number): string {
   const normalized = ((deg % 360) + 360) % 360;
   return formatClockFraction(normalized / 360);

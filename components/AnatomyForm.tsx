@@ -324,8 +324,8 @@ export function AnatomyForm({
                         <div className="relative w-28 shrink-0">
                           <Input
                             type="number"
-                            min={0}
-                            max={359.9}
+                            min={-180}
+                            max={180}
                             step={0.5}
                             placeholder="θ°"
                             value={hasValidClock ? clockTextToDeg(currentClockText).toFixed(1) : ""}
