@@ -66,6 +66,49 @@ function renderOffscreenCanvas(
   };
 }
 
+function renderPreviewExportCanvas(
+  result: DeviceAnalysisResult,
+  caseInput: CaseInput,
+): { canvas: HTMLCanvasElement; widthMm: number; heightMm: number } {
+  if (!result.size) {
+    return renderOffscreenCanvas(result, caseInput, "preview");
+  }
+
+  const targetWidthPx = 1600;
+  const heightPx = computePunchCardHeight(targetWidthPx, result, caseInput, "preview");
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidthPx;
+  canvas.height = heightPx;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Unable to create preview export canvas.");
+  }
+
+  renderPunchCard({
+    ctx: context,
+    width: targetWidthPx,
+    height: heightPx,
+    result,
+    caseInput,
+    mode: "preview",
+    tieClock: caseInput.tieClock ?? [4, 6, 8],
+    showCalibration: true,
+    filmHeightMm: caseInput.filmHeightMm,
+  });
+
+  // Convert the preview canvas width into a physical print width by solving
+  // for the scale where the chart width equals the real graft circumference.
+  const sc = buildPunchCardScaleContext("preview");
+  const margin = sc.v_52_20;
+  const chartX = margin + sc.leftAxisW;
+  const chartW = targetWidthPx - chartX - sc.rightAnnotW - margin;
+  const widthMm = result.circumferenceMm * targetWidthPx / chartW;
+  const heightMm = heightPx * widthMm / targetWidthPx;
+
+  return { canvas, widthMm, heightMm };
+}
+
 function makeFileName(result: DeviceAnalysisResult, caseInput: CaseInput) {
   const patient = caseInput.patientId ? `-${slugify(caseInput.patientId)}` : "";
   return `${slugify(result.device.shortName)}${patient}.pdf`;
@@ -212,9 +255,7 @@ async function buildDevicePngBlob(
   result: DeviceAnalysisResult,
   caseInput: CaseInput,
 ) {
-  // Export the same visual layout the user sees in preview, but at physical
-  // print width so the PNG can be printed at actual size.
-  const { canvas } = renderOffscreenCanvas(result, caseInput, "preview");
+  const { canvas } = renderPreviewExportCanvas(result, caseInput);
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => {
       if (value) {
@@ -320,7 +361,7 @@ export async function openDevicePngPrintView(
   result: DeviceAnalysisResult,
   caseInput: CaseInput,
 ) {
-  const { widthMm, heightMm } = renderOffscreenCanvas(result, caseInput, "preview");
+  const { widthMm, heightMm } = renderPreviewExportCanvas(result, caseInput);
   const blob = await buildDevicePngBlob(result, caseInput);
   const objectUrl = URL.createObjectURL(blob);
   const printWindow = window.open("", "_blank", "noopener,noreferrer");
