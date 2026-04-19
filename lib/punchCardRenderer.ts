@@ -300,7 +300,11 @@ export function renderPunchCard({
   }
 
   const sc = buildPunchCardScaleContext(mode);
-  const fs = (base: number) => sc.isPrint ? base * 1.45 : base;
+  // `buildPunchCardScaleContext("print")` already expands all physical layout
+  // constants for export. Applying an extra font multiplier on top of that
+  // makes the PDF text disproportionately large and causes header/annotation
+  // collisions that do not appear in preview mode.
+  const fs = (base: number) => base;
 
   // ── Layout constants ──────────────────────────────────────────────────────
   const margin    = sc.v_52_20;
