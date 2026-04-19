@@ -7,7 +7,7 @@ import { PunchCardCanvas } from "@/components/PunchCardCanvas";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { analyseCase, getRotationSummary } from "@/lib/analysis";
-import { downloadDevicePdf, downloadDevicePng, openDevicePngPrintView } from "@/lib/pdfExport";
+import { downloadDevicePng } from "@/lib/pdfExport";
 import { sampleCase } from "@/lib/sampleCase";
 import type { CaseInput } from "@/lib/types";
 
@@ -35,7 +35,7 @@ export function PrintCardClient() {
       window.setTimeout(async () => {
         try {
           setIsExporting(true);
-          await downloadDevicePdf(result, caseInput);
+          await downloadDevicePng(result, caseInput);
         } finally {
           setIsExporting(false);
         }
@@ -63,19 +63,6 @@ export function PrintCardClient() {
     <main className="mx-auto flex w-full max-w-[1500px] flex-1 flex-col gap-6 px-4 py-6 print:max-w-none print:px-0 print:py-0">
       <div className="print:hidden flex flex-wrap items-center gap-3">
         <Button
-          onClick={async () => {
-            try {
-              setIsExporting(true);
-              await openDevicePngPrintView(result, caseInput);
-            } finally {
-              setIsExporting(false);
-            }
-          }}
-          disabled={isExporting}
-        >
-          {isExporting ? "Preparing PNG..." : "Print Preview PNG"}
-        </Button>
-        <Button
           variant="secondary"
           onClick={async () => {
             try {
@@ -89,22 +76,8 @@ export function PrintCardClient() {
         >
           {isExporting ? "Building PNG..." : "Download PNG"}
         </Button>
-        <Button
-          variant="outline"
-          onClick={async () => {
-            try {
-              setIsExporting(true);
-              await downloadDevicePdf(result, caseInput);
-            } finally {
-              setIsExporting(false);
-            }
-          }}
-          disabled={isExporting}
-        >
-          {isExporting ? "Building PDF..." : "Download PDF"}
-        </Button>
         <p className="text-sm text-[color:var(--muted-foreground)]">
-          Use the PNG options if you want the exact preview card printed at actual size.
+          PNG export is the only supported punch-card output because it matches the preview layout.
         </p>
       </div>
 

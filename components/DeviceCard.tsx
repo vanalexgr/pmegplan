@@ -17,9 +17,7 @@ import {
 import { getConflictCount, getDeploymentPlanSummary } from "@/lib/analysis";
 import {
   buildPrintUrl,
-  downloadDevicePdf,
   downloadDevicePng,
-  openDevicePngPrintView,
 } from "@/lib/pdfExport";
 import { normalizeClockText } from "@/lib/planning/clock";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
@@ -42,19 +40,6 @@ export function DeviceCard({
   const baselineCount = getConflictCount(result.baselineConflicts);
   const optimalCount = getConflictCount(result.optimalConflicts);
 
-  const handleExport = async () => {
-    if (!result.size) {
-      return;
-    }
-
-    setIsExporting(true);
-    try {
-      await downloadDevicePdf(result, caseInput);
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
   const handlePngExport = async () => {
     if (!result.size) {
       return;
@@ -63,19 +48,6 @@ export function DeviceCard({
     setIsExporting(true);
     try {
       await downloadDevicePng(result, caseInput);
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handlePngPrint = async () => {
-    if (!result.size) {
-      return;
-    }
-
-    setIsExporting(true);
-    try {
-      await openDevicePngPrintView(result, caseInput);
     } finally {
       setIsExporting(false);
     }
@@ -251,17 +223,9 @@ export function DeviceCard({
               >
                 Open preview
               </Button>
-              <Button onClick={handlePngPrint} disabled={isExporting}>
-                <Download className="mr-2 size-4" />
-                {isExporting ? "Preparing PNG..." : "Print Preview PNG"}
-              </Button>
               <Button variant="secondary" onClick={handlePngExport} disabled={isExporting}>
                 <Download className="mr-2 size-4" />
                 {isExporting ? "Building PNG..." : "Download PNG"}
-              </Button>
-              <Button variant="ghost" onClick={handleExport} disabled={isExporting}>
-                <Download className="mr-2 size-4" />
-                {isExporting ? "Building PDF..." : "Download PDF"}
               </Button>
               <Button variant="ghost" onClick={() => setShowChart((current) => !current)}>
                 <LineChartIcon className="mr-2 size-4" />
