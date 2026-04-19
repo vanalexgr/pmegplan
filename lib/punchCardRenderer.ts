@@ -222,6 +222,25 @@ function drawCutMark(
 
 // ── Height computation ────────────────────────────────────────────────────────
 
+// Estimate the info-strip height based on content (fenestration count etc.)
+// Used by both computePunchCardHeight and renderPunchCard so they stay in sync.
+function estimateInfoStripH(caseInput: CaseInput, sc: PunchCardScaleContext): number {
+  const lineH      = (sc.isPrint ? 14 * 1.45 : 11) * 0.92;
+  const titleRows  = 1.15;  // colTitle overhead
+  const nFens      = caseInput.fenestrations.filter((f) => f.ftype !== "SCALLOP").length;
+  const nScallops  = caseInput.fenestrations.filter((f) => f.ftype === "SCALLOP").length;
+  // col1 (DEVICE): title + 9 fixed specs + optional filmHeightMm
+  const col1Rows = titleRows + 9 + (caseInput.filmHeightMm != null ? 1 : 0);
+  // col2 (ROTATION): title + ~4 text lines + optional SPACING table
+  const col2Rows = titleRows + 4 + (nFens >= 2 ? titleRows + nFens : 0);
+  // col3 (FENESTRATIONS): title + 5.5 rows per fen + 1.5 per scallop
+  const col3Rows = titleRows + nFens * 5.5 + nScallops * 1.5;
+  const maxRows  = Math.max(col1Rows, col2Rows, col3Rows);
+  // Add footer + scale-bar clearance below content
+  const footerClear = sc.isPrint ? 28 : 20;
+  return Math.ceil(maxRows * lineH) + footerClear;
+}
+
 export function computePunchCardHeight(
   width:     number,
   result:    DeviceAnalysisResult,
@@ -238,9 +257,10 @@ export function computePunchCardHeight(
     ...caseInput.fenestrations.map((f) => f.depthMm + 28),
     ...(caseInput.filmHeightMm != null ? [caseInput.filmHeightMm + 12] : []),
   );
-  const xScale = chartW / result.circumferenceMm;
-  const chartH = maxDepth * xScale;
-  return Math.ceil(sc.v_80_52 + sc.rulerH + chartH + sc.infoH + margin);
+  const xScale  = chartW / result.circumferenceMm;
+  const chartH  = maxDepth * xScale;
+  const infoH   = estimateInfoStripH(caseInput, sc);
+  return Math.ceil(sc.v_80_52 + sc.rulerH + chartH + infoH + margin);
 }
 
 export interface PunchCardRenderOptions {
@@ -1102,6 +1122,7 @@ export function renderPunchCard({
   const col2X   = margin + colW;
   const col3X   = margin + colW * 2;
 
+  // Top rule — drawn immediately
   ctx.strokeStyle = "rgba(16,33,31,0.15)";
   ctx.lineWidth   = 0.8;
   ctx.setLineDash([]);
@@ -1109,14 +1130,7 @@ export function renderPunchCard({
   ctx.moveTo(margin, infoTop - (sc.isPrint ? 8 : 6));
   ctx.lineTo(width - margin, infoTop - (sc.isPrint ? 8 : 6));
   ctx.stroke();
-  for (const divX of [col2X, col3X]) {
-    ctx.strokeStyle = "rgba(16,33,31,0.10)";
-    ctx.lineWidth   = 0.6;
-    ctx.beginPath();
-    ctx.moveTo(divX - (sc.isPrint ? 6 : 4), infoTop);
-    ctx.lineTo(divX - (sc.isPrint ? 6 : 4), infoTop + sc.infoH - (sc.isPrint ? 20 : 14));
-    ctx.stroke();
-  }
+  // Column dividers drawn after content (see below, uses contentEndY)
 
   const lineH   = fs(sc.v_14_11) * 0.92;
   const valOffX = colW * 0.48;
@@ -1240,31 +1254,45 @@ export function renderPunchCard({
     c3.v += lineH * 0.5;
   });
 
-  // ── Footer ────────────────────────────────────────────────────────────────
-  const footerY = height - margin + sc.v_8_4;
+  // ── Column dividers (drawn after content so height is correct) ───────────
+  const contentEndY = Math.max(c1.v, c2.v, c3.v);
+  for (const divX of [col2X, col3X]) {
+    ctx.strokeStyle = "rgba(16,33,31,0.10)";
+    ctx.lineWidth   = 0.6;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(divX - (sc.isPrint ? 6 : 4), infoTop);
+    ctx.lineTo(divX - (sc.isPrint ? 6 : 4), contentEndY);
+    ctx.stroke();
+  }
+
+  // ── Footer + scale bar (placed after actual info content) ─────────────────
+  const gap         = sc.isPrint ? 10 : 7;
+
+  // 10 mm scale bar
+  const sbY     = contentEndY + gap;
+  const sbTickH = sc.v_4_3;
+  const sb10Len = 10 * xScale;
+  ctx.strokeStyle = "#10211f";
+  ctx.fillStyle   = "#10211f";
+  ctx.lineWidth   = sc.v_1_8_1_2;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(margin, sbY);                    ctx.lineTo(margin + sb10Len, sbY);
+  ctx.moveTo(margin, sbY - sbTickH);          ctx.lineTo(margin, sbY + sbTickH);
+  ctx.moveTo(margin + sb10Len, sbY - sbTickH); ctx.lineTo(margin + sb10Len, sbY + sbTickH);
+  ctx.stroke();
+  ctx.font      = `700 ${fs(8)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.fillText("10 mm", margin + sb10Len / 2, sbY - sbTickH - (sc.isPrint ? 2 : 1));
+  ctx.textAlign = "left";
+
+  // Footer text
+  const footerY = sbY + (sc.isPrint ? 14 : 10);
   ctx.fillStyle = "rgba(69,96,91,0.55)";
   ctx.font      = `400 ${fs(7)}px sans-serif`;
   ctx.fillText(
     `FOR RESEARCH / PLANNING USE ONLY  ·  Print at 100% Actual Size  ·  Width = ${circ.toFixed(1)} mm  ·  PMEGplan.io`,
     margin, footerY,
   );
-
-  // ── 10 mm scale bar ───────────────────────────────────────────────────────
-  const sbY    = height - margin + sc.v_m14_m10;
-  const sbTickH = sc.v_4_3;
-  const sb10Len = 10 * xScale;
-  const sb10X   = margin;
-  ctx.strokeStyle = "#10211f";
-  ctx.fillStyle   = "#10211f";
-  ctx.lineWidth   = sc.v_1_8_1_2;
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.moveTo(sb10X, sbY);                   ctx.lineTo(sb10X + sb10Len, sbY);
-  ctx.moveTo(sb10X, sbY - sbTickH);         ctx.lineTo(sb10X, sbY + sbTickH);
-  ctx.moveTo(sb10X + sb10Len, sbY - sbTickH); ctx.lineTo(sb10X + sb10Len, sbY + sbTickH);
-  ctx.stroke();
-  ctx.font      = `700 ${fs(8)}px sans-serif`;
-  ctx.textAlign = "center";
-  ctx.fillText("10 mm", sb10X + sb10Len / 2, sbY - sbTickH - (sc.isPrint ? 2 : 1));
-  ctx.textAlign = "left";
 }
