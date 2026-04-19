@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ALL_DEVICES } from "@/lib/devices";
-import { isValidClockText, normalizeClockText } from "@/lib/planning/clock";
+import { clockTextToDeg, degToClockText, isValidClockText, normalizeClockText } from "@/lib/planning/clock";
 import type { Fenestration, FenestrationType } from "@/lib/types";
 import { caseSchema, type CaseFormValues } from "@/lib/validation";
 
@@ -146,6 +146,17 @@ export function AnatomyForm({
         shouldTouch: true,
         shouldValidate: true,
       },
+    );
+  };
+
+  // When the user edits the theta (degrees) field, convert to clock and write it.
+  const handleThetaChange = (index: number, raw: string) => {
+    const deg = parseFloat(raw);
+    if (!Number.isFinite(deg)) return;
+    setValue(
+      `fenestrations.${index}.clock`,
+      degToClockText(deg),
+      { shouldDirty: true, shouldTouch: true, shouldValidate: true },
     );
   };
 
@@ -301,14 +312,30 @@ export function AnatomyForm({
                           </span>
                         ) : null}
                       </div>
-                      <Input
-                        placeholder="3:45"
-                        {...clockField}
-                        onBlur={(event) => {
-                          clockField.onBlur(event);
-                          normalizeClockField(index, event.target.value);
-                        }}
-                      />
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="9:30"
+                          {...clockField}
+                          onBlur={(event) => {
+                            clockField.onBlur(event);
+                            normalizeClockField(index, event.target.value);
+                          }}
+                        />
+                        <div className="relative w-28 shrink-0">
+                          <Input
+                            type="number"
+                            min={0}
+                            max={359.9}
+                            step={0.5}
+                            placeholder="θ°"
+                            value={hasValidClock ? clockTextToDeg(currentClockText).toFixed(1) : ""}
+                            onChange={(e) => handleThetaChange(index, e.target.value)}
+                            onBlur={(e) => handleThetaChange(index, e.target.value)}
+                            className="pr-6"
+                          />
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[color:var(--muted-foreground)]">°</span>
+                        </div>
+                      </div>
                       <FieldError
                         message={errors.fenestrations?.[index]?.clock?.message}
                       />
