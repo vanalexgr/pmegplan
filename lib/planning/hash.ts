@@ -24,6 +24,10 @@ export function hashSnapshot(caseInput: CaseInput, selectedDeviceIds: string[], 
       widthMm: f.widthMm,
       heightMm: f.heightMm,
     })),
+    anatomicalVessels: [...(caseInput.anatomicalVessels ?? [])].map((vessel) => ({
+      name: vessel.name,
+      mmAboveProximalFen: vessel.mmAboveProximalFen,
+    })),
     deviceIds: [...selectedDeviceIds].sort(),
     projectId,
   };

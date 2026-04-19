@@ -85,9 +85,20 @@ export interface Fenestration {
   heightMm: number;
 }
 
+export interface AnatomicalVessel {
+  /** Display name shown on planning output (e.g. "SMA", "Celiac"). */
+  name: string;
+  /**
+   * Distance in mm from this vessel's ostium to the most proximal non-scallop
+   * fenestration. Always positive because the vessel is proximal to the targets.
+   */
+  mmAboveProximalFen: number;
+}
+
 export interface CaseInput {
   neckDiameterMm: number;
   fenestrations: Fenestration[];
+  anatomicalVessels?: AnatomicalVessel[];
   patientId?: string;
   surgeonName?: string;
   surgeonNote?: string;

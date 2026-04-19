@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
-import { Plus, RotateCcw, Trash2, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Plus, RotateCcw, Trash2, Loader2, AlertCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { useLiveConflict } from "@/lib/hooks/useLiveConflict";
 
@@ -21,7 +21,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ALL_DEVICES } from "@/lib/devices";
 import { clockTextToDeg, degToClockText, isValidClockText, normalizeClockText } from "@/lib/planning/clock";
-import type { Fenestration, FenestrationType } from "@/lib/types";
+import type { AnatomicalVessel, Fenestration, FenestrationType } from "@/lib/types";
 import { caseSchema, type CaseFormValues } from "@/lib/validation";
 
 function getDefaultFenestration(nextIndex: number): Fenestration {
@@ -72,6 +72,16 @@ function getDimensionsForType(type: FenestrationType) {
     default:
       return { widthMm: 6, heightMm: 6 };
   }
+}
+
+function getDefaultAnatomicalVessel(nextIndex: number): AnatomicalVessel {
+  const defaults: AnatomicalVessel[] = [
+    { name: "SMA", mmAboveProximalFen: 15 },
+    { name: "Celiac", mmAboveProximalFen: 45 },
+    { name: "Accessory renal", mmAboveProximalFen: 22 },
+  ];
+
+  return defaults[nextIndex] ?? { name: "", mmAboveProximalFen: 15 };
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -127,9 +137,26 @@ export function AnatomyForm({
     control,
     name: "fenestrations",
   });
+  const {
+    fields: anatomicalFields,
+    append: appendAnatomicalVessel,
+    remove: removeAnatomicalVessel,
+  } = useFieldArray({
+    control,
+    name: "anatomicalVessels",
+  });
   const watchedCase = useWatch({
     control,
   }) as CaseFormValues;
+  const shallowestNonScallopDepth = watchedCase?.fenestrations
+    ?.filter((fenestration) => fenestration.ftype !== "SCALLOP")
+    .reduce<number | null>((minDepth, fenestration) => {
+      const nextDepth = fenestration.depthMm;
+      if (!Number.isFinite(nextDepth)) {
+        return minDepth;
+      }
+      return minDepth == null ? nextDepth : Math.min(minDepth, nextDepth);
+    }, null);
 
   const liveConflict = useLiveConflict(watchedCase, selectedDeviceIds);
 
@@ -396,12 +423,111 @@ export function AnatomyForm({
               disabled={fields.length >= 4}
             >
               <Plus className="mr-2 size-4" />
-              Add vessel
+              Add target vessel
             </Button>
             <Button type="button" variant="ghost" onClick={onLoadSample}>
               <RotateCcw className="mr-2 size-4" />
               Load sample case
             </Button>
+          </div>
+
+          <div className="rounded-[22px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.62)] p-4 space-y-4">
+            <div>
+              <p className="text-sm font-semibold text-[color:var(--foreground)]">Anatomical landmarks</p>
+              <p className="text-xs text-[color:var(--muted-foreground)] mt-0.5">
+                Non-target vessels proximal to your fenestration targets. Used to bound depth planning.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {anatomicalFields.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[color:var(--border)] bg-white/70 px-4 py-3 text-sm text-[color:var(--muted-foreground)]">
+                  Add proximal landmarks such as SMA or celiac when they limit how far the graft can be shifted deeper.
+                </div>
+              ) : null}
+
+              {anatomicalFields.map((field, index) => {
+                const vesselDistance = watchedCase?.anatomicalVessels?.[index]?.mmAboveProximalFen ?? field.mmAboveProximalFen;
+                const coveredAtBaseline = shallowestNonScallopDepth != null
+                  && Number.isFinite(vesselDistance)
+                  && vesselDistance <= shallowestNonScallopDepth;
+
+                return (
+                  <div
+                    key={field.id}
+                    className="rounded-2xl border border-[color:var(--border)] bg-white/75 p-4"
+                  >
+                    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-end">
+                      <div className="space-y-2">
+                        <Label>Vessel name</Label>
+                        <Input
+                          placeholder="SMA"
+                          {...register(`anatomicalVessels.${index}.name`)}
+                        />
+                        <FieldError
+                          message={errors.anatomicalVessels?.[index]?.name?.message}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Distance above proximal-most fen (mm)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="1"
+                          max="300"
+                          {...register(`anatomicalVessels.${index}.mmAboveProximalFen`, {
+                            valueAsNumber: true,
+                          })}
+                        />
+                        <FieldError
+                          message={errors.anatomicalVessels?.[index]?.mmAboveProximalFen?.message}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeAnatomicalVessel(index)}
+                      >
+                        <Trash2 className="mr-2 size-4" />
+                        Remove
+                      </Button>
+                    </div>
+
+                    {coveredAtBaseline ? (
+                      <div className="mt-3 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                        <span>
+                          This landmark is already at or above the shallowest non-scallop fen depth
+                          ({shallowestNonScallopDepth?.toFixed(1)} mm), so the current design would cover it.
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => appendAnatomicalVessel(getDefaultAnatomicalVessel(anatomicalFields.length))}
+                disabled={anatomicalFields.length >= 6}
+              >
+                <Plus className="mr-2 size-4" />
+                Add vessel
+              </Button>
+              {shallowestNonScallopDepth != null ? (
+                <p className="text-xs text-[color:var(--muted-foreground)]">
+                  Current proximal-most non-scallop fen depth: {shallowestNonScallopDepth.toFixed(1)} mm
+                </p>
+              ) : (
+                <p className="text-xs text-[color:var(--muted-foreground)]">
+                  Add at least one non-scallop fenestration to evaluate proximal vessel coverage.
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">

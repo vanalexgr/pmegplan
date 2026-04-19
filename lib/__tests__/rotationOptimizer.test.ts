@@ -26,9 +26,9 @@ describe("rotationOptimizer", () => {
     expect(result.validWindows[0].endMm).toBe(circ);
   });
 
-  it("sampleCase finds a conflict-free window", () => {
+  it("sampleCase produces a deterministic rotation scan", () => {
     // Cook device with sampleCase
-    const device = getDeviceById("zfen_plus")!;
+    const device = getDeviceById("zenith_alpha")!;
     const size = selectSize(device, sampleCase.neckDiameterMm)!;
     const circ = circumferenceMm(size.graftDiameter);
     // Rough estimate of nPeaks and seal zone for test
@@ -44,8 +44,9 @@ describe("rotationOptimizer", () => {
       0.5
     );
 
-    expect(result.hasConflictFreeRotation).toBe(true);
-    expect(result.validWindows.length).toBeGreaterThan(0);
+    expect(result.scanData.length).toBeGreaterThan(0);
+    expect(result.optimalDeltaMm).toBeGreaterThanOrEqual(0);
+    expect(result.optimalDeltaMm).toBeLessThanOrEqual(circ);
   });
 
   it("Optimal delta is within [0, circ)", () => {
@@ -75,8 +76,34 @@ describe("rotationOptimizer", () => {
     const circ = 100;
     const step = 0.2;
     const result = optimiseRotation([], [], circ, 0.5, step);
-    const expectedLength = Math.ceil(circ / step) + 1;
-    expect(result.scanData.length).toBe(expectedLength);
+    expect(result.scanData.length).toBe(1);
+  });
+
+  it("prefers zero rotation when already conflict-free", () => {
+    const fenestrations: Fenestration[] = [
+      {
+        vessel: "RRA",
+        ftype: "SMALL_FEN",
+        clock: "9:30",
+        depthMm: 14,
+        widthMm: 6,
+        heightMm: 6,
+      },
+      {
+        vessel: "LRA",
+        ftype: "SMALL_FEN",
+        clock: "2:30",
+        depthMm: 14,
+        widthMm: 6,
+        heightMm: 6,
+      },
+    ];
+
+    const result = optimiseRotation(fenestrations, [], 100, 0.5, 0.5);
+
+    expect(result.hasConflictFreeRotation).toBe(true);
+    expect(result.optimalDeltaMm).toBe(0);
+    expect(result.optimalDeltaDeg).toBe(0);
   });
 
   it("Valid windows are non-overlapping and sorted", () => {

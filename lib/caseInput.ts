@@ -16,5 +16,9 @@ export function normalizeCaseInput(caseInput: CaseInput): CaseInput {
   return {
     ...caseInput,
     fenestrations: caseInput.fenestrations.map(normalizeFenestration),
+    anatomicalVessels: caseInput.anatomicalVessels?.map((vessel) => ({
+      ...vessel,
+      name: vessel.name.trim(),
+    })),
   };
 }

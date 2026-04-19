@@ -51,6 +51,7 @@ export function optimiseDepth(
   circ: number,
   wireRadius: number,
   sealZoneH: number,
+  maxProximalDeltaMm?: number,
 ): DepthResult {
   const roundFens = fenestrations.filter((f) => f.ftype !== "SCALLOP");
 
@@ -68,9 +69,12 @@ export function optimiseDepth(
   const deltaMin = depths.length > 0 ? MIN_PROX_DEPTH_MM - minDepth : 0;
   // δ upper bound: ensure deepest fen stays ≤ sealZoneH
   const deltaMax = depths.length > 0 ? sealZoneH - maxDepth : 0;
+  const anatomyConstrainedDeltaMax = maxProximalDeltaMm != null
+    ? Math.min(deltaMax, maxProximalDeltaMm)
+    : deltaMax;
 
   // Nothing to optimise if no round fenestrations or range is degenerate.
-  if (roundFens.length === 0 || deltaMin > deltaMax) {
+  if (roundFens.length === 0 || deltaMin > anatomyConstrainedDeltaMax) {
     const clearancePerFen = fenestrations.map((f, i) => {
       if (f.ftype === "SCALLOP") return Number.POSITIVE_INFINITY;
       return minDistToStruts(adjustedArcs[i], f.depthMm, segs, circ);
@@ -83,12 +87,12 @@ export function optimiseDepth(
       adjustedDepths: fenestrations.map((f) => f.depthMm),
       clearancePerFen,
       scanMin: deltaMin,
-      scanMax: deltaMax,
+      scanMax: anatomyConstrainedDeltaMax,
     };
   }
 
   // ── Scan ─────────────────────────────────────────────────────────────────
-  const steps = Math.round((deltaMax - deltaMin) / STEP_MM);
+  const steps = Math.round((anatomyConstrainedDeltaMax - deltaMin) / STEP_MM);
 
   const validWindows: DepthWindow[] = [];
   let windowStart: number | null = null;
@@ -125,7 +129,7 @@ export function optimiseDepth(
     }
   }
   if (windowStart !== null) {
-    validWindows.push({ startMm: windowStart, endMm: deltaMax });
+    validWindows.push({ startMm: windowStart, endMm: anatomyConstrainedDeltaMax });
   }
 
   const hasConflictFreeDepth = validWindows.length > 0;
@@ -161,6 +165,6 @@ export function optimiseDepth(
     adjustedDepths,
     clearancePerFen,
     scanMin:               deltaMin,
-    scanMax:               deltaMax,
+    scanMax:               anatomyConstrainedDeltaMax,
   };
 }

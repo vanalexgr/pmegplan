@@ -453,6 +453,17 @@ function analyseDevice(
 
   // ── Global depth-offset optimisation (all fens shift together) ───────────
   const sealZoneH = getSealZoneHeightMm(device);
+  const nonScallopFens = caseInput.fenestrations.filter((fenestration) => fenestration.ftype !== "SCALLOP");
+  const minFenDepth = nonScallopFens.length > 0
+    ? Math.min(...nonScallopFens.map((fenestration) => fenestration.depthMm))
+    : 0;
+  const maxProximalDelta = caseInput.anatomicalVessels?.length
+    ? Math.min(
+        ...caseInput.anatomicalVessels.map(
+          (vessel) => vessel.mmAboveProximalFen - minFenDepth,
+        ),
+      )
+    : undefined;
   const depthOptimisation: DepthResult = optimiseDepth(
     caseInput.fenestrations,
     rotation.optimalDeltaMm,
@@ -460,6 +471,7 @@ function analyseDevice(
     circumferenceMm,
     device.wireRadius,
     sealZoneH,
+    maxProximalDelta,
   );
 
   const minimumOptimalDistance = optimalConflicts

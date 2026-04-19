@@ -30,6 +30,12 @@ export const caseSchema = z.object({
     .max(6)
     .optional(),
   filmHeightMm: z.number().min(20).max(400).optional(),
+  anatomicalVessels: z.array(
+    z.object({
+      name: z.string().min(1).max(30),
+      mmAboveProximalFen: z.number().min(1).max(300),
+    }),
+  ).max(6).optional(),
 });
 
 export type CaseFormValues = z.input<typeof caseSchema>;

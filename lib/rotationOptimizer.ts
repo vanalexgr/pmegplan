@@ -83,7 +83,7 @@ export function optimiseRotation(
   
   // Track the best options that are actually deployable
   let bestConflictFreeDeployableDelta: number | null = null;
-  let bestConflictFreeDeployableClearance = Number.NEGATIVE_INFINITY;
+  let bestConflictFreeDeployableMinBurden = Infinity;
   let bestCompromiseDeployableDelta = 0;
   let bestCompromiseDeployableClearance = Number.NEGATIVE_INFINITY;
 
@@ -131,8 +131,8 @@ export function optimiseRotation(
 
     if (geometryClear) {
       if (withinTorqueLimit) {
-        if (minClearance > bestConflictFreeDeployableClearance) {
-          bestConflictFreeDeployableClearance = minClearance;
+        if (deploymentTorqueDeg < bestConflictFreeDeployableMinBurden) {
+          bestConflictFreeDeployableMinBurden = deploymentTorqueDeg;
           bestConflictFreeDeployableDelta = delta;
         }
       } else {

@@ -1257,6 +1257,22 @@ export function renderPunchCard({
       const dist = spacingFens[i].depthMm - spacingFens[i - 1].depthMm;
       colSpec(col2X, c2, `${spacingFens[i - 1].vessel} → ${spacingFens[i].vessel}`, `${dist} mm`);
     }
+    if (caseInput.anatomicalVessels?.length) {
+      c2.v += lineH * 0.3;
+      ctx.fillStyle = "#334155";
+      ctx.font = `400 ${fs(7.5)}px sans-serif`;
+      caseInput.anatomicalVessels
+        .slice()
+        .sort((a, b) => a.mmAboveProximalFen - b.mmAboveProximalFen)
+        .forEach((vessel) => {
+          ctx.fillText(
+            `${vessel.name}: ${vessel.mmAboveProximalFen} mm proximal to ${spacingFens[0].vessel}`,
+            col2X + sc.v_6_4,
+            c2.v,
+          );
+          c2.v += lineH;
+        });
+    }
   }
   c2.v += lineH * 0.4;
 

@@ -53,4 +53,14 @@ describe("hashSnapshot", () => {
     const h2 = hashSnapshot(baseCase, baseDevices, "id_2");
     expect(h1).not.toBe(h2);
   });
+
+  it("anatomical landmarks participate in the hash", () => {
+    const h1 = hashSnapshot(baseCase, baseDevices, baseId);
+    const modified = {
+      ...baseCase,
+      anatomicalVessels: [{ name: "SMA", mmAboveProximalFen: 15 }],
+    };
+    const h2 = hashSnapshot(modified, baseDevices, baseId);
+    expect(h1).not.toBe(h2);
+  });
 });
