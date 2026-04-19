@@ -238,11 +238,13 @@ export function getDeploymentTorqueInfo(deltaDeg: number) {
   if (normalized === 0) {
     burden = 0;
   } else if (normalized > 180) {
+    // delta > 180° means the shorter path is clockwise
     burden = 360 - normalized;
-    direction = "counter-clockwise";
-  } else {
-    burden = normalized;
     direction = "clockwise";
+  } else {
+    // positive delta = graft rotates CCW in patient space
+    burden = normalized;
+    direction = "counter-clockwise";
   }
 
   return {

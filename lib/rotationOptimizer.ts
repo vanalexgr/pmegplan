@@ -24,11 +24,14 @@ function getDeploymentTorqueInfo(deltaDeg: number) {
   if (normalized === 0) {
     burden = 0;
   } else if (normalized > 180) {
+    // e.g. delta=350° → 10° clockwise (shorter path)
     burden = 360 - normalized;
-    direction = "counter-clockwise"; // e.g. 340 deg target = 20 deg CCW
-  } else {
-    burden = normalized;
     direction = "clockwise";
+  } else {
+    // positive delta shifts the vessel CW in the graft frame,
+    // which corresponds to a CCW rotation of the graft in patient space
+    burden = normalized;
+    direction = "counter-clockwise";
   }
 
   return {

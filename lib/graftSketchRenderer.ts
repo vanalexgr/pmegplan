@@ -1163,8 +1163,11 @@ export function renderGraftSketch({
   caseInput.fenestrations.forEach((fen, idx) => {
     const conflict    = result.optimalConflicts[idx];
     const isConflict  = conflict?.conflict ?? false;
-    const adjClock    = conflict?.adjustedClock ?? fen.clock;
-    const clockDeg    = (clockToArc(adjClock, circ) / circ) * 360;
+    // Use the original (anatomical) vessel clock so the 3-D sketch shows
+    // where fenestrations sit in the patient after deployment, matching the
+    // CT / workstation 3-D reconstruction.  The punch card uses adjustedClock
+    // (graft-frame cut positions) — both are correct for their purpose.
+    const clockDeg    = (clockToArc(fen.clock, circ) / circ) * 360;
     const isStrFree   = !isConflict && fen.ftype !== "SCALLOP"
       && isInInterRingGap(
         fen.depthMm,

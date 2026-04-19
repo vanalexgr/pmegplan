@@ -20,6 +20,7 @@
  *   • 10 mm scale bar + calibration note
  */
 
+import { getDeploymentTorqueInfo } from "@/lib/analysis";
 import { getSealZoneHeightMm } from "@/lib/stentGeometry";
 import { getEffectiveRingGeometry } from "@/lib/devices";
 import type { CaseInput, DeviceAnalysisResult, StrutSegment } from "@/lib/types";
@@ -1177,19 +1178,27 @@ export function renderPunchCard({
   const c2 = { v: infoTop };
   colTitle(col2X, c2, "ROTATION PLAN");
   if (result.rotation.hasConflictFreeRotation) {
+    const rotInfo = getDeploymentTorqueInfo(result.rotation.optimalDeltaDeg);
+    const rotDir  = rotInfo.deploymentTorqueDirection !== "none"
+      ? ` ${rotInfo.deploymentTorqueDirection === "clockwise" ? "CW" : "CCW"}`
+      : "";
     ctx.fillStyle = "#15803d";
     ctx.font      = `700 ${fs(8.5)}px sans-serif`;
     c2.v = wrapText(
       ctx,
-      `Rotate ${result.rotation.optimalDeltaDeg.toFixed(0)}° CW (${result.rotation.optimalDeltaMm.toFixed(1)} mm). Valid window: ${result.rotation.validWindows.map((w) => `${w.startDeg.toFixed(0)}°–${w.endDeg.toFixed(0)}°`).join(", ")}.`,
+      `Rotate ${rotInfo.deploymentTorqueDeg.toFixed(0)}°${rotDir} (${result.rotation.optimalDeltaMm.toFixed(1)} mm). Valid window: ${result.rotation.validWindows.map((w) => `${w.startDeg.toFixed(0)}°–${w.endDeg.toFixed(0)}°`).join(", ")}.`,
       col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4,
     );
   } else {
+    const compInfo = getDeploymentTorqueInfo(result.rotation.bestCompromiseDeg);
+    const compDir  = compInfo.deploymentTorqueDirection !== "none"
+      ? ` ${compInfo.deploymentTorqueDirection === "clockwise" ? "CW" : "CCW"}`
+      : "";
     ctx.fillStyle = "#b45309";
     ctx.font      = `700 ${fs(8.5)}px sans-serif`;
     c2.v = wrapText(
       ctx,
-      `No conflict-free rotation. Best compromise: ${result.rotation.bestCompromiseDeg.toFixed(0)}° CW. Strut bending may be required.`,
+      `No conflict-free rotation. Best compromise: ${compInfo.deploymentTorqueDeg.toFixed(0)}°${compDir}. Strut bending may be required.`,
       col2X, c2.v, colW - (sc.isPrint ? 12 : 8), lineH, 4,
     );
   }
