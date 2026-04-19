@@ -4,38 +4,65 @@ import { saveAs } from "file-saver";
 
 import { getConflictCount } from "@/lib/analysis";
 import { renderGraftSketch } from "@/lib/graftSketchRenderer";
-import { computePunchCardHeight, renderPunchCard } from "@/lib/punchCardRenderer";
+import {
+  buildPunchCardScaleContext,
+  computePunchCardHeight,
+  renderPunchCard,
+} from "@/lib/punchCardRenderer";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
-const A4_LANDSCAPE_MM = { width: 297, height: 210 };
+// 1 CSS px = 25.4/96 mm at 96 dpi — same constant used in PunchCardCanvas beforeprint handler
+const MM_TO_CSS_PX = 96 / 25.4;
 
 function slugify(input: string) {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+/**
+ * Renders the punch card at its PHYSICAL dimensions (circumference-derived width)
+ * rather than a fixed A4 size. Returns both the canvas and the physical size in mm.
+ */
 function renderOffscreenCanvas(
   result: DeviceAnalysisResult,
   caseInput: CaseInput,
-) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 3508;
-  canvas.height = computePunchCardHeight(canvas.width, result, caseInput, "print");
-  const context = canvas.getContext("2d");
-
-  if (!context) {
-    throw new Error("Unable to create export canvas.");
+): { canvas: HTMLCanvasElement; widthMm: number; heightMm: number } {
+  if (!result.size) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 400;
+    canvas.height = 300;
+    return { canvas, widthMm: 400 / MM_TO_CSS_PX, heightMm: 300 / MM_TO_CSS_PX };
   }
+
+  // Derive canvas width so the chart = circumferenceMm exactly at 96 dpi
+  const sc = buildPunchCardScaleContext("print");
+  const physW = sc.v_52_20 + sc.leftAxisW
+    + result.circumferenceMm * MM_TO_CSS_PX
+    + sc.rightAnnotW + sc.v_52_20;
+  const physH = computePunchCardHeight(physW, result, caseInput, "print");
+
+  const canvas = document.createElement("canvas");
+  canvas.width  = Math.round(physW);
+  canvas.height = Math.round(physH);
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Unable to create export canvas.");
 
   renderPunchCard({
     ctx: context,
-    width: canvas.width,
-    height: canvas.height,
+    width: physW,
+    height: physH,
     result,
     caseInput,
     mode: "print",
+    tieClock: caseInput.tieClock ?? [4, 6, 8],
+    showCalibration: true,
+    filmHeightMm: caseInput.filmHeightMm,
   });
 
-  return canvas;
+  return {
+    canvas,
+    widthMm:  physW  / MM_TO_CSS_PX,
+    heightMm: physH  / MM_TO_CSS_PX,
+  };
 }
 
 function makeFileName(result: DeviceAnalysisResult, caseInput: CaseInput) {
@@ -139,12 +166,12 @@ async function buildDevicePdfBlob(
   result: DeviceAnalysisResult,
   caseInput: CaseInput,
 ) {
-  // Page 1: landscape punch card
-  const punchCanvas = renderOffscreenCanvas(result, caseInput);
+  // Page 1: punch card at its physical (circumference-derived) dimensions
+  const { canvas: punchCanvas, widthMm, heightMm } = renderOffscreenCanvas(result, caseInput);
   const pdf = new jsPDF({
-    orientation: "landscape",
+    orientation: widthMm >= heightMm ? "landscape" : "portrait",
     unit: "mm",
-    format: "a4",
+    format: [widthMm, heightMm],   // custom page = exact card size
     compress: true,
   });
   pdf.addImage(
@@ -152,22 +179,22 @@ async function buildDevicePdfBlob(
     "PNG",
     0,
     0,
-    A4_LANDSCAPE_MM.width,
-    A4_LANDSCAPE_MM.height,
+    widthMm,
+    heightMm,
     undefined,
     "FAST",
   );
 
-  // Page 2: portrait graft sketch (Cook CMD-style)
+  // Page 2: portrait graft sketch (Cook CMD-style) on A4
   const sketchCanvas = renderSketchOffscreenCanvas(result, caseInput);
-  pdf.addPage("a4", "portrait");
+  pdf.addPage([210, 297], "portrait");
   pdf.addImage(
     sketchCanvas.toDataURL("image/png"),
     "PNG",
     0,
     0,
-    210,   // A4 portrait width (mm)
-    297,   // A4 portrait height (mm)
+    210,
+    297,
     undefined,
     "FAST",
   );
