@@ -126,7 +126,7 @@ export function buildPunchCardScaleContext(mode: "preview" | "print"): PunchCard
     v_22_16: isPrint ? 22 : 16,
     leftAxisW:   isPrint ? 40 : 28,
     rightAnnotW: isPrint ? 108 : 75,
-    rulerH:      isPrint ? 38 : 26,
+    rulerH:      isPrint ? 54 : 36,
     infoH:       isPrint ? 230 : 155,
   };
 }
@@ -401,88 +401,165 @@ export function renderPunchCard({
   }
 
   // ── Top circumference ruler strip ─────────────────────────────────────────
-  const rulerTickY  = chartY - (sc.isPrint ? 4 : 3);
-  const rulerLabelY = chartY - (sc.isPrint ? 14 : 9);
-  const rulerArrY   = headerH + (sc.isPrint ? 10 : 7);
+  //
+  // Three vertical zones inside rulerH:
+  //   Zone A (top ~40%): circumference bracket + perimeter label
+  //   Zone B (mid ~35%): clock-hour labels with colored pills for 3/6/9/12
+  //   Zone C (bot ~25%): mm tick marks + distance labels
+  //
+  const zoneAH  = sc.rulerH * 0.40;   // bracket row height
+  const zoneBH  = sc.rulerH * 0.35;   // clock label row height
+  const zoneAY  = headerH + zoneAH;   // y of bracket line
+  const zoneBY  = headerH + zoneAH + zoneBH * 0.80;  // y of clock label baseline
+  const tickBotY = chartY - (sc.isPrint ? 2 : 1);    // bottom of mm ticks
+  const tickLblY = chartY - zoneAH * 0.30;            // mm label baseline (above ticks)
 
-  ctx.fillStyle = "rgba(248,244,237,0.7)";
+  // Ruler background — light slate, distinct from card
+  ctx.fillStyle = "rgba(226,232,240,0.75)";
   ctx.fillRect(chartX, headerH, chartW, sc.rulerH);
-
-  // Circumference bracket
-  ctx.strokeStyle = "#334155";
-  ctx.fillStyle   = "#334155";
-  ctx.lineWidth   = 0.8;
+  // Thin bottom border
+  ctx.strokeStyle = "rgba(100,116,139,0.35)";
+  ctx.lineWidth = 0.6;
   ctx.setLineDash([]);
   ctx.beginPath();
-  ctx.moveTo(chartX + 3, rulerArrY);
-  ctx.lineTo(chartX + chartW - 3, rulerArrY);
+  ctx.moveTo(chartX, chartY);
+  ctx.lineTo(chartX + chartW, chartY);
+  ctx.stroke();
+
+  // ── Zone A: circumference bracket ────────────────────────────────────────
+  ctx.strokeStyle = "#334155";
+  ctx.fillStyle   = "#334155";
+  ctx.lineWidth   = sc.isPrint ? 1.0 : 0.8;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(chartX + 2, zoneAY);
+  ctx.lineTo(chartX + chartW - 2, zoneAY);
   ctx.stroke();
   for (const ex of [chartX + 1, chartX + chartW - 1]) {
     ctx.beginPath();
-    ctx.moveTo(ex, rulerArrY - (sc.isPrint ? 4 : 3));
-    ctx.lineTo(ex, rulerArrY + (sc.isPrint ? 4 : 3));
+    ctx.moveTo(ex, zoneAY - (sc.isPrint ? 5 : 4));
+    ctx.lineTo(ex, zoneAY + (sc.isPrint ? 5 : 4));
     ctx.stroke();
   }
-  ctx.font      = `600 ${fs(7)}px sans-serif`;
+  ctx.font      = `600 ${fs(7.5)}px sans-serif`;
   ctx.textAlign = "center";
   ctx.fillText(
     `Nominal perimeter  ${circ.toFixed(1)} mm  (Ø${result.size.graftDiameter} mm graft)`,
-    chartX + chartW / 2, rulerArrY - (sc.isPrint ? 6 : 4),
+    chartX + chartW / 2, zoneAY - (sc.isPrint ? 7 : 5),
   );
   ctx.textAlign = "left";
 
-  // mm ticks — centred chart: arc 0..circ ticks, but labelled as dist from 6:00 (left edge)
-  for (let mm = 0; mm <= Math.ceil(circ); mm += 5) {
-    const tx    = arcToGx(mm + circ / 2);   // arc=circ/2 is left edge; offset accordingly
-    // Actually label based on the arc-from-left-edge distance:
-    const isMaj = mm % 10 === 0;
-    const tLen  = isMaj ? (sc.isPrint ? 6 : 5) : (sc.isPrint ? 3 : 2);
-    ctx.strokeStyle = isMaj ? "#475569" : "#94a3b8";
-    ctx.lineWidth   = isMaj ? 0.8 : 0.5;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(tx, rulerTickY - tLen);
-    ctx.lineTo(tx, rulerTickY);
-    ctx.stroke();
-    if (isMaj) {
-      ctx.fillStyle = "#475569";
-      ctx.font      = `400 ${fs(6.5)}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillText(`${mm}`, tx, rulerLabelY);
-      ctx.textAlign = "left";
-    }
-  }
+  // ── Zone B: clock-hour labels with colored pills ──────────────────────────
+  const clockPillColors: Record<number, string> = {
+    12: "#0f766e",  // teal — anterior
+    6:  "#1d4ed8",  // blue — posterior
+    3:  "#7c3aed",  // violet — right
+    9:  "#b45309",  // amber — left
+  };
+  const pillPad = sc.isPrint ? 3.5 : 2.5;
+  const pillRad = sc.isPrint ? 3 : 2;
+  const clockFontSz = fs(sc.isPrint ? 8 : 7);
 
-  // Clock-hour labels in ruler — using arcToGx so 12 is at centre
   for (let h = 1; h <= 12; h++) {
+    const isCard = h % 3 === 0;
+    if (!isCard) continue;
     const arc = ((h % 12) / 12) * circ;
     const gx  = arcToGx(arc);
-    const isCard = h % 3 === 0;
-    if (!isCard && h !== 12) continue;  // only 3, 6, 9, 12 in ruler
-    ctx.fillStyle = "rgba(29,78,216,0.70)";
-    ctx.font      = `600 ${fs(6.5)}px sans-serif`;
+    const lbl = `${h}:00`;
+    const col = clockPillColors[h] ?? "#475569";
+
+    ctx.font = `700 ${clockFontSz}px sans-serif`;
+    const tw = ctx.measureText(lbl).width;
+    const px = gx - tw / 2 - pillPad;
+    const py = zoneBY - clockFontSz - pillPad;
+    const pw = tw + pillPad * 2;
+    const ph = clockFontSz + pillPad * 2;
+
+    // Pill background
+    drawRoundedRect(ctx, px, py, pw, ph, pillRad);
+    ctx.fillStyle = col;
+    ctx.globalAlpha = 0.15;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = sc.isPrint ? 1.0 : 0.7;
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = col;
     ctx.textAlign = "center";
-    ctx.fillText(`${h === 12 ? "12" : h + ":00"}`, gx, rulerArrY + (sc.isPrint ? 11 : 8));
+    ctx.fillText(lbl, gx, zoneBY);
     ctx.textAlign = "left";
+
+    // Tick from pill bottom to mm-tick zone
+    ctx.strokeStyle = `${col}80`;
+    ctx.lineWidth   = sc.isPrint ? 1.2 : 0.9;
+    ctx.beginPath();
+    ctx.moveTo(gx, py + ph);
+    ctx.lineTo(gx, tickBotY);
+    ctx.stroke();
   }
 
-  // Tie position markers in ruler
+  // ── Zone B: tie position markers ──────────────────────────────────────────
+  const TIE_COL = "rgba(146,64,14,0.90)";  // warm brown/amber
   for (const clockHour of tieClock) {
     const tieArc = ((clockHour % 12) / 12) * circ;
     const tx     = arcToGx(tieArc);
     if (tx < chartX || tx > chartX + chartW) continue;
-    ctx.fillStyle   = "rgba(107,114,128,0.90)";
-    ctx.strokeStyle = "rgba(107,114,128,0.90)";
-    ctx.lineWidth   = 1;
+
+    // Diamond marker
+    const ds = sc.isPrint ? 4 : 3;
+    ctx.save();
+    ctx.translate(tx, zoneBY - clockFontSz / 2);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle   = TIE_COL;
+    ctx.strokeStyle = TIE_COL;
+    ctx.lineWidth   = 0.7;
+    ctx.fillRect(-ds / 2, -ds / 2, ds, ds);
+    ctx.restore();
+
+    // "T#" label below diamond
+    ctx.fillStyle = TIE_COL;
+    ctx.font      = `700 ${fs(7.5)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(`T${clockHour}`, tx, zoneBY + (sc.isPrint ? 2 : 1));
+    ctx.textAlign = "left";
+
+    // Tick to chart
+    ctx.strokeStyle = `${TIE_COL}`;
+    ctx.lineWidth   = 0.8;
+    ctx.setLineDash([sc.v_4_3, sc.v_3_2]);
+    ctx.beginPath();
+    ctx.moveTo(tx, zoneBY + (sc.isPrint ? 4 : 3));
+    ctx.lineTo(tx, tickBotY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // ── Zone C: mm tick marks + distance labels ───────────────────────────────
+  for (let mm = 0; mm <= Math.ceil(circ); mm += 5) {
+    const tx    = arcToGx(mm + circ / 2);
+    const isMaj = mm % 10 === 0;
+    const tLen  = isMaj ? (sc.isPrint ? 7 : 5) : (sc.isPrint ? 4 : 3);
+    ctx.strokeStyle = isMaj ? "#334155" : "#64748b";
+    ctx.lineWidth   = isMaj ? (sc.isPrint ? 1.0 : 0.8) : (sc.isPrint ? 0.6 : 0.5);
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.moveTo(tx, rulerTickY - (sc.isPrint ? 9 : 7));
-    ctx.lineTo(tx, rulerTickY);
+    ctx.moveTo(tx, tickBotY - tLen);
+    ctx.lineTo(tx, tickBotY);
     ctx.stroke();
-    ctx.font      = `700 ${fs(6.5)}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.fillText(`T${clockHour}`, tx, rulerArrY + (sc.isPrint ? 11 : 8));
-    ctx.textAlign = "left";
+    if (isMaj) {
+      // Small label background for legibility
+      ctx.fillStyle = "rgba(226,232,240,0.85)";
+      const lbl = `${mm}`;
+      ctx.font = `500 ${fs(7)}px sans-serif`;
+      const lw = ctx.measureText(lbl).width;
+      ctx.fillRect(tx - lw / 2 - 1, tickLblY - fs(7), lw + 2, fs(7) + 1);
+      ctx.fillStyle = "#1e293b";
+      ctx.textAlign = "center";
+      ctx.fillText(lbl, tx, tickLblY);
+      ctx.textAlign = "left";
+    }
   }
 
   // ── Chart background: ring/gap bands ─────────────────────────────────────
@@ -1016,24 +1093,31 @@ export function renderPunchCard({
     ctx.textAlign = "left";
   }
 
-  // ── Clock tick marks + labels above chart ─────────────────────────────────
+  // ── Clock tick marks at top of chart (dropping from ruler) ──────────────
+  // Cardinal positions (3/6/9/12) get colored ticks; others are subtle.
+  const chartClockColors: Record<number, string> = {
+    12: "#0f766e", 6: "#1d4ed8", 3: "#7c3aed", 9: "#b45309",
+  };
   for (let h = 1; h <= 12; h++) {
     const isCard = h % 3 === 0;
     const arc    = ((h % 12) / 12) * circ;
     const gx     = arcToGx(arc);
-    ctx.strokeStyle = "#64748b";
-    ctx.lineWidth   = isCard ? 1.0 : 0.7;
+    const col    = isCard ? (chartClockColors[h] ?? "#475569") : "#94a3b8";
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = isCard ? (sc.isPrint ? 1.2 : 1.0) : (sc.isPrint ? 0.7 : 0.5);
     ctx.setLineDash([]);
     const tickH = isCard ? sc.v_8_5 : sc.v_5_3;
     ctx.beginPath();
     ctx.moveTo(gx, chartY);
     ctx.lineTo(gx, chartY - tickH);
     ctx.stroke();
-    ctx.fillStyle = isCard ? "#334155" : "#64748b";
-    ctx.font      = `${isCard ? "600" : "400"} ${fs(isCard ? 8 : 7)}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.fillText(String(h), gx, chartY - tickH - sc.v_3_2);
-    ctx.textAlign = "left";
+    if (isCard) {
+      ctx.fillStyle = col;
+      ctx.font      = `700 ${fs(8)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(String(h), gx, chartY - tickH - sc.v_3_2);
+      ctx.textAlign = "left";
+    }
   }
 
   // ── Chart border (solid rect — the cut line) ──────────────────────────────
