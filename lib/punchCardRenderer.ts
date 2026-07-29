@@ -21,6 +21,7 @@
  */
 
 import { getDeploymentTorqueInfo } from "@/lib/analysis";
+import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
 import { getSealZoneHeightMm } from "@/lib/stentGeometry";
 import { getEffectiveRingGeometry } from "@/lib/devices";
 import type { CaseInput, DeviceAnalysisResult, StrutSegment } from "@/lib/types";
@@ -153,6 +154,35 @@ function arcToClockStr(arcMm: number, circ: number): string {
   return arcMmToClockText(arcMm, circ, { separator: ":", padHour: false });
 }
 
+function buildMeasuredFabricSegments(
+  result: DeviceAnalysisResult,
+): StrutSegment[] {
+  const descriptor = result.device.benchCtDescriptor;
+  if (!descriptor) return result.strutSegments;
+  const model = buildBenchCtRenderModel(descriptor);
+  const segments: StrutSegment[] = [];
+  for (const ring of model.rings) {
+    // The bare fixation frame and its barbs sit above the textile and must not
+    // be copied to a fabric punch card as a possible cut/strut conflict.
+    if (ring.kind === "bare_fixation" || ring.points.length < 2) continue;
+    for (let index = 0; index < ring.points.length; index += 1) {
+      const start = ring.points[index];
+      const end = ring.points[(index + 1) % ring.points.length];
+      const startX = (start.thetaRad / (Math.PI * 2)) * result.circumferenceMm;
+      const endX = (end.thetaRad / (Math.PI * 2)) * result.circumferenceMm;
+      segments.push([
+        startX,
+        start.zMm,
+        index === ring.points.length - 1 && endX <= startX
+          ? endX + result.circumferenceMm
+          : endX,
+        end.zMm,
+      ]);
+    }
+  }
+  return segments;
+}
+
 function drawRoundedRect(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, w: number, h: number, radius: number,
@@ -252,7 +282,9 @@ export function computePunchCardHeight(
   const sc        = buildPunchCardScaleContext(mode);
   const margin    = sc.v_52_20;
   const chartW    = width - margin - sc.leftAxisW - sc.rightAnnotW - margin;
-  const sealZoneH = getSealZoneHeightMm(result.device);
+  const benchDescriptor = result.device.benchCtDescriptor;
+  const benchModel = benchDescriptor ? buildBenchCtRenderModel(benchDescriptor) : null;
+  const sealZoneH = benchModel?.fabricLengthMm ?? getSealZoneHeightMm(result.device);
   const maxDepth  = Math.max(
     sealZoneH + 12,
     ...caseInput.fenestrations.map((f) => f.depthMm + 28),
@@ -313,7 +345,9 @@ export function renderPunchCard({
   const chartY    = headerH + sc.rulerH;
   const chartW    = width - chartX - sc.rightAnnotW - margin;
 
-  const sealZoneH = getSealZoneHeightMm(result.device);
+  const benchDescriptor = result.device.benchCtDescriptor;
+  const benchModel = benchDescriptor ? buildBenchCtRenderModel(benchDescriptor) : null;
+  const sealZoneH = benchModel?.fabricLengthMm ?? getSealZoneHeightMm(result.device);
   const maxDepth  = Math.max(
     sealZoneH + 12,
     ...caseInput.fenestrations.map((f) => f.depthMm + 28),
@@ -323,14 +357,11 @@ export function renderPunchCard({
   const yScale = xScale;
   const chartH = maxDepth * yScale;
   const circ   = result.circumferenceMm;
-  const benchDescriptor = result.device.benchCtDescriptor;
   const benchGeometry = benchDescriptor?.geometry;
   const isConicalBenchGeometry = benchGeometry?.shape === "conical";
-  const fixationSegmentCount = benchGeometry?.proximal_fixation.ring_count
-    ? benchDescriptor!.rings
-      .slice(0, benchGeometry.proximal_fixation.ring_count)
-      .reduce((count, ring) => count + ring.proximal_apices.length + ring.distal_apices.length, 0)
-    : 0;
+  const cardStrutSegments = benchModel
+    ? buildMeasuredFabricSegments(result)
+    : result.strutSegments as StrutSegment[];
 
   const { ringHeight: effectiveRingH, interRingGap: effectiveGap } =
     getEffectiveRingGeometry(result.device, result.size);
@@ -345,11 +376,9 @@ export function renderPunchCard({
     ctx.strokeStyle = strokeCol;
     ctx.lineWidth   = lineW;
     ctx.setLineDash([]);
-    for (const [segmentIndex, [ax, ay, bx, by]] of (result.strutSegments as StrutSegment[]).entries()) {
-      const isFixationSegment = segmentIndex < fixationSegmentCount;
-      const renderFixationStyle = isFixationSegment && strokeCol === result.device.color;
-      ctx.strokeStyle = renderFixationStyle ? "#b45309" : strokeCol;
-      ctx.setLineDash(renderFixationStyle ? [sc.v_6_4, sc.v_3_2] : []);
+    for (const [ax, ay, bx, by] of cardStrutSegments) {
+      ctx.strokeStyle = strokeCol;
+      ctx.setLineDash([]);
       const sx0 = arcToGx(ax);
       const ex0 = arcToGx(bx);
       const sy  = chartY + (ay as number) * yScale;
@@ -427,9 +456,9 @@ export function renderPunchCard({
   ctx.fillStyle = "#45605b";
   ctx.font = `400 ${fs(sc.v_11_9)}px sans-serif`;
   const geometryLabel = isConicalBenchGeometry
-    ? "Conical measured geometry · angular layout"
-    : fixationSegmentCount > 0
-      ? `Measured geometry · ${benchGeometry!.proximal_fixation.ring_count} proximal fixation ring`
+    ? `Conical measured geometry · ${benchModel?.diameterAt(0).toFixed(1)}→${benchModel?.diameterAt(benchModel.fabricLengthMm).toFixed(1)} mm · angular layout`
+    : benchModel?.barbs.length
+      ? "Measured covered geometry · bare fixation and barbs excluded from fabric template"
       : "Measured geometry";
   ctx.fillText(
     `${result.device.manufacturer}  ·  ${geometryLabel}  ·  ${result.device.fabricMaterial}`,
@@ -615,30 +644,47 @@ export function renderPunchCard({
   ctx.fillStyle = "rgba(255,255,255,0.60)";
   ctx.fillRect(chartX, chartY, chartW, chartH);
 
-  const proximalRingOffset = result.device.proximalRingOffsetMm ?? 0;
-  let bandY = proximalRingOffset;
-  for (let ri = 0; ri < result.device.nRings; ri++) {
-    const ringTop  = chartY + bandY * yScale;
-    const ringH_px = effectiveRingH * yScale;
-    ctx.fillStyle = "rgba(220,38,38,0.10)";
-    ctx.fillRect(chartX, ringTop, chartW, ringH_px);
-    if (ringH_px > sc.v_18_11) {
-      ctx.fillStyle = "rgba(185,28,28,0.50)";
-      ctx.font      = `400 ${fs(8)}px sans-serif`;
-      ctx.fillText(`Ring ${ri + 1}`, chartX + 4, ringTop + sc.v_13_10);
-    }
-    bandY += effectiveRingH;
-    if (ri < result.device.nRings - 1) {
-      const gapTop  = chartY + bandY * yScale;
-      const gapH_px = effectiveGap * yScale;
-      ctx.fillStyle = "rgba(15,118,110,0.11)";
-      ctx.fillRect(chartX, gapTop, chartW, gapH_px);
-      if (gapH_px > sc.v_16_10) {
-        ctx.fillStyle = "rgba(15,118,110,0.60)";
-        ctx.font      = `600 ${fs(7.5)}px sans-serif`;
-        ctx.fillText(`safe  ${effectiveGap} mm`, chartX + 4, gapTop + gapH_px / 2 + 3);
+  if (benchModel) {
+    for (const ring of benchModel.rings) {
+      if (ring.kind === "bare_fixation") continue;
+      const low = Math.min(...ring.points.map((point) => point.zMm));
+      const high = Math.max(...ring.points.map((point) => point.zMm));
+      const ringTop = chartY + low * yScale;
+      const ringHpx = Math.max((high - low) * yScale, 1);
+      ctx.fillStyle = "rgba(220,38,38,0.10)";
+      ctx.fillRect(chartX, ringTop, chartW, ringHpx);
+      if (ringHpx > sc.v_18_11) {
+        ctx.fillStyle = "rgba(185,28,28,0.50)";
+        ctx.font = `400 ${fs(8)}px sans-serif`;
+        ctx.fillText(`Measured ring ${ring.index + 1}`, chartX + 4, ringTop + sc.v_13_10);
       }
-      bandY += effectiveGap;
+    }
+  } else {
+    const proximalRingOffset = result.device.proximalRingOffsetMm ?? 0;
+    let bandY = proximalRingOffset;
+    for (let ri = 0; ri < result.device.nRings; ri++) {
+      const ringTop  = chartY + bandY * yScale;
+      const ringH_px = effectiveRingH * yScale;
+      ctx.fillStyle = "rgba(220,38,38,0.10)";
+      ctx.fillRect(chartX, ringTop, chartW, ringH_px);
+      if (ringH_px > sc.v_18_11) {
+        ctx.fillStyle = "rgba(185,28,28,0.50)";
+        ctx.font      = `400 ${fs(8)}px sans-serif`;
+        ctx.fillText(`Ring ${ri + 1}`, chartX + 4, ringTop + sc.v_13_10);
+      }
+      bandY += effectiveRingH;
+      if (ri < result.device.nRings - 1) {
+        const gapTop  = chartY + bandY * yScale;
+        const gapH_px = effectiveGap * yScale;
+        ctx.fillStyle = "rgba(15,118,110,0.11)";
+        ctx.fillRect(chartX, gapTop, chartW, gapH_px);
+        if (gapH_px > sc.v_16_10) {
+          ctx.fillStyle = "rgba(15,118,110,0.60)";
+          ctx.font      = `600 ${fs(7.5)}px sans-serif`;
+          ctx.fillText(`safe  ${effectiveGap} mm`, chartX + 4, gapTop + gapH_px / 2 + 3);
+        }
+        bandY += effectiveGap;
+      }
     }
   }
 
@@ -1082,7 +1128,13 @@ export function renderPunchCard({
   // ── Graft boundary markers (outside clip) ────────────────────────────────
   ctx.fillStyle = "rgba(16,33,31,0.65)";
   ctx.font      = `700 ${fs(7)}px sans-serif`;
-  ctx.fillText("▲ PROXIMAL EDGE", chartX + sc.v_3_2, chartY - (sc.isPrint ? 5 : 3));
+  ctx.fillText(
+    benchModel?.barbs.length
+      ? "▲ FABRIC PROXIMAL EDGE · bare fixation above (not cut)"
+      : "▲ PROXIMAL EDGE",
+    chartX + sc.v_3_2,
+    chartY - (sc.isPrint ? 5 : 3),
+  );
 
   const sealY = chartY + sealZoneH * yScale;
   if (sealY < chartY + chartH) {

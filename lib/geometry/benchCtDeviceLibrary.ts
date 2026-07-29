@@ -47,6 +47,13 @@ export interface BenchCtDeviceDescriptor {
     z: number;
     d: number;
   }>;
+  /** Device-topology annotations; not inferred from CT metal segmentation. */
+  rendering?: {
+    fabric_proximal_edge_z_mm: number;
+    fabric_distal_edge_z_mm?: number;
+    proximal_bare_ring_indices?: number[];
+    barb_length_mm?: number;
+  };
   rings: BenchCtRing[];
 }
 
