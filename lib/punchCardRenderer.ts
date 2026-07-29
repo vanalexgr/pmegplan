@@ -21,7 +21,10 @@
  */
 
 import { getDeploymentTorqueInfo } from "@/lib/analysis";
-import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
+import {
+  buildBenchCtRenderModel,
+  sampleBenchCtRing,
+} from "@/lib/geometry/benchCtRenderModel";
 import { getSealZoneHeightMm } from "@/lib/stentGeometry";
 import { getEffectiveRingGeometry } from "@/lib/devices";
 import type { CaseInput, DeviceAnalysisResult, StrutSegment } from "@/lib/types";
@@ -165,15 +168,16 @@ function buildMeasuredFabricSegments(
     // The bare fixation frame and its barbs sit above the textile and must not
     // be copied to a fabric punch card as a possible cut/strut conflict.
     if (ring.kind === "bare_fixation" || ring.points.length < 2) continue;
-    for (let index = 0; index < ring.points.length; index += 1) {
-      const start = ring.points[index];
-      const end = ring.points[(index + 1) % ring.points.length];
+    const sampledPoints = sampleBenchCtRing(ring.points);
+    for (let index = 0; index < sampledPoints.length; index += 1) {
+      const start = sampledPoints[index];
+      const end = sampledPoints[(index + 1) % sampledPoints.length];
       const startX = (start.thetaRad / (Math.PI * 2)) * result.circumferenceMm;
       const endX = (end.thetaRad / (Math.PI * 2)) * result.circumferenceMm;
       segments.push([
         startX,
         start.zMm,
-        index === ring.points.length - 1 && endX <= startX
+        index === sampledPoints.length - 1 && endX <= startX
           ? endX + result.circumferenceMm
           : endX,
         end.zMm,

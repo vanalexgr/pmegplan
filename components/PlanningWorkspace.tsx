@@ -33,7 +33,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { GraftSketchCanvas } from "@/components/GraftSketchCanvas";
-import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
+import {
+  buildBenchCtRenderModel,
+  sampleBenchCtRing,
+} from "@/lib/geometry/benchCtRenderModel";
 import { isValidClockText, normalizeClockText } from "@/lib/planning/clock";
 import {
   isLikelyCompatibleTextExport,
@@ -223,7 +226,7 @@ export function PlanningWorkspace({
   );
   const sourceStrutSegments = benchModel
     ? benchModel.rings.flatMap((ring) =>
-        ring.points.map((point, index, points) => {
+        sampleBenchCtRing(ring.points).map((point, index, points) => {
           const next = points[(index + 1) % points.length];
           const startX = (point.thetaRad / (Math.PI * 2)) * circumference;
           const nextX = (next.thetaRad / (Math.PI * 2)) * circumference;

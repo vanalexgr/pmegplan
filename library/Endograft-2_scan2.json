@@ -14,7 +14,8 @@
   "rendering": {
     "fabric_proximal_edge_z_mm": 0,
     "fabric_distal_edge_z_mm": 161.4,
-    "proximal_bare_ring_indices": []
+    "proximal_bare_ring_indices": [],
+    "anatomical_proximal_z": "high"
   },
   "provenance": {
     "source": "bench_ct",

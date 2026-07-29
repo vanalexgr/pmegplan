@@ -28,7 +28,10 @@ import {
   TREO_PROFILE_Y_MAX,
 } from "@/lib/treoProfile";
 import { getRotationSummary } from "@/lib/analysis";
-import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
+import {
+  buildBenchCtRenderModel,
+  sampleBenchCtRing,
+} from "@/lib/geometry/benchCtRenderModel";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
 
@@ -547,7 +550,7 @@ function drawMeasuredRing3D(
   lw: number,
 ): void {
   if (points.length < 2) return;
-  const ringPoints: Pt3D[] = points.map((point) => ({
+  const ringPoints: Pt3D[] = sampleBenchCtRing(points).map((point) => ({
     x: point.radiusMm * Math.sin(point.thetaRad),
     y: point.radiusMm * Math.cos(point.thetaRad),
     z: point.zMm,
