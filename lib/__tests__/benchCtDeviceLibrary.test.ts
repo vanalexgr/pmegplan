@@ -8,7 +8,10 @@ import {
   buildBenchCtStrutSegments,
   buildStrutSegmentsForDevice,
 } from "@/lib/stentGeometry";
-import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
+import {
+  buildBenchCtRenderModel,
+  sampleBenchCtRing,
+} from "@/lib/geometry/benchCtRenderModel";
 
 describe("bench CT device library", () => {
   it("registers each scanned descriptor with its measured apex geometry", () => {
@@ -59,12 +62,23 @@ describe("bench CT device library", () => {
     expect(model.minimumZMm).toBeLessThan(0);
   });
 
-  it("uses the TX2 diameter profile instead of a cylindrical radius", () => {
+  it("corrects the inverted TX2 scan to its anatomical taper", () => {
     const tx2 = getBenchCtDeviceDescriptor("Endograft_2", "scan2");
     if (!tx2) throw new Error("Expected TX2 scan descriptor");
     const model = buildBenchCtRenderModel(tx2);
 
     expect(model.shape).toBe("conical");
-    expect(model.diameterAt(model.fabricLengthMm)).toBeGreaterThan(model.diameterAt(0) + 7);
+    expect(model.diameterAt(0)).toBeGreaterThan(model.diameterAt(model.fabricLengthMm) + 7);
+    expect(model.rings[0].points[0].zMm).toBeLessThan(model.rings.at(-1)?.points[0].zMm ?? 0);
+  });
+
+  it("smooths visual ring paths without changing the measured apex source data", () => {
+    const tx2 = getBenchCtDeviceDescriptor("Endograft_2", "scan2");
+    if (!tx2) throw new Error("Expected TX2 scan descriptor");
+    const model = buildBenchCtRenderModel(tx2);
+    const sampled = sampleBenchCtRing(model.rings[0].points);
+
+    expect(sampled).toHaveLength(model.rings[0].points.length * 7);
+    expect(tx2.rings[0].proximal_apices).toHaveLength(12);
   });
 });

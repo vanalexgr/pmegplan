@@ -53,6 +53,8 @@ export interface BenchCtDeviceDescriptor {
     fabric_distal_edge_z_mm?: number;
     proximal_bare_ring_indices?: number[];
     barb_length_mm?: number;
+    /** Which output scan-z end is anatomically proximal before rendering. */
+    anatomical_proximal_z?: "low" | "high";
   };
   rings: BenchCtRing[];
 }
