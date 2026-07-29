@@ -297,19 +297,22 @@ def profile(s: np.ndarray, radius: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def fabric_datum(
     array: np.ndarray, image: sitk.Image, frame: tuple[np.ndarray, ...], radius: np.ndarray,
-    s_metal: np.ndarray, lo: float, hi: float,
+    s_metal: np.ndarray, lo: float, hi: float, flip_z: bool = False,
 ) -> tuple[float, float | None, bool]:
     """Estimate fabric extent from a shell around the metal wall; safely fall back."""
     shell = (array >= lo) & (array <= hi)
+    oriented_metal_s = -s_metal if flip_z else s_metal
     if shell.sum() < 500:
-        return float(np.percentile(s_metal, 0.5)), None, False
+        return float(np.percentile(oriented_metal_s, 0.5)), None, False
     fabric_points = points_mm(image, shell)
     origin, axis, u, v = frame
     delta = fabric_points - origin
     s = delta @ axis
+    if flip_z:
+        s = -s
     radial = np.hypot(delta @ u, delta @ v)
     wall = float(np.percentile(radius, 90))
-    selected = (np.abs(radial - wall) < 3.0) & (s > s_metal.min() - 25) & (s < s_metal.max() + 25)
+    selected = (np.abs(radial - wall) < 3.0) & (s > oriented_metal_s.min() - 25) & (s < oriented_metal_s.max() + 25)
     if selected.sum() < 500:
         return float(np.percentile(s_metal, 0.5)), None, False
     fabric_s = s[selected]
@@ -372,17 +375,21 @@ def cmd_extract(args: argparse.Namespace) -> None:
     print(f"metal components retained: {component_count}")
 
     metal_points = points_mm(image, metal)
-    s, radius, theta, frame = cylindrical_coordinates(metal_points)
+    s_raw, radius, theta, frame = cylindrical_coordinates(metal_points)
+    if args.flip_z:
+        # Flip before resolving the datum. This keeps z=0 at the proximal
+        # fabric edge rather than incorrectly moving it to the scan endpoint.
+        s = -s_raw
+    else:
+        s = s_raw
     if args.z_datum == "fabric":
         z_zero, covered_length, fabric_found = fabric_datum(
-            array, image, frame, radius, s, args.hu_fabric_lo, args.hu_fabric_hi,
+            array, image, frame, radius, s_raw, args.hu_fabric_lo, args.hu_fabric_hi,
+            flip_z=args.flip_z,
         )
     else:
         z_zero, covered_length, fabric_found = float(np.percentile(s, 0.5)), None, False
     s = s - z_zero
-    if args.flip_z:
-        s = -s
-        s -= s.min()
 
     theta_ref, theta_source = 0.0, "none"
     marker = array >= args.hu_marker
@@ -433,6 +440,14 @@ def cmd_extract(args: argparse.Namespace) -> None:
         "device": args.device,
         "size": args.size,
         "state": "free_unconstrained",
+        "geometry": {
+            "shape": args.graft_shape,
+            "scan_orientation": "inverted_corrected" if args.flip_z else "standard",
+            "proximal_fixation": {
+                "ring_count": args.proximal_fixation_rings,
+                "position": "above_fabric" if args.proximal_fixation_rings else "none",
+            },
+        },
         "provenance": {
             "source": "bench_ct",
             "series_description": tags["series_description"],
@@ -497,6 +512,10 @@ def parser() -> argparse.ArgumentParser:
     extract.add_argument("--theta-ref", default="auto", help="auto, none, or an angle in degrees")
     extract.add_argument("--z-datum", choices=("fabric", "metal"), default="fabric")
     extract.add_argument("--flip-z", action="store_true", help="flip the axial direction when proximal is at high z")
+    extract.add_argument("--graft-shape", choices=("cylindrical", "conical"), default="cylindrical",
+                         help="free-state graft shape for downstream rendering metadata")
+    extract.add_argument("--proximal-fixation-rings", type=int, default=0,
+                         help="number of bare fixation ring components above the proximal fabric edge")
     extract.set_defaults(handler=cmd_extract)
     return root
 
@@ -505,6 +524,8 @@ def main() -> None:
     args = parser().parse_args()
     if getattr(args, "iso", 0.0) < 0:
         die("--iso cannot be negative.")
+    if getattr(args, "proximal_fixation_rings", 0) < 0:
+        die("--proximal-fixation-rings cannot be negative.")
     args.handler(args)
 
 

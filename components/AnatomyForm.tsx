@@ -604,6 +604,7 @@ export function AnatomyForm({
           <div className="space-y-3">
             {ALL_DEVICES.map((device) => {
               const checked = selectedDeviceIds.includes(device.id);
+              const benchGeometry = device.benchCtDescriptor?.geometry;
               return (
                 <label
                   key={device.id}
@@ -633,6 +634,16 @@ export function AnatomyForm({
                         Bench-CT preview only — excluded from default clinical comparisons.
                       </p>
                     )}
+                    {benchGeometry?.shape === "conical" && (
+                      <p className="text-xs font-medium text-sky-700">
+                        Conical measured geometry · angular punch-card layout.
+                      </p>
+                    )}
+                    {benchGeometry?.proximal_fixation.ring_count ? (
+                      <p className="text-xs font-medium text-amber-700">
+                        Proximal bare fixation zone: {benchGeometry.proximal_fixation.ring_count} ring.
+                      </p>
+                    ) : null}
                     <p className="text-xs leading-5 text-[color:var(--muted-foreground)]">
                       {device.pmegNotes}
                     </p>
