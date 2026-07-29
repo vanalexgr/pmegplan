@@ -50,6 +50,13 @@ export interface DeviceGeometry {
   sizes: DeviceSize[];
   sources: string[];
   /**
+   * Exact free-state geometry measured from a bench CT. These entries are
+   * preview-only until their IFU sizing and clinical metadata are supplied.
+   */
+  benchCtDescriptor?: import("@/lib/geometry/benchCtDeviceLibrary").BenchCtDeviceDescriptor;
+  /** Excludes a bench-CT preview entry from default clinical comparison sets. */
+  isBenchCtOnly?: boolean;
+  /**
    * Distance from the proximal fabric edge to the first covered stent row.
    * Used for devices such as Zenith Alpha that have a short proximal fabric collar
    * below the suprarenal bare stent before the first covered Z-row begins.

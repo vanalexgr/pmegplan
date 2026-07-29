@@ -59,7 +59,9 @@ interface PlannerStore {
   loadSavedProject: (savedProject: SavedPlannerProject) => void;
 }
 
-const defaultDeviceIds = ALL_DEVICES.map((device) => device.id);
+const defaultDeviceIds = ALL_DEVICES
+  .filter((device) => !device.isBenchCtOnly)
+  .map((device) => device.id);
 
 function cloneCaseInput(caseInput: CaseInput): CaseInput {
   const normalized = normalizeCaseInput(caseInput);

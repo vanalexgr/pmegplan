@@ -1,5 +1,83 @@
 import type { DeviceGeometry, DeviceSize } from "@/lib/types";
 import { resolveRingGeometry } from "@/lib/geometry/ringGeometry";
+import {
+  BENCH_CT_DEVICE_LIBRARY,
+  getBenchCtDeviceDescriptor,
+  type BenchCtDeviceDescriptor,
+} from "@/lib/geometry/benchCtDeviceLibrary";
+
+export {
+  BENCH_CT_DEVICE_LIBRARY,
+  getBenchCtDeviceDescriptor,
+};
+
+function median(values: number[]): number {
+  const ordered = [...values].sort((a, b) => a - b);
+  return ordered[Math.floor(ordered.length / 2)] ?? 0;
+}
+
+function mostCommon(values: number[]): number {
+  const counts = new Map<number, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
+}
+
+function benchCtPreviewDevice(
+  descriptor: BenchCtDeviceDescriptor,
+  index: number,
+): DeviceGeometry {
+  const diameter = median(descriptor.rings.map((ring) => ring.diameter_mm));
+  const ringHeight = median(descriptor.rings.map((ring) => ring.ring_height_mm));
+  const gap = median(
+    descriptor.rings
+      .slice(0, -1)
+      .flatMap((ring, ringIndex) => {
+        const next = descriptor.rings[ringIndex + 1];
+        return ring.z_distal_apices_mm != null && next.z_proximal_apices_mm != null
+          ? [next.z_proximal_apices_mm - ring.z_distal_apices_mm]
+          : [];
+      })
+      .filter((value) => value >= 0),
+  );
+  const nPeaks = mostCommon(descriptor.rings.map((ring) => ring.n_apices));
+
+  return {
+    id: `bench-ct-${descriptor.device.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${descriptor.size}`,
+    name: `${descriptor.device} — ${descriptor.size} (bench CT preview)`,
+    shortName: `${descriptor.device} ${descriptor.size}`,
+    manufacturer: "Bench CT geometry",
+    ringHeight,
+    interRingGap: gap,
+    nRings: descriptor.rings.length,
+    foreshortening: 0,
+    seamDeg: 0,
+    wireRadius: 0.5,
+    stentType: "Z-stent",
+    fabricMaterial: "polyester",
+    pmegSuitability: 4,
+    pmegNotes: "Research preview: measured free-state apex geometry from bench CT. Not an IFU-sized or clinically recommended device entry.",
+    clinicalRank: 100 + index,
+    color: ["#b45309", "#be123c", "#0369a1"][index] ?? "#475569",
+    waveWidthMm: nPeaks > 0 ? (Math.PI * diameter) / nPeaks : 0,
+    sizes: [{
+      graftDiameter: diameter,
+      neckDiameterMin: 0,
+      neckDiameterMax: 100,
+      sheathFr: 0,
+      nPeaks,
+      mainBodyLengths: [Math.max(...descriptor.rings.flatMap((ring) => [
+        ring.z_proximal_apices_mm ?? 0,
+        ring.z_distal_apices_mm ?? 0,
+      ]))],
+    }],
+    sources: [`Bench CT descriptor ${descriptor.device}/${descriptor.size}`],
+    benchCtDescriptor: descriptor,
+    isBenchCtOnly: true,
+  };
+}
+
+/** Measured-geometry entries intended only for explicit punch-card preview. */
+export const BENCH_CT_PREVIEW_DEVICES = BENCH_CT_DEVICE_LIBRARY.map(benchCtPreviewDevice);
 
 /**
  * PMEGplan.io — Device Geometry Database
@@ -393,6 +471,7 @@ export const ALL_DEVICES: DeviceGeometry[] = [
   ENDURANT_II,
   TREO,
   VALIANT,
+  ...BENCH_CT_PREVIEW_DEVICES,
 ];
 
 export function selectSize(
