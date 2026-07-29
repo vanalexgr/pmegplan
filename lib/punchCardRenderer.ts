@@ -323,6 +323,14 @@ export function renderPunchCard({
   const yScale = xScale;
   const chartH = maxDepth * yScale;
   const circ   = result.circumferenceMm;
+  const benchDescriptor = result.device.benchCtDescriptor;
+  const benchGeometry = benchDescriptor?.geometry;
+  const isConicalBenchGeometry = benchGeometry?.shape === "conical";
+  const fixationSegmentCount = benchGeometry?.proximal_fixation.ring_count
+    ? benchDescriptor!.rings
+      .slice(0, benchGeometry.proximal_fixation.ring_count)
+      .reduce((count, ring) => count + ring.proximal_apices.length + ring.distal_apices.length, 0)
+    : 0;
 
   const { ringHeight: effectiveRingH, interRingGap: effectiveGap } =
     getEffectiveRingGeometry(result.device, result.size);
@@ -337,7 +345,11 @@ export function renderPunchCard({
     ctx.strokeStyle = strokeCol;
     ctx.lineWidth   = lineW;
     ctx.setLineDash([]);
-    for (const [ax, ay, bx, by] of result.strutSegments as StrutSegment[]) {
+    for (const [segmentIndex, [ax, ay, bx, by]] of (result.strutSegments as StrutSegment[]).entries()) {
+      const isFixationSegment = segmentIndex < fixationSegmentCount;
+      const renderFixationStyle = isFixationSegment && strokeCol === result.device.color;
+      ctx.strokeStyle = renderFixationStyle ? "#b45309" : strokeCol;
+      ctx.setLineDash(renderFixationStyle ? [sc.v_6_4, sc.v_3_2] : []);
       const sx0 = arcToGx(ax);
       const ex0 = arcToGx(bx);
       const sy  = chartY + (ay as number) * yScale;
@@ -414,8 +426,13 @@ export function renderPunchCard({
   ctx.fillText(result.device.name, margin, margin + fs(sc.v_18_14));
   ctx.fillStyle = "#45605b";
   ctx.font = `400 ${fs(sc.v_11_9)}px sans-serif`;
+  const geometryLabel = isConicalBenchGeometry
+    ? "Conical measured geometry · angular layout"
+    : fixationSegmentCount > 0
+      ? `Measured geometry · ${benchGeometry!.proximal_fixation.ring_count} proximal fixation ring`
+      : "Measured geometry";
   ctx.fillText(
-    `${result.device.manufacturer}  ·  Ø${result.size.graftDiameter} mm  ·  Circ ${circ.toFixed(1)} mm  ·  ${result.nPeaks} peaks  ·  Foreshortening ${(result.device.foreshortening * 100).toFixed(0)}%  ·  ${result.device.fabricMaterial}`,
+    `${result.device.manufacturer}  ·  ${geometryLabel}  ·  ${result.device.fabricMaterial}`,
     margin, margin + fs(sc.v_33_26),
   );
   if (caseInput.patientId ?? caseInput.surgeonName) {
@@ -469,7 +486,9 @@ export function renderPunchCard({
   ctx.font      = `600 ${fs(7.5)}px sans-serif`;
   ctx.textAlign = "center";
   ctx.fillText(
-    `Nominal perimeter  ${circ.toFixed(1)} mm  (Ø${result.size.graftDiameter} mm graft)`,
+    isConicalBenchGeometry
+      ? `Angular datum · variable perimeter by ring (reference Ø${result.size.graftDiameter} mm)`
+      : `Nominal perimeter  ${circ.toFixed(1)} mm  (Ø${result.size.graftDiameter} mm graft)`,
     chartX + chartW / 2, zoneAY - (sc.isPrint ? 7 : 5),
   );
   ctx.textAlign = "left";

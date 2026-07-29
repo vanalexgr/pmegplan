@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { circumferenceMm, planarToCylinderPoint } from "@/lib/planning/geometry";
+import { circumferenceMm } from "@/lib/planning/geometry";
 import { selectPlanarFenestrationsForDiameter } from "@/lib/planning/selectors";
 import type { PlanningFenestration, PlanningProject } from "@/lib/planning/types";
 import type { DeviceAnalysisResult, StrutSegment } from "@/lib/types";
@@ -14,42 +14,44 @@ function roundSvgCoordinate(value: number): number {
   return Number(value.toFixed(3));
 }
 
-function buildCylinderPath(
+function buildGraftBodyPath(
   centerX: number,
   topY: number,
   bodyHeight: number,
-  radiusX: number,
+  topRadiusX: number,
+  bottomRadiusX: number,
 ): string {
-  const leftX = roundSvgCoordinate(centerX - radiusX);
-  const rightX = roundSvgCoordinate(centerX + radiusX);
+  const leftTopX = roundSvgCoordinate(centerX - topRadiusX);
+  const rightTopX = roundSvgCoordinate(centerX + topRadiusX);
+  const leftBottomX = roundSvgCoordinate(centerX - bottomRadiusX);
+  const rightBottomX = roundSvgCoordinate(centerX + bottomRadiusX);
   const bottomY = roundSvgCoordinate(topY + bodyHeight);
   const normalizedTopY = roundSvgCoordinate(topY);
 
   return [
-    `M ${leftX} ${normalizedTopY}`,
-    `L ${leftX} ${bottomY}`,
-    `L ${rightX} ${bottomY}`,
-    `L ${rightX} ${normalizedTopY}`,
+    `M ${leftTopX} ${normalizedTopY}`,
+    `L ${leftBottomX} ${bottomY}`,
+    `L ${rightBottomX} ${bottomY}`,
+    `L ${rightTopX} ${normalizedTopY}`,
     "Z",
   ].join(" ");
 }
 
-function projectCylinderPoint(
-  point: ReturnType<typeof planarToCylinderPoint>,
+function projectPolarPoint(
+  thetaRad: number,
+  depthMm: number,
   centerX: number,
   topY: number,
   heightScale: number,
   radiusX: number,
   radiusY: number,
 ) {
-  const radiusMm = Math.max(Math.hypot(point.x, point.z), 1);
-
   return {
-    x: roundSvgCoordinate(centerX + (point.x / radiusMm) * radiusX),
+    x: roundSvgCoordinate(centerX + Math.sin(thetaRad) * radiusX),
     y: roundSvgCoordinate(
-      topY + point.y * heightScale + (point.z / radiusMm) * radiusY * 0.5,
+      topY + depthMm * heightScale - Math.cos(thetaRad) * radiusY * 0.5,
     ),
-    front: point.z >= 0,
+    front: -Math.cos(thetaRad) >= 0,
   };
 }
 
@@ -60,20 +62,18 @@ function projectPlanarPoint(
   centerX: number,
   topY: number,
   heightScale: number,
-  radiusX: number,
-  radiusY: number,
+  radiusAtDepth: (depthMm: number) => { x: number; y: number },
 ) {
-  return projectCylinderPoint(
-    planarToCylinderPoint({
-      xMm,
-      yMm,
-      graftDiameterMm,
-    }),
+  const thetaRad = (xMm / circumferenceMm(graftDiameterMm)) * 2 * Math.PI;
+  const radius = radiusAtDepth(yMm);
+  return projectPolarPoint(
+    thetaRad,
+    yMm,
     centerX,
     topY,
     heightScale,
-    radiusX,
-    radiusY,
+    radius.x,
+    radius.y,
   );
 }
 
@@ -84,8 +84,7 @@ function projectFenestrationFootprint(
   centerX: number,
   topY: number,
   heightScale: number,
-  radiusX: number,
-  radiusY: number,
+  radiusAtDepth: (depthMm: number) => { x: number; y: number },
 ) {
   const center = projectPlanarPoint(
     point.xMm,
@@ -94,8 +93,7 @@ function projectFenestrationFootprint(
     centerX,
     topY,
     heightScale,
-    radiusX,
-    radiusY,
+    radiusAtDepth,
   );
   const left = projectPlanarPoint(
     point.xMm - fenestration.widthMm / 2,
@@ -104,8 +102,7 @@ function projectFenestrationFootprint(
     centerX,
     topY,
     heightScale,
-    radiusX,
-    radiusY,
+    radiusAtDepth,
   );
   const right = projectPlanarPoint(
     point.xMm + fenestration.widthMm / 2,
@@ -114,8 +111,7 @@ function projectFenestrationFootprint(
     centerX,
     topY,
     heightScale,
-    radiusX,
-    radiusY,
+    radiusAtDepth,
   );
   const top = projectPlanarPoint(
     point.xMm,
@@ -124,8 +120,7 @@ function projectFenestrationFootprint(
     centerX,
     topY,
     heightScale,
-    radiusX,
-    radiusY,
+    radiusAtDepth,
   );
   const bottom = projectPlanarPoint(
     point.xMm,
@@ -134,8 +129,7 @@ function projectFenestrationFootprint(
     centerX,
     topY,
     heightScale,
-    radiusX,
-    radiusY,
+    radiusAtDepth,
   );
 
   return {
@@ -156,45 +150,39 @@ function projectFenestrationFootprint(
 
 function projectStrutSegment(
   segment: StrutSegment,
-  graftDiameterMm: number,
+  referenceCircumferenceMm: number,
   centerX: number,
   topY: number,
   heightScale: number,
-  radiusX: number,
-  radiusY: number,
+  radiusAtDepth: (depthMm: number) => { x: number; y: number },
 ) {
-  const start = planarToCylinderPoint({
-    xMm: segment[0],
-    yMm: segment[1],
-    graftDiameterMm,
-  });
-  const end = planarToCylinderPoint({
-    xMm: segment[2],
-    yMm: segment[3],
-    graftDiameterMm,
-  });
-
-  const projectedStart = projectCylinderPoint(
-    start,
+  const startTheta = (segment[0] / referenceCircumferenceMm) * 2 * Math.PI;
+  const endTheta = (segment[2] / referenceCircumferenceMm) * 2 * Math.PI;
+  const startRadius = radiusAtDepth(segment[1]);
+  const endRadius = radiusAtDepth(segment[3]);
+  const projectedStart = projectPolarPoint(
+    startTheta,
+    segment[1],
     centerX,
     topY,
     heightScale,
-    radiusX,
-    radiusY,
+    startRadius.x,
+    startRadius.y,
   );
-  const projectedEnd = projectCylinderPoint(
-    end,
+  const projectedEnd = projectPolarPoint(
+    endTheta,
+    segment[3],
     centerX,
     topY,
     heightScale,
-    radiusX,
-    radiusY,
+    endRadius.x,
+    endRadius.y,
   );
 
   return {
     start: projectedStart,
     end: projectedEnd,
-    front: (start.z + end.z) / 2 >= 0,
+    front: -Math.cos((startTheta + endTheta) / 2) >= 0,
   };
 }
 
@@ -213,17 +201,56 @@ export function Planning3DPreview({
     project.graft.neckDiameterMm;
   const circumference =
     overlayResult?.circumferenceMm ?? circumferenceMm(graftDiameterMm);
+  const benchDescriptor = overlayResult?.device.benchCtDescriptor;
+  const measuredDiameters = benchDescriptor?.diameter_profile?.length
+    ? benchDescriptor.diameter_profile
+    : benchDescriptor?.rings.map((ring) => ({
+        z: (ring.z_proximal_apices_mm ?? 0) + ring.ring_height_mm / 2,
+        d: ring.diameter_mm,
+      })) ?? [];
+  const profile = [...measuredDiameters].sort((a, b) => a.z - b.z);
+  const profileLengthMm = profile.at(-1)?.z ?? project.graft.templateHeightMm;
+  const renderLengthMm = Math.max(project.graft.templateHeightMm, profileLengthMm + 12);
+
+  function diameterAtDepth(depthMm: number): number {
+    if (profile.length === 0) return graftDiameterMm;
+    if (depthMm <= profile[0].z) return profile[0].d;
+    if (depthMm >= profile[profile.length - 1].z) return profile[profile.length - 1].d;
+    for (let index = 1; index < profile.length; index += 1) {
+      const upper = profile[index];
+      const lower = profile[index - 1];
+      if (depthMm <= upper.z) {
+        const fraction = (depthMm - lower.z) / (upper.z - lower.z);
+        return lower.d + (upper.d - lower.d) * fraction;
+      }
+    }
+    return graftDiameterMm;
+  }
+
   const planarFenestrations = selectPlanarFenestrationsForDiameter(
     project,
     graftDiameterMm,
   );
   const centerX = 210;
   const topY = 48;
-  const radiusX = 112;
-  const radiusY = 28;
   const bodyHeight = 284;
-  const heightScale = bodyHeight / Math.max(project.graft.templateHeightMm, 1);
-  const bodyPath = buildCylinderPath(centerX, topY, bodyHeight, radiusX);
+  const maxDiameterMm = Math.max(graftDiameterMm, ...profile.map((point) => point.d));
+  const radiusScale = 112 / Math.max(maxDiameterMm / 2, 1);
+  const radiusAtDepth = (depthMm: number) => {
+    const radiusX = (diameterAtDepth(depthMm) / 2) * radiusScale;
+    return { x: radiusX, y: radiusX * 0.25 };
+  };
+  const topRadius = radiusAtDepth(0);
+  const bottomRadius = radiusAtDepth(renderLengthMm);
+  const heightScale = bodyHeight / Math.max(renderLengthMm, 1);
+  const fixationSegmentCount = benchDescriptor?.geometry?.proximal_fixation.ring_count
+    ? benchDescriptor.rings
+      .slice(0, benchDescriptor.geometry.proximal_fixation.ring_count)
+      .reduce((count, ring) => count + ring.proximal_apices.length + ring.distal_apices.length, 0)
+    : 0;
+  const bodyPath = buildGraftBodyPath(
+    centerX, topY, bodyHeight, topRadius.x, bottomRadius.x,
+  );
   const projectedFenestrations = planarFenestrations.map(({ fenestration, point }) => ({
     fenestration,
     projected: projectFenestrationFootprint(
@@ -233,22 +260,21 @@ export function Planning3DPreview({
       centerX,
       topY,
       heightScale,
-      radiusX,
-      radiusY,
+      radiusAtDepth,
     ),
   }));
   const projectedStruts = overlayResult?.size
-    ? overlayResult.strutSegments.map((segment) =>
-        projectStrutSegment(
+    ? overlayResult.strutSegments.map((segment, index) => ({
+        ...projectStrutSegment(
           segment,
-          graftDiameterMm,
+          circumference,
           centerX,
           topY,
           heightScale,
-          radiusX,
-          radiusY,
+          radiusAtDepth,
         ),
-      )
+        fixation: index < fixationSegmentCount,
+      }))
     : [];
 
   return (
@@ -259,8 +285,9 @@ export function Planning3DPreview({
             3D graft preview
           </p>
           <p className="mt-1 text-sm leading-6 text-[color:var(--muted-foreground)]">
-            Cylindrical view of the current planning template, with the chosen
-            device overlay projected onto the graft body.
+            {benchDescriptor?.geometry?.shape === "conical"
+              ? "CT-derived conical view: radius and struts vary with measured axial depth."
+              : "CT-derived graft view with measured struts projected onto the graft body."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -270,7 +297,9 @@ export function Planning3DPreview({
             </Badge>
           ) : null}
           <Badge className="bg-white text-[color:var(--foreground)]">
-            Diameter {formatMm(graftDiameterMm)}
+            {benchDescriptor?.geometry?.shape === "conical"
+              ? `Diameter ${formatMm(diameterAtDepth(0))} → ${formatMm(diameterAtDepth(renderLengthMm))}`
+              : `Diameter ${formatMm(graftDiameterMm)}`}
           </Badge>
         </div>
       </div>
@@ -286,10 +315,10 @@ export function Planning3DPreview({
                 y1={segment.start.y}
                 x2={segment.end.x}
                 y2={segment.end.y}
-                stroke={overlayResult?.device.color ?? "rgba(12,84,72,0.22)"}
+                stroke={segment.fixation ? "#b45309" : overlayResult?.device.color ?? "rgba(12,84,72,0.22)"}
                 strokeOpacity={0.18}
                 strokeWidth={1.6}
-                strokeDasharray="5 6"
+                strokeDasharray={segment.fixation ? "3 4" : "5 6"}
               />
             ))}
 
@@ -323,8 +352,8 @@ export function Planning3DPreview({
           <ellipse
             cx={centerX}
             cy={topY}
-            rx={radiusX}
-            ry={radiusY}
+            rx={topRadius.x}
+            ry={topRadius.y}
             fill="rgba(255,255,255,0.9)"
             stroke="rgba(16,33,31,0.15)"
             strokeWidth={1.8}
@@ -332,24 +361,24 @@ export function Planning3DPreview({
           <ellipse
             cx={centerX}
             cy={topY + bodyHeight}
-            rx={radiusX}
-            ry={radiusY}
+            rx={bottomRadius.x}
+            ry={bottomRadius.y}
             fill="rgba(238,245,242,0.92)"
             stroke="rgba(16,33,31,0.12)"
             strokeWidth={1.8}
           />
           <line
-            x1={centerX - radiusX}
+            x1={centerX - topRadius.x}
             y1={topY}
-            x2={centerX - radiusX}
+            x2={centerX - bottomRadius.x}
             y2={topY + bodyHeight}
             stroke="rgba(16,33,31,0.12)"
             strokeWidth={1.8}
           />
           <line
-            x1={centerX + radiusX}
+            x1={centerX + topRadius.x}
             y1={topY}
-            x2={centerX + radiusX}
+            x2={centerX + bottomRadius.x}
             y2={topY + bodyHeight}
             stroke="rgba(16,33,31,0.12)"
             strokeWidth={1.8}
@@ -364,9 +393,10 @@ export function Planning3DPreview({
                 y1={segment.start.y}
                 x2={segment.end.x}
                 y2={segment.end.y}
-                stroke={overlayResult?.device.color ?? "rgba(12,84,72,0.36)"}
+                stroke={segment.fixation ? "#b45309" : overlayResult?.device.color ?? "rgba(12,84,72,0.36)"}
                 strokeOpacity={0.44}
                 strokeWidth={2}
+                strokeDasharray={segment.fixation ? "4 3" : undefined}
               />
             ))}
 
@@ -421,7 +451,9 @@ export function Planning3DPreview({
             fontSize={13}
             fontWeight={500}
           >
-            Circumference {formatMm(circumference)}
+            {benchDescriptor?.geometry?.shape === "conical"
+              ? "Measured conical profile"
+              : `Circumference ${formatMm(circumference)}`}
           </text>
           <text
             x="396"

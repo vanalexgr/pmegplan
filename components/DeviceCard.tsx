@@ -39,6 +39,7 @@ export function DeviceCard({
   const [isExporting, setIsExporting] = useState(false);
   const baselineCount = getConflictCount(result.baselineConflicts);
   const optimalCount = getConflictCount(result.optimalConflicts);
+  const benchGeometry = result.device.benchCtDescriptor?.geometry;
 
   const handlePngExport = async () => {
     if (!result.size) {
@@ -101,6 +102,19 @@ export function DeviceCard({
       <CardContent className="space-y-6 pt-6">
         {result.size ? (
           <>
+            {benchGeometry && (
+              <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                <p className="font-semibold">Measured bench-CT geometry</p>
+                <p className="mt-1">
+                  {benchGeometry.shape === "conical"
+                    ? "Conical device: struts are rendered from measured angular apex positions; the punch-card width is angle-normalised rather than a single physical circumference."
+                    : "Cylindrical device: struts are rendered from measured apex positions."}
+                  {benchGeometry.proximal_fixation.ring_count > 0
+                    ? ` The first ${benchGeometry.proximal_fixation.ring_count} proximal ring is a bare fixation zone above the fabric.`
+                    : " No bare fixation zone is present above the fabric."}
+                </p>
+              </div>
+            )}
             <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
               <PunchCardCanvas result={result} caseInput={caseInput} />
 

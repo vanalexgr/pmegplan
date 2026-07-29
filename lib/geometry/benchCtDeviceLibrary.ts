@@ -35,6 +35,18 @@ export interface BenchCtDeviceDescriptor {
   device: string;
   size: string;
   state: "free_unconstrained";
+  geometry?: {
+    shape: "cylindrical" | "conical";
+    scan_orientation: "standard" | "inverted_corrected";
+    proximal_fixation: {
+      ring_count: number;
+      position: "above_fabric" | "none";
+    };
+  };
+  diameter_profile?: Array<{
+    z: number;
+    d: number;
+  }>;
   rings: BenchCtRing[];
 }
 
