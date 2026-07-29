@@ -11,6 +11,12 @@
       "position": "above_fabric"
     }
   },
+  "rendering": {
+    "fabric_proximal_edge_z_mm": 12.1,
+    "fabric_distal_edge_z_mm": 196.9,
+    "proximal_bare_ring_indices": [0],
+    "barb_length_mm": 5.5
+  },
   "provenance": {
     "source": "bench_ct",
     "series_description": "AiCE 0.5",

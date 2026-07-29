@@ -475,6 +475,21 @@ def cmd_extract(args: argparse.Namespace) -> None:
             "note": "propagate apex_localisation_mm into strut clearance as a band",
         },
     }
+    # The CT reliably supplies metal paths and diameter. The fabric edge and
+    # hooks are device-topology annotations, so only emit them when the user
+    # provides an explicit calibrated fabric edge / barb length.
+    if args.fabric_proximal_edge_z is not None or args.barb_length_mm > 0:
+        descriptor["rendering"] = {
+            "fabric_proximal_edge_z_mm": round(
+                args.fabric_proximal_edge_z if args.fabric_proximal_edge_z is not None else 0.0,
+                3,
+            ),
+            "proximal_bare_ring_indices": list(range(args.proximal_fixation_rings)),
+        }
+        if args.barb_length_mm > 0:
+            descriptor["rendering"]["barb_length_mm"] = round(args.barb_length_mm, 3)
+        if covered_length is not None:
+            descriptor["rendering"]["fabric_distal_edge_z_mm"] = round(covered_length, 3)
     basename = f"{output_name(args.device)}_{output_name(args.size)}"
     output_dir = Path(args.out)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -516,6 +531,10 @@ def parser() -> argparse.ArgumentParser:
                          help="free-state graft shape for downstream rendering metadata")
     extract.add_argument("--proximal-fixation-rings", type=int, default=0,
                          help="number of bare fixation ring components above the proximal fabric edge")
+    extract.add_argument("--fabric-proximal-edge-z", type=float,
+                         help="calibrated proximal fabric edge in output z mm; required to render bare fixation separately")
+    extract.add_argument("--barb-length-mm", type=float, default=0.0,
+                         help="topology-annotated barb length for 3-D display; not measured from CT")
     extract.set_defaults(handler=cmd_extract)
     return root
 
@@ -526,6 +545,8 @@ def main() -> None:
         die("--iso cannot be negative.")
     if getattr(args, "proximal_fixation_rings", 0) < 0:
         die("--proximal-fixation-rings cannot be negative.")
+    if getattr(args, "barb_length_mm", 0.0) < 0:
+        die("--barb-length-mm cannot be negative.")
     args.handler(args)
 
 

@@ -11,6 +11,11 @@
       "position": "none"
     }
   },
+  "rendering": {
+    "fabric_proximal_edge_z_mm": 0,
+    "fabric_distal_edge_z_mm": 161.4,
+    "proximal_bare_ring_indices": []
+  },
   "provenance": {
     "source": "bench_ct",
     "series_description": "AiCE 0.5",

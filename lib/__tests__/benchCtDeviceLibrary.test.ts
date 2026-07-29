@@ -8,6 +8,7 @@ import {
   buildBenchCtStrutSegments,
   buildStrutSegmentsForDevice,
 } from "@/lib/stentGeometry";
+import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
 
 describe("bench CT device library", () => {
   it("registers each scanned descriptor with its measured apex geometry", () => {
@@ -45,5 +46,25 @@ describe("bench CT device library", () => {
         size.nPeaks,
       ),
     ).toEqual(buildBenchCtStrutSegments(preview.benchCtDescriptor, circumference));
+  });
+
+  it("keeps bare fixation separate from the fabric and exposes its barb topology", () => {
+    const alpha = getBenchCtDeviceDescriptor("Endograft_1", "scan1");
+    if (!alpha) throw new Error("Expected Zenith Alpha scan descriptor");
+    const model = buildBenchCtRenderModel(alpha);
+
+    expect(model.rings[0].kind).toBe("bare_fixation");
+    expect(model.rings[0].points.some((point) => point.zMm < 0)).toBe(true);
+    expect(model.barbs).toHaveLength(alpha.rings[0].proximal_apices.length);
+    expect(model.minimumZMm).toBeLessThan(0);
+  });
+
+  it("uses the TX2 diameter profile instead of a cylindrical radius", () => {
+    const tx2 = getBenchCtDeviceDescriptor("Endograft_2", "scan2");
+    if (!tx2) throw new Error("Expected TX2 scan descriptor");
+    const model = buildBenchCtRenderModel(tx2);
+
+    expect(model.shape).toBe("conical");
+    expect(model.diameterAt(model.fabricLengthMm)).toBeGreaterThan(model.diameterAt(0) + 7);
   });
 });
