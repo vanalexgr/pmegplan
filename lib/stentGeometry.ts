@@ -12,6 +12,7 @@ import {
   pushPoint,
   pointsToSegments,
 } from "@/lib/geometry/waveform";
+import type { BenchCtDeviceDescriptor } from "@/lib/geometry/benchCtDeviceLibrary";
 import type { WaveformPattern } from "@/lib/geometry/waveform";
 import type { DeviceGeometry, StrutSegment } from "@/lib/types";
 
@@ -20,6 +21,39 @@ interface StrutLayoutProfile {
   phaseFractions: number[];
   mShoulderRatio?: number;
   sinusoidSamplesPerWave?: number;
+}
+
+/**
+ * Build wire segments from measured apex positions instead of a parametric
+ * waveform.  This preserves component-specific apex count, phase drift,
+ * height, and axial overlap from a bench CT descriptor.
+ *
+ * `circumferenceMm` permits rendering at the scanned nominal circumference;
+ * callers should not use it to extrapolate the free-state scan to another
+ * graft diameter.
+ */
+export function buildBenchCtStrutSegments(
+  descriptor: BenchCtDeviceDescriptor,
+  circumferenceMm: number,
+): StrutSegment[] {
+  const segments: StrutSegment[] = [];
+
+  for (const ring of descriptor.rings) {
+    const apices = [...ring.proximal_apices, ...ring.distal_apices]
+      .sort((a, b) => a.theta_deg - b.theta_deg);
+    if (apices.length < 2) continue;
+
+    const points: Array<[number, number]> = apices.map((apex) => [
+      (apex.theta_deg / 360) * circumferenceMm,
+      apex.z_mm,
+    ]);
+    // Add the first point one circumference later, retaining the closing wire
+    // across 0° for the punch-card renderer's wrap-aware drawing code.
+    points.push([points[0][0] + circumferenceMm, points[0][1]]);
+    segments.push(...pointsToSegments(points));
+  }
+
+  return segments;
 }
 
 function getPhaseFraction(
@@ -58,6 +92,9 @@ export function buildStrutSegments(
   graftDiameterMm: number,
   nPeaks: number,
 ): StrutSegment[] {
+  if (device.benchCtDescriptor) {
+    return buildBenchCtStrutSegments(device.benchCtDescriptor, circumferenceMm);
+  }
   const size = device.sizes.find(
     (candidate) => candidate.graftDiameter === graftDiameterMm,
   ) ?? null;
@@ -105,6 +142,12 @@ export function buildStrutSegments(
 }
 
 export function getSealZoneHeightMm(device: DeviceGeometry) {
+  if (device.benchCtDescriptor) {
+    return Math.max(...device.benchCtDescriptor.rings.flatMap((ring) => [
+      ring.z_proximal_apices_mm ?? 0,
+      ring.z_distal_apices_mm ?? 0,
+    ]));
+  }
   return (
     (device.proximalRingOffsetMm ?? 0) +
     device.nRings * device.ringHeight +
@@ -220,13 +263,16 @@ function buildTreoStrutSegments(
 // families. TREO and Endurant II are routed separately so planning uses their
 // calibrated template-derived profiles instead of generic approximations.
 export function buildStrutSegmentsForDevice(
-  device: Pick<DeviceGeometry, "id" | "stentType" | "proximalRingOffsetMm">,
+  device: Pick<DeviceGeometry, "id" | "stentType" | "proximalRingOffsetMm" | "benchCtDescriptor">,
   circ: number,
   ringHeight: number,
   gapHeight: number,
   nRings: number,
   nPeaks: number,
 ): StrutSegment[] {
+  if (device.benchCtDescriptor) {
+    return buildBenchCtStrutSegments(device.benchCtDescriptor, circ);
+  }
   if (device.id === "treo") {
     return buildTreoStrutSegments(
       circ,

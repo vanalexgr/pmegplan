@@ -546,7 +546,7 @@ export function AnatomyForm({
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="tieClock">Reduction tie positions (o'clock)</Label>
+                <Label htmlFor="tieClock">Reduction tie positions (o&apos;clock)</Label>
                 <Controller
                   control={control}
                   name="tieClock"
@@ -596,14 +596,15 @@ export function AnatomyForm({
         <CardHeader>
           <CardTitle>Device selection</CardTitle>
           <CardDescription>
-            Compare any combination of the four infrarenal platforms included in
-            the MVP database.
+            Compare clinical platforms, or explicitly select a bench-CT preview
+            to render its measured apex geometry.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3">
             {ALL_DEVICES.map((device) => {
               const checked = selectedDeviceIds.includes(device.id);
+              const benchGeometry = device.benchCtDescriptor?.geometry;
               return (
                 <label
                   key={device.id}
@@ -628,6 +629,21 @@ export function AnatomyForm({
                     <p className="text-sm text-[color:var(--muted-foreground)]">
                       {device.manufacturer}
                     </p>
+                    {device.isBenchCtOnly && (
+                      <p className="text-xs font-medium text-amber-700">
+                        Bench-CT preview only — excluded from default clinical comparisons.
+                      </p>
+                    )}
+                    {benchGeometry?.shape === "conical" && (
+                      <p className="text-xs font-medium text-sky-700">
+                        Conical measured geometry · angular punch-card layout.
+                      </p>
+                    )}
+                    {benchGeometry?.proximal_fixation.ring_count ? (
+                      <p className="text-xs font-medium text-amber-700">
+                        Proximal bare fixation zone: {benchGeometry.proximal_fixation.ring_count} ring.
+                      </p>
+                    ) : null}
                     <p className="text-xs leading-5 text-[color:var(--muted-foreground)]">
                       {device.pmegNotes}
                     </p>

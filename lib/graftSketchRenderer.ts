@@ -28,6 +28,10 @@ import {
   TREO_PROFILE_Y_MAX,
 } from "@/lib/treoProfile";
 import { getRotationSummary } from "@/lib/analysis";
+import {
+  buildBenchCtRenderModel,
+  sampleBenchCtRing,
+} from "@/lib/geometry/benchCtRenderModel";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
 
@@ -534,6 +538,27 @@ function drawRing3D(
   ctx.restore();
 }
 
+function drawMeasuredRing3D(
+  ctx: CanvasRenderingContext2D,
+  points: Array<{ thetaRad: number; zMm: number; radiusMm: number }>,
+  az: number,
+  el: number,
+  ox: number,
+  oy: number,
+  scale: number,
+  color: string,
+  lw: number,
+): void {
+  if (points.length < 2) return;
+  const ringPoints: Pt3D[] = sampleBenchCtRing(points).map((point) => ({
+    x: point.radiusMm * Math.sin(point.thetaRad),
+    y: point.radiusMm * Math.cos(point.thetaRad),
+    z: point.zMm,
+  }));
+  ringPoints.push({ ...ringPoints[0] });
+  drawRing3D(ctx, ringPoints, az, el, ox, oy, scale, color, lw);
+}
+
 function drawSegment3D(
   ctx: CanvasRenderingContext2D,
   start: Pt3D,
@@ -601,6 +626,76 @@ function drawCylinderBody(
   ctx.fillStyle = g;
   ctx.fillRect(ox - cylW, topY, cylW * 2, botY - topY);
   ctx.restore();
+}
+
+function drawProfiledFabricBody(
+  ctx: CanvasRenderingContext2D,
+  radiusAt: (zMm: number) => number,
+  fabricLengthMm: number,
+  az: number,
+  el: number,
+  ox: number,
+  oy: number,
+  scale: number,
+): { topRadius: number; bottomRadius: number } {
+  const topRadius = radiusAt(0);
+  const bottomRadius = radiusAt(fabricLengthMm);
+  const silhouettePoint = (radius: number, zMm: number, side: -1 | 1) =>
+    project3D(
+      side * radius * Math.cos(az),
+      side * radius * Math.sin(az),
+      zMm,
+      az,
+      el,
+      ox,
+      oy,
+      scale,
+    );
+  const topLeft = silhouettePoint(topRadius, 0, -1);
+  const topRight = silhouettePoint(topRadius, 0, 1);
+  const bottomLeft = silhouettePoint(bottomRadius, fabricLengthMm, -1);
+  const bottomRight = silhouettePoint(bottomRadius, fabricLengthMm, 1);
+  const topCenter = project3D(0, 0, 0, az, el, ox, oy, scale);
+  const bottomCenter = project3D(0, 0, fabricLengthMm, az, el, ox, oy, scale);
+  const topRY = Math.max(topRadius * scale * Math.abs(Math.sin(el)), 2.5);
+  const bottomRY = Math.max(bottomRadius * scale * Math.abs(Math.sin(el)), 2.5);
+
+  const body = new Path2D();
+  body.moveTo(topLeft.sx, topLeft.sy);
+  body.lineTo(bottomLeft.sx, bottomLeft.sy);
+  body.lineTo(bottomRight.sx, bottomRight.sy);
+  body.lineTo(topRight.sx, topRight.sy);
+  body.closePath();
+  ctx.save();
+  ctx.clip(body);
+  const fill = ctx.createLinearGradient(topLeft.sx, 0, topRight.sx, 0);
+  fill.addColorStop(0, "rgba(46,54,62,0.52)");
+  fill.addColorStop(0.18, "rgba(190,198,203,0.30)");
+  fill.addColorStop(0.50, "rgba(255,255,255,0.84)");
+  fill.addColorStop(0.82, "rgba(190,198,203,0.30)");
+  fill.addColorStop(1, "rgba(46,54,62,0.52)");
+  ctx.fillStyle = fill;
+  ctx.fillRect(
+    Math.min(topLeft.sx, bottomLeft.sx),
+    Math.min(topLeft.sy, topRight.sy),
+    Math.abs(Math.max(topRight.sx, bottomRight.sx) - Math.min(topLeft.sx, bottomLeft.sx)),
+    Math.abs(bottomCenter.sy - topCenter.sy) + topRY + bottomRY,
+  );
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(16,33,31,0.42)";
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(topLeft.sx, topLeft.sy); ctx.lineTo(bottomLeft.sx, bottomLeft.sy);
+  ctx.moveTo(topRight.sx, topRight.sy); ctx.lineTo(bottomRight.sx, bottomRight.sy);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(16,33,31,0.62)";
+  ctx.beginPath(); ctx.ellipse(topCenter.sx, topCenter.sy, topRadius * scale, topRY, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(bottomCenter.sx, bottomCenter.sy, bottomRadius * scale, bottomRY, 0, 0, Math.PI); ctx.stroke();
+  ctx.restore();
+
+  return { topRadius, bottomRadius };
 }
 
 // ── Ring zone tints clipped to cylinder width ─────────────────────────────────
@@ -755,10 +850,12 @@ function drawFenestration3D(
   R: number, clockDeg: number, depthMm: number, widthMm: number, heightMm: number,
   vessel: string, ftype: string, isConflicted: boolean, minDist: number, isStrFree: boolean,
   _delta: number, circ: number, az: number, el: number, ox: number, oy: number, scale: number, sc: ScaleContext,
+  radiusAtDepth?: (depthMm: number) => number,
 ): { sy: number; label: string; color: string } | null {
   const color  = VESSEL_COLORS[vessel] ?? "#334155";
   const arcMm = (clockDeg / 360) * circ;
-  const q = projectSurfacePoint(arcMm, depthMm, circ, R, az, el, ox, oy, scale);
+  const radiusFor = (zMm: number) => radiusAtDepth?.(zMm) ?? R;
+  const q = projectSurfacePoint(arcMm, depthMm, circ, radiusFor(depthMm), az, el, ox, oy, scale);
   const fore = Math.max(0.25, Math.abs(q.face) / R);
   const backLabelY = q.sy - (sc.fontBadge);
   const backMetaY = q.sy + (sc.fontBadge);
@@ -766,7 +863,7 @@ function drawFenestration3D(
   const backTagY = q.sy - (sc.v_1_0);
 
   if (ftype === "SCALLOP") {
-    const qRim = projectSurfacePoint(arcMm, 0, circ, R, az, el, ox, oy, scale);
+    const qRim = projectSurfacePoint(arcMm, 0, circ, radiusFor(0), az, el, ox, oy, scale);
     const nW   = Math.max(widthMm * scale * 0.30 * fore, sc.v_14_9);
     const nH   = Math.max(heightMm * scale * 0.32, sc.v_11_7);
     ctx.save();
@@ -794,13 +891,13 @@ function drawFenestration3D(
     return null;
   }
 
-  const left = projectSurfacePoint(arcMm - widthMm / 2, depthMm, circ, R, az, el, ox, oy, scale);
-  const right = projectSurfacePoint(arcMm + widthMm / 2, depthMm, circ, R, az, el, ox, oy, scale);
+  const left = projectSurfacePoint(arcMm - widthMm / 2, depthMm, circ, radiusFor(depthMm), az, el, ox, oy, scale);
+  const right = projectSurfacePoint(arcMm + widthMm / 2, depthMm, circ, radiusFor(depthMm), az, el, ox, oy, scale);
   const top = projectSurfacePoint(
     arcMm,
     Math.max(0, depthMm - heightMm / 2),
     circ,
-    R,
+    radiusFor(Math.max(0, depthMm - heightMm / 2)),
     az,
     el,
     ox,
@@ -811,7 +908,7 @@ function drawFenestration3D(
     arcMm,
     depthMm + heightMm / 2,
     circ,
-    R,
+    radiusFor(depthMm + heightMm / 2),
     az,
     el,
     ox,
@@ -968,7 +1065,9 @@ export function renderGraftSketch({
   ctx.fillText(result.device.name, margin, margin + (sc.v_22_14));
   ctx.fillStyle = "#45605b"; ctx.font = `400 ${sc.fontSub}px sans-serif`;
   ctx.fillText(
-    `${result.size.graftDiameter} mm \u00b7 ${result.nPeaks} peaks \u00b7 ${result.size.sheathFr} Fr \u00b7 ${result.device.fabricMaterial} \u00b7 Foreshortening ${(result.device.foreshortening * 100).toFixed(0)}%`,
+    result.device.benchCtDescriptor
+      ? `${result.device.benchCtDescriptor.geometry?.shape === "conical" ? "Measured conical profile" : "Measured cylindrical profile"} \u00b7 ${result.nPeaks} apex rows \u00b7 fabric and fixation zones shown separately`
+      : `${result.size.graftDiameter} mm \u00b7 ${result.nPeaks} peaks \u00b7 ${result.size.sheathFr} Fr \u00b7 ${result.device.fabricMaterial} \u00b7 Foreshortening ${(result.device.foreshortening * 100).toFixed(0)}%`,
     margin, margin + (sc.v_38_24),
   );
   if (caseInput.patientId ?? caseInput.surgeonName) {
@@ -981,16 +1080,24 @@ export function renderGraftSketch({
   // ── 3-D cylinder setup ───────────────────────────────────────────────────
   const { nRings, seamDeg } = result.device;
   const { ringHeight, interRingGap } = getEffectiveRingGeometry(result.device, result.size);
-
+  const benchModel = result.device.benchCtDescriptor
+    ? buildBenchCtRenderModel(result.device.benchCtDescriptor)
+    : null;
   const circ    = result.circumferenceMm;
-  const R       = result.size.graftDiameter / 2;
+  const R       = benchModel
+    ? Math.max(benchModel.diameterAt(0), benchModel.diameterAt(benchModel.fabricLengthMm)) / 2
+    : result.size.graftDiameter / 2;
   const delta   = result.rotation.optimalDeltaMm;
   const proximalRingOffset = result.device.proximalRingOffsetMm ?? 0;
-
-  const maxDepth    = Math.max(
+  const fabricLength = benchModel?.fabricLengthMm ?? Math.max(
     proximalRingOffset + nRings * ringHeight + (nRings - 1) * interRingGap + 16,
+    1,
+  );
+  const maxDepth    = Math.max(
+    fabricLength,
     ...caseInput.fenestrations.map((f) => f.depthMm + 22),
   );
+  const minimumZ = benchModel?.minimumZMm ?? 0;
   const annotW      = sc.v_68_34;
   const cylBodyW    = drawPanelW - annotW - (sc.v_14_8);
   const supraClear  = sc.v_40_24;
@@ -998,43 +1105,73 @@ export function renderGraftSketch({
 
   const baseScale = Math.min(
     cylBodyW / (2 * R),
-    sc.isPrint ? availH / (maxDepth * Math.cos(el)) : Math.min(availH / (maxDepth * Math.cos(el)), 3.0),
+    sc.isPrint
+      ? availH / ((maxDepth - minimumZ) * Math.cos(el))
+      : Math.min(availH / ((maxDepth - minimumZ) * Math.cos(el)), 3.0),
   );
   const scale = baseScale * zoom;
 
   const originX = margin + annotW + cylBodyW / 2 + panX;
-  const originY = bodyY + supraClear + panY;
+  const originY = bodyY + supraClear - minimumZ * Math.cos(el) * scale + panY;
   const cylW    = R * scale;
   const rimRY   = Math.max(cylW * Math.abs(Math.sin(el)), 2.5);
   const rimTopY = originY;
-  const rimBotY = originY + maxDepth * Math.cos(el) * scale;
+  const rimBotY = originY + fabricLength * Math.cos(el) * scale;
 
   // ── Cylinder body ────────────────────────────────────────────────────────
-  drawCylinderBody(ctx, originX, rimTopY, rimBotY, cylW, rimRY);
-  ctx.font = `400 ${sc.fontBack}px sans-serif`;
-  drawZoneTints(
-    ctx,
-    originX,
-    rimTopY,
-    cylW,
-    scale,
-    ringHeight,
-    interRingGap,
-    nRings,
-    el, sc,
-    proximalRingOffset,
-  );
+  if (benchModel) {
+    drawProfiledFabricBody(
+      ctx,
+      (zMm) => benchModel.diameterAt(zMm) / 2,
+      fabricLength,
+      az,
+      el,
+      originX,
+      originY,
+      scale,
+    );
+  } else {
+    drawCylinderBody(ctx, originX, rimTopY, rimBotY, cylW, rimRY);
+    ctx.font = `400 ${sc.fontBack}px sans-serif`;
+    drawZoneTints(
+      ctx,
+      originX,
+      rimTopY,
+      cylW,
+      scale,
+      ringHeight,
+      interRingGap,
+      nRings,
+      el, sc,
+      proximalRingOffset,
+    );
+  }
 
   // Ring labels on right
   {
-    let bZ = proximalRingOffset;
-    ctx.fillStyle = "rgba(107,114,128,0.65)"; ctx.textAlign = "left";
-    for (let r = 0; r < nRings; r++) {
-      ctx.fillText(`Ring ${r + 1}`, originX + cylW + (sc.v_4_3), rimTopY + bZ * Math.cos(el) * scale + ringHeight * Math.cos(el) * scale / 2 + 3);
-      bZ += ringHeight + interRingGap;
+    ctx.fillStyle = "rgba(107,114,128,0.72)"; ctx.textAlign = "left";
+    if (benchModel) {
+      for (const ring of benchModel.rings) {
+        const midpoint = ring.points.reduce((sum, point) => sum + point.zMm, 0) /
+          Math.max(ring.points.length, 1);
+        const y = originY + midpoint * Math.cos(el) * scale;
+        ctx.fillStyle = ring.kind === "bare_fixation" ? "#92400e" : "rgba(107,114,128,0.72)";
+        ctx.fillText(
+          ring.kind === "bare_fixation" ? "Bare fixation" : `Ring ${ring.index + 1}`,
+          originX + cylW + (sc.v_4_3),
+          y + 3,
+        );
+      }
+    } else {
+      let bZ = proximalRingOffset;
+      for (let r = 0; r < nRings; r++) {
+        ctx.fillText(`Ring ${r + 1}`, originX + cylW + (sc.v_4_3), rimTopY + bZ * Math.cos(el) * scale + ringHeight * Math.cos(el) * scale / 2 + 3);
+        bZ += ringHeight + interRingGap;
+      }
     }
   }
 
+  if (!benchModel) {
   // Cylinder walls
   ctx.strokeStyle = "#10211f"; ctx.lineWidth = sc.v_2_0_1_5;
   ctx.beginPath();
@@ -1058,33 +1195,59 @@ export function renderGraftSketch({
   ctx.save(); ctx.setLineDash([sc.v_4_3, sc.v_3_2]); ctx.strokeStyle = "rgba(51,51,51,0.28)";
   ctx.beginPath(); ctx.ellipse(originX, rimBotY, cylW, rimRY, 0, Math.PI, 2 * Math.PI); ctx.stroke();
   ctx.restore();
+  }
 
   // ── Stent rings (Z-stent or sinusoidal depending on device) ─────────────
   const strutLW = sc.v_2_0_1_6;
-  let ringZ     = proximalRingOffset;
-  for (let r = 0; r < nRings; r++) {
-    drawRing3D(
-      ctx,
-      buildRingPtsForDevice(
-        result.device.id,
-        result.device.stentType,
-        R,
-        result.nPeaks,
-        ringHeight,
-        ringZ,
-        r,
-        delta,
-        circ,
-      ),
-      az,
-      el,
-      originX,
-      originY,
-      scale,
-      result.device.color,
-      strutLW,
-    );
-    ringZ += ringHeight + interRingGap;
+  if (benchModel) {
+    for (const ring of benchModel.rings) {
+      drawMeasuredRing3D(
+        ctx,
+        ring.points,
+        az,
+        el,
+        originX,
+        originY,
+        scale,
+        ring.kind === "bare_fixation" ? "#475569" : result.device.color,
+        ring.kind === "bare_fixation" ? strutLW * 1.15 : strutLW,
+      );
+    }
+    for (const barb of benchModel.barbs) {
+      const toPt3D = (point: { thetaRad: number; zMm: number; radiusMm: number }): Pt3D => ({
+        x: point.radiusMm * Math.sin(point.thetaRad),
+        y: point.radiusMm * Math.cos(point.thetaRad),
+        z: point.zMm,
+      });
+      drawSegment3D(ctx, toPt3D(barb.base), toPt3D(barb.tip), az, el, originX, originY, scale, "#111827", 1.25);
+      drawSegment3D(ctx, toPt3D(barb.tip), toPt3D(barb.hook), az, el, originX, originY, scale, "#111827", 1.25);
+    }
+  } else {
+    let ringZ = proximalRingOffset;
+    for (let r = 0; r < nRings; r++) {
+      drawRing3D(
+        ctx,
+        buildRingPtsForDevice(
+          result.device.id,
+          result.device.stentType,
+          R,
+          result.nPeaks,
+          ringHeight,
+          ringZ,
+          r,
+          delta,
+          circ,
+        ),
+        az,
+        el,
+        originX,
+        originY,
+        scale,
+        result.device.color,
+        strutLW,
+      );
+      ringZ += ringHeight + interRingGap;
+    }
   }
 
   // ── Suprarenal stent ─────────────────────────────────────────────────────
@@ -1093,16 +1256,18 @@ export function renderGraftSketch({
     (result.device.hasBareSuprarenal ? 18 : 0);
   const treoLarge = result.device.id === "treo" && result.size.graftDiameter >= 30;
 
-  drawSuprarenal(
-    ctx, R, result.nPeaks, delta, circ, az, el, originX, originY, scale,
-    result.device.color,
-    result.device.id === "treo"
-      ? "crown"
-      : result.device.hasBareSuprarenal
-        ? "zstent"
-        : "none",
-    treoLarge ? supraH + 2 : supraH,
-  );
+  if (!benchModel) {
+    drawSuprarenal(
+      ctx, R, result.nPeaks, delta, circ, az, el, originX, originY, scale,
+      result.device.color,
+      result.device.id === "treo"
+        ? "crown"
+        : result.device.hasBareSuprarenal
+          ? "zstent"
+          : "none",
+      treoLarge ? supraH + 2 : supraH,
+    );
+  }
 
   // ── Infrarenal barbs (TREO valley barbs) ─────────────────────────────────
   if (result.device.hasInfrarenalBarbs) {
@@ -1141,14 +1306,18 @@ export function renderGraftSketch({
   ctx.moveTo(originX + cylW, diaY - (sc.isPrint ? 5 : 3)); ctx.lineTo(originX + cylW, diaY + (sc.isPrint ? 5 : 3));
   ctx.stroke();
   ctx.fillStyle = "#10211f"; ctx.font = `700 ${sc.v_13_9}px sans-serif`; ctx.textAlign = "center";
-  ctx.fillText(`\u00d8 ${result.size.graftDiameter} mm`, originX, diaY - (sc.v_7_4));
+  const diameterLabel = benchModel?.shape === "conical"
+    ? `\u00d8 ${benchModel.diameterAt(0).toFixed(1)} → ${benchModel.diameterAt(fabricLength).toFixed(1)} mm`
+    : `\u00d8 ${(benchModel?.diameterAt(0) ?? result.size.graftDiameter).toFixed(1)} mm`;
+  ctx.fillText(diameterLabel, originX, diaY - (sc.v_7_4));
   ctx.textAlign = "left";
 
   // ── Clock guide labels at proximal rim ───────────────────────────────────
   ctx.font = `600 ${sc.v_9_6_5}px sans-serif`; ctx.textAlign = "center";
   for (const [label, deg] of [["12:00 (A)", 0], ["3:00", 90], ["9:00", 270]] as [string, number][]) {
     const theta = ((delta / circ) + deg / 360) * 2 * Math.PI;
-    const q = project3D(R * Math.sin(theta), R * Math.cos(theta), 0, az, el, originX, originY, scale);
+    const guideRadius = benchModel?.diameterAt(0) ? benchModel.diameterAt(0) / 2 : R;
+    const q = project3D(guideRadius * Math.sin(theta), guideRadius * Math.cos(theta), 0, az, el, originX, originY, scale);
     if (q.d < 0) continue;
     ctx.fillStyle = "#374151";
     ctx.fillText(label, q.sx, rimTopY - rimRY - (sc.v_8_5));
@@ -1168,19 +1337,21 @@ export function renderGraftSketch({
     // CT / workstation 3-D reconstruction.  The punch card uses adjustedClock
     // (graft-frame cut positions) — both are correct for their purpose.
     const clockDeg    = (clockToArc(fen.clock, circ) / circ) * 360;
-    const isStrFree   = !isConflict && fen.ftype !== "SCALLOP"
-      && isInInterRingGap(
-        fen.depthMm,
-        ringHeight,
-        interRingGap,
-        nRings,
-        proximalRingOffset,
-      );
+    const isStrFree = !isConflict && fen.ftype !== "SCALLOP" && (benchModel
+      ? true
+      : isInInterRingGap(
+          fen.depthMm,
+          ringHeight,
+          interRingGap,
+          nRings,
+          proximalRingOffset,
+        ));
 
     const dl = drawFenestration3D(
       ctx, R, clockDeg, fen.depthMm, fen.widthMm, fen.heightMm,
       fen.vessel, fen.ftype, isConflict, conflict?.minDist ?? 0, isStrFree,
       delta, circ, az, el, originX, originY, scale, sc,
+      benchModel ? (depthMm) => benchModel.diameterAt(depthMm) / 2 : undefined,
     );
     if (dl) dimLines.push(dl);
   });

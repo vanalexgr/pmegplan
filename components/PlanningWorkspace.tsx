@@ -34,6 +34,10 @@ import {
 } from "@/components/ui/card";
 import { GraftSketchCanvas } from "@/components/GraftSketchCanvas";
 import { PmegMeasurementCockpit } from "@/components/PmegMeasurementCockpit";
+import {
+  buildBenchCtRenderModel,
+  sampleBenchCtRing,
+} from "@/lib/geometry/benchCtRenderModel";
 import { isValidClockText, normalizeClockText } from "@/lib/planning/clock";
 import {
   isLikelyCompatibleTextExport,
@@ -182,19 +186,71 @@ export function PlanningWorkspace({
   const circumference =
     overlayResult?.circumferenceMm ?? circumferenceMm(graftDiameterMm);
   const templateHeight = project.graft.templateHeightMm;
-  const contentScale = Math.min(760 / circumference, 360 / templateHeight);
-  const plotWidth = circumference * contentScale;
-  const plotHeight = templateHeight * contentScale;
+  const benchModel = overlayResult?.device.benchCtDescriptor
+    ? buildBenchCtRenderModel(overlayResult.device.benchCtDescriptor)
+    : null;
+  const fabricHeight = Math.max(templateHeight, benchModel?.fabricLengthMm ?? 0);
+  const bareHeight = Math.max(0, -(benchModel?.minimumZMm ?? 0));
+  const mapHeight = fabricHeight + bareHeight;
+  const maximumCircumference = benchModel
+    ? Math.max(
+        circumference,
+        Math.PI * benchModel.diameterAt(0),
+        Math.PI * benchModel.diameterAt(fabricHeight),
+      )
+    : circumference;
+  const contentScale = Math.min(760 / maximumCircumference, 360 / mapHeight);
+  const plotWidth = maximumCircumference * contentScale;
+  const plotHeight = mapHeight * contentScale;
   const plotLeft = 44 + (832 - plotWidth) / 2;
   const plotTop = 112;
+  const fabricTop = plotTop + bareHeight * contentScale;
   const plotBottom = plotTop + plotHeight;
+  const fabricTopWidth = benchModel
+    ? plotWidth * (benchModel.diameterAt(0) / Math.max(benchModel.diameterAt(0), benchModel.diameterAt(fabricHeight)))
+    : plotWidth;
+  const fabricBottomWidth = benchModel
+    ? plotWidth * (benchModel.diameterAt(fabricHeight) / Math.max(benchModel.diameterAt(0), benchModel.diameterAt(fabricHeight)))
+    : plotWidth;
+  const fabricTopLeft = plotLeft + (plotWidth - fabricTopWidth) / 2;
+  const fabricBottomLeft = plotLeft + (plotWidth - fabricBottomWidth) / 2;
+  const mapWidthAtDepth = (depthMm: number) => benchModel
+    ? Math.PI * benchModel.diameterAt(Math.max(0, Math.min(depthMm, fabricHeight))) * contentScale
+    : plotWidth;
+  const arcToMapX = (arcMm: number, depthMm: number) => {
+    const localWidth = mapWidthAtDepth(depthMm);
+    return plotLeft + (plotWidth - localWidth) / 2 + (arcMm / circumference) * localWidth;
+  };
   const planarFenestrations = selectPlanarFenestrationsForDiameter(
     project,
     graftDiameterMm,
   );
+  const sourceStrutSegments = benchModel
+    ? benchModel.rings.flatMap((ring) =>
+        sampleBenchCtRing(ring.points).map((point, index, points) => {
+          const next = points[(index + 1) % points.length];
+          const startX = (point.thetaRad / (Math.PI * 2)) * circumference;
+          const nextX = (next.thetaRad / (Math.PI * 2)) * circumference;
+          return {
+            key: `measured-${ring.index}-${index}`,
+            fixation: ring.kind === "bare_fixation",
+            segment: [
+              startX,
+              point.zMm,
+              index === points.length - 1 && nextX <= startX ? nextX + circumference : nextX,
+              next.zMm,
+            ] as const,
+          };
+        }),
+      )
+    : (overlayResult?.strutSegments ?? []).map((segment, index) => ({
+        key: `parametric-${index}`,
+        fixation: false,
+        segment,
+      }));
   const visibleStrutSegments =
     showStruts && overlayResult?.size
-      ? overlayResult.strutSegments.flatMap((segment, segmentIndex) =>
+      ? sourceStrutSegments.flatMap(({ segment, key, fixation }) =>
           [-circumference, 0, circumference].flatMap((offset) => {
             const ax = segment[0] + offset;
             const bx = segment[2] + offset;
@@ -207,7 +263,8 @@ export function PlanningWorkspace({
 
             return [
               {
-                key: `${segmentIndex}-${offset}`,
+                key: `${key}-${offset}`,
+                fixation,
                 ax,
                 ay: segment[1],
                 bx,
@@ -291,11 +348,11 @@ export function PlanningWorkspace({
   });
 
   const pointToSvg = (point: PlanarPointMm) => ({
-    x:
-      plotLeft +
-      (point.xMm >= circumference ? circumference : wrapMm(point.xMm, circumference)) *
-        contentScale,
-    y: plotTop + point.yMm * contentScale,
+    x: arcToMapX(
+      point.xMm >= circumference ? circumference : wrapMm(point.xMm, circumference),
+      point.yMm,
+    ),
+    y: fabricTop + point.yMm * contentScale,
   });
 
   const pointerToPlanarPoint = (
@@ -313,10 +370,14 @@ export function PlanningWorkspace({
 
     const svgX = ((event.clientX - rect.left) / rect.width) * viewBoxWidth;
     const svgY = ((event.clientY - rect.top) / rect.height) * viewBoxHeight;
-    const xMm = Math.min(Math.max((svgX - plotLeft) / contentScale, 0), circumference);
     const yMm = Math.min(
-      Math.max((svgY - plotTop) / contentScale, 0),
+      Math.max((svgY - fabricTop) / contentScale, 0),
       templateHeight,
+    );
+    const localWidth = mapWidthAtDepth(yMm);
+    const xMm = Math.min(
+      Math.max(((svgX - (plotLeft + (plotWidth - localWidth) / 2)) / localWidth) * circumference, 0),
+      circumference,
     );
 
     return { xMm, yMm };
@@ -653,18 +714,71 @@ export function PlanningWorkspace({
                 strokeWidth={2}
               />
 
+              {benchModel ? (
+                <>
+                  <path
+                    d={`M ${fabricTopLeft} ${fabricTop} L ${fabricBottomLeft} ${plotBottom} L ${fabricBottomLeft + fabricBottomWidth} ${plotBottom} L ${fabricTopLeft + fabricTopWidth} ${fabricTop} Z`}
+                    fill={benchModel.shape === "conical" ? "rgba(14,116,144,0.08)" : "rgba(12,84,72,0.06)"}
+                    stroke={benchModel.shape === "conical" ? "rgba(14,116,144,0.48)" : "rgba(12,84,72,0.25)"}
+                    strokeWidth={1.5}
+                    strokeDasharray={benchModel.shape === "conical" ? "6 5" : undefined}
+                  />
+                  <line
+                    x1={plotLeft}
+                    x2={plotLeft + plotWidth}
+                    y1={fabricTop}
+                    y2={fabricTop}
+                    stroke="rgba(146,64,14,0.75)"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                  />
+                  {bareHeight > 0 ? (
+                    <text
+                      x={plotLeft + plotWidth / 2}
+                      y={plotTop + 18}
+                      fill="rgba(146,64,14,0.88)"
+                      fontSize={13}
+                      fontWeight={700}
+                      textAnchor="middle"
+                    >
+                      Bare fixation + barb zone · fabric begins below
+                    </text>
+                  ) : null}
+                </>
+              ) : null}
+
               {visibleStrutSegments.map((segment) => (
                 <line
                   key={segment.key}
-                  x1={plotLeft + segment.ax * contentScale}
-                  y1={plotTop + segment.ay * contentScale}
-                  x2={plotLeft + segment.bx * contentScale}
-                  y2={plotTop + segment.by * contentScale}
-                  stroke={overlayResult?.device.color ?? "rgba(12,84,72,0.36)"}
-                  strokeOpacity={0.45}
-                  strokeWidth={2}
+                  x1={arcToMapX(segment.ax, segment.ay)}
+                  y1={fabricTop + segment.ay * contentScale}
+                  x2={arcToMapX(segment.bx, segment.by)}
+                  y2={fabricTop + segment.by * contentScale}
+                  stroke={segment.fixation ? "#475569" : overlayResult?.device.color ?? "rgba(12,84,72,0.36)"}
+                  strokeOpacity={segment.fixation ? 0.9 : 0.45}
+                  strokeWidth={segment.fixation ? 2.6 : 2}
                 />
               ))}
+
+              {benchModel?.barbs.map((barb, index) => {
+                const baseX = arcToMapX(
+                  (barb.base.thetaRad / (Math.PI * 2)) * circumference,
+                  barb.base.zMm,
+                );
+                const tipX = arcToMapX(
+                  (barb.tip.thetaRad / (Math.PI * 2)) * circumference,
+                  barb.tip.zMm,
+                );
+                return (
+                  <path
+                    key={`barb-${index}`}
+                    d={`M ${baseX} ${fabricTop + barb.base.zMm * contentScale} L ${tipX} ${fabricTop + barb.tip.zMm * contentScale} L ${arcToMapX((barb.hook.thetaRad / (Math.PI * 2)) * circumference, barb.hook.zMm)} ${fabricTop + barb.hook.zMm * contentScale}`}
+                    fill="none"
+                    stroke="#111827"
+                    strokeWidth={1.8}
+                  />
+                );
+              })}
 
               {guideFractions.map(({ label, fraction }) => {
                 const x = plotLeft + fraction * plotWidth;
@@ -674,7 +788,7 @@ export function PlanningWorkspace({
                     <line
                       x1={x}
                       x2={x}
-                      y1={plotTop}
+                      y1={fabricTop}
                       y2={plotBottom}
                       stroke="rgba(12,84,72,0.14)"
                       strokeDasharray="7 8"
@@ -695,7 +809,7 @@ export function PlanningWorkspace({
               })}
 
               {[0.25, 0.5, 0.75].map((fraction) => {
-                const y = plotTop + fraction * plotHeight;
+                const y = fabricTop + fraction * (plotBottom - fabricTop);
 
                 return (
                   <line
@@ -718,7 +832,9 @@ export function PlanningWorkspace({
                 fontSize={15}
                 fontWeight={500}
               >
-                Circumference {formatMm(circumference)}
+                {benchModel?.shape === "conical"
+                  ? `Measured taper ${formatMm(benchModel.diameterAt(0))} → ${formatMm(benchModel.diameterAt(fabricHeight))}`
+                  : `Circumference ${formatMm(circumference)}`}
               </text>
               <text
                 x={plotLeft + plotWidth}
@@ -834,12 +950,16 @@ export function PlanningWorkspace({
                     </p>
                   </div>
                   <p className="mt-3 text-sm font-semibold text-[color:var(--foreground)]">
-                    Device sketch for {overlayResult.device.shortName}
+                    {overlayResult.device.benchCtDescriptor
+                      ? `Measured CT anatomy for ${overlayResult.device.shortName}`
+                      : `Device sketch for ${overlayResult.device.shortName}`}
                   </p>
                   <p className="mt-1 text-sm leading-6 text-[color:var(--muted-foreground)]">
-                    Use this as the main device-specific review view. Switch between
-                    rotate and move, use the zoom controls, and inspect strut windows
-                    before dropping back to the summary cards.
+                    {overlayResult.device.benchCtDescriptor?.geometry?.shape === "conical"
+                      ? "Measured ring apices are placed on the changing CT-derived diameter profile; rotate to inspect the taper rather than a cylindrical approximation."
+                      : overlayResult.device.benchCtDescriptor?.geometry?.proximal_fixation.ring_count
+                        ? "Measured wire rows are shown with a separate bare fixation zone and topology-annotated barb hooks above the fabric edge."
+                        : "Use this as the main device-specific review view. Switch between rotate and move, use the zoom controls, and inspect strut windows before dropping back to the summary cards."}
                   </p>
                 </div>
                 <Badge className="bg-white text-[color:var(--foreground)]">
