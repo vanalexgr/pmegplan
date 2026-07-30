@@ -54,6 +54,14 @@ export function CtModelViewport({
   );
   const activeIndex = measurementSet?.activeIndex ?? 0;
   const activeFenestration = caseInput.fenestrations[activeIndex] ?? null;
+  const activeConflict = result.optimalConflicts[activeIndex];
+  const ctMarkClock = activeConflict?.adjustedClock ?? activeFenestration?.clock;
+  const ctMarkDepth = activeFenestration
+    ? activeFenestration.ftype === "SCALLOP"
+      ? 0
+      : result.depthOptimisation.adjustedDepths[activeIndex] ??
+        activeFenestration.depthMm
+    : 0;
 
   return (
     <section className="relative min-h-0 flex-1 overflow-hidden bg-[#dfe8e5]">
@@ -86,6 +94,24 @@ export function CtModelViewport({
                   </p>
                 </div>
                 <Crosshair className="size-4 text-[#ff8a72]" />
+              </div>
+              <div className="grid grid-cols-2 gap-3 border-b border-white/10 px-4 py-3 font-mono text-[10px]">
+                <div>
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.11em] text-white/40">
+                    Requested target
+                  </p>
+                  <p className="mt-1 text-white/85">
+                    {activeFenestration.clock} · {activeFenestration.depthMm.toFixed(1)} mm
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.11em] text-[#ffab98]/75">
+                    CT mark position
+                  </p>
+                  <p className="mt-1 text-[#ffab98]">
+                    {ctMarkClock} · {ctMarkDepth.toFixed(1)} mm
+                  </p>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5">
                 {measurementSet.measurements

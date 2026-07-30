@@ -12,6 +12,7 @@ import {
   pushPoint,
   pointsToSegments,
 } from "@/lib/geometry/waveform";
+import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
 import type { BenchCtDeviceDescriptor } from "@/lib/geometry/benchCtDeviceLibrary";
 import type { WaveformPattern } from "@/lib/geometry/waveform";
 import type { DeviceGeometry, StrutSegment } from "@/lib/types";
@@ -37,15 +38,17 @@ export function buildBenchCtStrutSegments(
   circumferenceMm: number,
 ): StrutSegment[] {
   const segments: StrutSegment[] = [];
+  const model = buildBenchCtRenderModel(descriptor);
 
-  for (const ring of descriptor.rings) {
-    const apices = [...ring.proximal_apices, ...ring.distal_apices]
-      .sort((a, b) => a.theta_deg - b.theta_deg);
-    if (apices.length < 2) continue;
+  for (const ring of model.rings) {
+    const pointsOnRing = [...ring.points].sort(
+      (left, right) => left.thetaRad - right.thetaRad,
+    );
+    if (pointsOnRing.length < 2) continue;
 
-    const points: Array<[number, number]> = apices.map((apex) => [
-      (apex.theta_deg / 360) * circumferenceMm,
-      apex.z_mm,
+    const points: Array<[number, number]> = pointsOnRing.map((point) => [
+      (point.thetaRad / (Math.PI * 2)) * circumferenceMm,
+      point.zMm,
     ]);
     // Add the first point one circumference later, retaining the closing wire
     // across 0° for the punch-card renderer's wrap-aware drawing code.
@@ -143,10 +146,7 @@ export function buildStrutSegments(
 
 export function getSealZoneHeightMm(device: DeviceGeometry) {
   if (device.benchCtDescriptor) {
-    return Math.max(...device.benchCtDescriptor.rings.flatMap((ring) => [
-      ring.z_proximal_apices_mm ?? 0,
-      ring.z_distal_apices_mm ?? 0,
-    ]));
+    return buildBenchCtRenderModel(device.benchCtDescriptor).fabricLengthMm;
   }
   return (
     (device.proximalRingOffsetMm ?? 0) +

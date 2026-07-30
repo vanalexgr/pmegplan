@@ -33,6 +33,20 @@ describe("bench CT device library", () => {
     expect(segments).toHaveLength(apexCount);
   });
 
+  it("uses the same proximal-fabric datum as the measured 3-D renderer", () => {
+    const scan2 = getBenchCtDeviceDescriptor("Endograft_2", "scan2");
+    if (!scan2) throw new Error("Expected Endograft_2 scan descriptor");
+    const model = buildBenchCtRenderModel(scan2);
+    const segments = buildBenchCtStrutSegments(scan2, Math.PI * 42.5);
+    const segmentZ = segments.flatMap((segment) => [segment[1], segment[3]]);
+    const modelZ = model.rings.flatMap((ring) =>
+      ring.points.map((point) => point.zMm),
+    );
+
+    expect(Math.min(...segmentZ)).toBeCloseTo(Math.min(...modelZ));
+    expect(Math.max(...segmentZ)).toBeCloseTo(Math.max(...modelZ));
+  });
+
   it("routes an explicit bench preview through measured rather than parametric struts", () => {
     const preview = ALL_DEVICES.find((device) => device.id === "bench-ct-endograft-1-scan1");
     if (!preview?.benchCtDescriptor) throw new Error("Expected Endograft_1 preview device");

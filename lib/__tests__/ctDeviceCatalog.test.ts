@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CT_SCAN_REFERENCES,
+  getMeasuredCtScanModel,
   isCtSizeSelection,
   selectCtComponent,
 } from "@/lib/ctDeviceCatalog";
@@ -50,14 +51,19 @@ describe("CT-first thoracic device catalog", () => {
     expect(isCtSizeSelection(selection)).toBe(false);
   });
 
-  it("marks unscanned sizes as scaled proxies and preserves target taper", () => {
-    const selection = selectCtComponent("tx2-pro-form", 35, 26, 160);
-    expect(isCtSizeSelection(selection)).toBe(true);
-    if (!isCtSizeSelection(selection)) return;
-    expect(selection.evidence).toBe("scaled_proxy");
-    expect(selection.descriptor.ct_model?.reference_scan).toBe("scan2");
-    const model = buildBenchCtRenderModel(selection.descriptor);
-    expect(model.diameterAt(0)).toBeCloseTo(40, 0);
-    expect(model.diameterAt(model.fabricLengthMm)).toBeCloseTo(30, 0);
+  it("returns only an unscaled physical CT model for the measured-only workspace", () => {
+    const scan = getMeasuredCtScanModel("scan2");
+    const model = buildBenchCtRenderModel(scan.device.benchCtDescriptor!);
+
+    expect(scan.reference.id).toBe("scan2");
+    expect(scan.device.id).toBe("ct-measured-scan2");
+    expect(scan.device.benchCtDescriptor?.ct_model?.evidence).toBe(
+      "measured_scan",
+    );
+    expect(scan.device.benchCtDescriptor?.ct_model?.radial_scale).toBe(1);
+    expect(scan.device.benchCtDescriptor?.ct_model?.axial_scale).toBe(1);
+    expect(scan.device.sizes[0].graftDiameter).toBeCloseTo(
+      model.diameterAt(0),
+    );
   });
 });

@@ -2,6 +2,7 @@ import {
   getBenchCtDeviceDescriptor,
   type BenchCtDeviceDescriptor,
 } from "@/lib/geometry/benchCtDeviceLibrary";
+import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
 import type { DeviceGeometry, DeviceSize } from "@/lib/types";
 
 export type CtPlatformId = "zenith-alpha-thoracic" | "tx2-pro-form";
@@ -42,6 +43,19 @@ export interface CtScanReference {
     lengthMm: number;
   };
   identityNote: string;
+}
+
+export type CtScanId = CtScanReference["id"];
+
+/**
+ * A rendering and measurement model anchored to one actual bench CT scan.
+ * This is deliberately separate from IFU component selection: it is not a
+ * recommendation for an unscanned component and it must never be scaled.
+ */
+export interface MeasuredCtScanModel {
+  reference: CtScanReference;
+  platform: CtPlatform;
+  device: DeviceGeometry;
 }
 
 export interface CtSizeSelection {
@@ -494,6 +508,85 @@ function buildRuntimeDevice(
     sizes: [size],
     sources: [platform.sourceLabel, `Bench CT ${descriptor.ct_model?.reference_scan}`],
     benchCtDescriptor: descriptor,
+  };
+}
+
+function componentForReference(
+  platform: CtPlatform,
+  reference: CtScanReference,
+) {
+  return platform.components.find(
+    (component) =>
+      component.proximalGraftDiameterMm ===
+        reference.candidateNominal.proximalDiameterMm &&
+      component.distalGraftDiameterMm ===
+        reference.candidateNominal.distalDiameterMm &&
+      component.lengthsMm.includes(reference.candidateNominal.lengthMm),
+  );
+}
+
+/**
+ * Returns one of the three actual CT models. No geometry is interpolated,
+ * stretched, or borrowed from another scan in this path.
+ */
+export function getMeasuredCtScanModel(
+  scanId: CtScanId,
+): MeasuredCtScanModel {
+  const reference = CT_SCAN_REFERENCES.find((item) => item.id === scanId);
+  if (!reference) {
+    throw new Error(`Unknown measured CT scan ${scanId}.`);
+  }
+  const platform = getCtPlatform(reference.platformId);
+  if (!platform) {
+    throw new Error(`Missing platform for measured CT scan ${scanId}.`);
+  }
+  const component = componentForReference(platform, reference);
+  if (!component) {
+    throw new Error(`No catalog record matches measured CT scan ${scanId}.`);
+  }
+
+  const descriptor = scaleDescriptor(
+    reference,
+    component,
+    reference.candidateNominal.lengthMm,
+    "measured_scan",
+  );
+  const referenceDevice = buildRuntimeDevice(
+    platform,
+    component,
+    reference.candidateNominal.lengthMm,
+    descriptor,
+  );
+  const measuredModel = buildBenchCtRenderModel(descriptor);
+  const measuredDiameterMm = measuredModel.diameterAt(0);
+  const nPeaks = mostCommon(descriptor.rings.map((ring) => ring.n_apices));
+
+  return {
+    reference,
+    platform,
+    device: {
+      ...referenceDevice,
+      id: `ct-measured-${reference.id}`,
+      name: `${platform.label} · ${reference.id.toUpperCase()}`,
+      shortName: `${reference.id.toUpperCase()} · measured CT`,
+      pmegNotes:
+        "Measured free-state CT geometry only. It is not an IFU size recommendation; candidate nominal identity requires packaging confirmation.",
+      waveWidthMm:
+        nPeaks > 0 ? (Math.PI * measuredDiameterMm) / nPeaks : 0,
+      sizes: [
+        {
+          ...referenceDevice.sizes[0],
+          // This synthetic range is used only to let the legacy analysis
+          // engine operate on the selected physical scan. It is never exposed
+          // as sizing guidance in the CT-only workspace.
+          graftDiameter: measuredDiameterMm,
+          neckDiameterMin: 0,
+          neckDiameterMax: Number.POSITIVE_INFINITY,
+          nPeaks,
+          mainBodyLengths: [measuredModel.fabricLengthMm],
+        },
+      ],
+    },
   };
 }
 
