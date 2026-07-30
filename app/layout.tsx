@@ -15,9 +15,22 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PMEGplan · Dimensional Back-table Guidance",
+  title: "PMEGplan · CT-derived PMEG Model",
   description:
-    "Interactive PMEG planning with device-specific strut geometry, vessel reconstruction, and ruler-ready back-table measurements.",
+    "Interactive CT-derived PMEG reconstruction with selectable fenestrations and on-model dimensional guidance.",
+  openGraph: {
+    title: "PMEGplan · CT-derived PMEG Model",
+    description:
+      "Interactive CT-derived PMEG reconstruction with selectable fenestrations and on-model dimensional guidance.",
+    siteName: "PMEGplan",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PMEGplan · CT-derived PMEG Model",
+    description:
+      "Interactive CT-derived PMEG reconstruction with selectable fenestrations and on-model dimensional guidance.",
+  },
 };
 
 export default function RootLayout({

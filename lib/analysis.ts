@@ -517,6 +517,14 @@ function analyseDevice(
   };
 }
 
+/** Analyse a CT-derived runtime device without adding it to the legacy catalog. */
+export function analyseDeviceGeometry(
+  caseInput: CaseInput,
+  device: DeviceGeometry,
+): DeviceAnalysisResult {
+  return analyseDevice(caseInput, device);
+}
+
 function resolveDevices(deviceIds?: string[]) {
   return deviceIds?.length
     ? deviceIds
@@ -655,7 +663,7 @@ export function getDeploymentPlanSummary(
   // ── Per-fenestration adjusted positions ────────────────────────────────────
   const fenLines = caseInput.fenestrations
     .filter((f) => f.ftype !== "SCALLOP")
-    .map((fen, i) => {
+    .map((fen) => {
       const idx        = caseInput.fenestrations.indexOf(fen);
       const adjClock   = result.optimalConflicts[idx]?.adjustedClock ?? fen.clock;
       const adjDepth   = depthOptimisation.adjustedDepths[idx] ?? fen.depthMm;

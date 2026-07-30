@@ -56,6 +56,19 @@ export interface BenchCtDeviceDescriptor {
     /** Which output scan-z end is anatomically proximal before rendering. */
     anatomical_proximal_z?: "low" | "high";
   };
+  /**
+   * Provenance for a runtime CT-derived model. Exact scans remain untouched;
+   * scaled variants retain their source scan and are never presented as
+   * directly measured geometry.
+   */
+  ct_model?: {
+    evidence: "measured_scan" | "scaled_proxy";
+    identity_status: "confirmed_platform" | "candidate_nominal_size";
+    reference_scan: string;
+    target_component: string;
+    radial_scale: number;
+    axial_scale: number;
+  };
   rings: BenchCtRing[];
 }
 

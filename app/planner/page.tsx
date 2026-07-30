@@ -1,6 +1,5 @@
-import { PlannerClient } from "@/components/PlannerClient";
+import { CtPmegStudio } from "@/components/CtPmegStudio";
 
 export default function PlannerPage() {
-  return <PlannerClient />;
+  return <CtPmegStudio />;
 }
-

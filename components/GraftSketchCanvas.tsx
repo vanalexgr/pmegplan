@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   renderGraftSketch,
@@ -31,6 +37,7 @@ interface GraftSketchCanvasProps {
   fenestrationFrame?: "anatomical" | "graft";
   selectedFenestrationIndex?: number | null;
   onSelectFenestration?: (index: number) => void;
+  selectedFenestrationOverlay?: ReactNode;
 }
 
 function clampZoom(value: number) {
@@ -47,6 +54,7 @@ export function GraftSketchCanvas({
   fenestrationFrame = "anatomical",
   selectedFenestrationIndex = null,
   onSelectFenestration,
+  selectedFenestrationOverlay,
 }: GraftSketchCanvasProps) {
   const defaultPanY = Math.round(height * PAN_Y_DEFAULT_RATIO);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -55,6 +63,11 @@ export function GraftSketchCanvas({
   const [width, setWidth] = useState(0);
   const [mode, setMode] = useState<InteractionMode>("rotate");
   const [zoomDisplay, setZoomDisplay] = useState(Math.round(ZOOM_DEFAULT * 100));
+  const [selectedAnchor, setSelectedAnchor] = useState<{
+    x: number;
+    y: number;
+    front: boolean;
+  } | null>(null);
 
   const azRef = useRef(AZ_DEFAULT);
   const elRef = useRef(EL_DEFAULT);
@@ -126,6 +139,27 @@ export function GraftSketchCanvas({
       selectedFenestrationIndex,
     });
     hitTargetsRef.current = renderResult.fenestrationHitTargets;
+    const selectedTarget = renderResult.fenestrationHitTargets.find(
+      (target) => target.index === selectedFenestrationIndex,
+    );
+    setSelectedAnchor((current) => {
+      if (!selectedTarget) {
+        return current === null ? current : null;
+      }
+      if (
+        current &&
+        Math.abs(current.x - selectedTarget.x) < 0.5 &&
+        Math.abs(current.y - selectedTarget.y) < 0.5 &&
+        current.front === selectedTarget.front
+      ) {
+        return current;
+      }
+      return {
+        x: selectedTarget.x,
+        y: selectedTarget.y,
+        front: selectedTarget.front,
+      };
+    });
   }, [
     caseInput,
     fenestrationFrame,
@@ -412,6 +446,43 @@ export function GraftSketchCanvas({
             canvasClassName,
           )}
         />
+
+        {selectedFenestrationOverlay && selectedAnchor ? (
+          <>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute z-10 h-px bg-[#ff8a72]/70"
+              style={{
+                left:
+                  selectedAnchor.x > width * 0.58
+                    ? selectedAnchor.x - 28
+                    : selectedAnchor.x,
+                top: selectedAnchor.y,
+                width: 28,
+              }}
+            />
+            <div
+              className="pointer-events-none absolute z-20"
+              style={{
+                left:
+                  selectedAnchor.x > width * 0.58
+                    ? Math.max(14, selectedAnchor.x - 304)
+                    : Math.min(
+                        Math.max(14, width - 290),
+                        selectedAnchor.x + 28,
+                      ),
+                top: Math.min(
+                  Math.max(14, selectedAnchor.y - 74),
+                  Math.max(14, height - 286),
+                ),
+                width: 276,
+                opacity: selectedAnchor.front ? 1 : 0.78,
+              }}
+            >
+              {selectedFenestrationOverlay}
+            </div>
+          </>
+        ) : null}
 
         <div className="absolute bottom-3 left-3 flex items-center gap-2">
           <span
