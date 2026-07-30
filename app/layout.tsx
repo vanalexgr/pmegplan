@@ -15,9 +15,9 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PMEGplan.io",
+  title: "PMEGplan · Dimensional Back-table Guidance",
   description:
-    "AI-assisted PMEG fenestration planning workspace with shared audit logging, device comparison, rotation optimisation, and printable punch-card generation.",
+    "Interactive PMEG planning with device-specific strut geometry, vessel reconstruction, and ruler-ready back-table measurements.",
 };
 
 export default function RootLayout({

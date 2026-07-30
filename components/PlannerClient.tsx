@@ -556,12 +556,13 @@ export function PlannerClient() {
             Clinical planning workspace
           </p>
           <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-balance text-[color:var(--foreground)] sm:text-5xl">
-            Compare PMEG platforms, optimise rotation, and export back-table punch cards.
+            Plan the PMEG, then mark it directly from its physical landmarks.
           </h1>
           <p className="max-w-2xl text-base leading-7 text-[color:var(--muted-foreground)]">
-            The MVP planner hard-codes the four main devices that are used for PMEG from the
-            technical specification, runs full-circumference strut conflict scans,
-            and generates printable device-specific templates for the selected anatomy.
+            Compare device platforms, optimise the opening pattern against the
+            strut lattice, then use an interactive reconstruction to measure each
+            fenestration from the fabric edge, adjacent strut landmarks, and other
+            planned vessels.
           </p>
         </div>
 
@@ -569,7 +570,7 @@ export function PlannerClient() {
           {[
             ["4", "OTS infrarenal platforms"],
             ["0.1 mm", "rotation scan resolution"],
-            ["1:1", "punch-card export scale"],
+            ["8", "landmark distances per opening"],
           ].map(([value, label]) => (
             <div
               key={label}

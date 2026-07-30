@@ -33,6 +33,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { GraftSketchCanvas } from "@/components/GraftSketchCanvas";
+import { PmegMeasurementCockpit } from "@/components/PmegMeasurementCockpit";
 import { isValidClockText, normalizeClockText } from "@/lib/planning/clock";
 import {
   isLikelyCompatibleTextExport,
@@ -545,11 +546,11 @@ export function PlanningWorkspace({
                 {project.fenestrations.length === 1 ? "" : "s"}
               </Badge>
             </div>
-            <CardTitle>Interactive graft workspace</CardTitle>
+            <CardTitle>Back-table measurement workspace</CardTitle>
             <CardDescription>
-              Drag any fenestration on the unrolled graft map to update its normalized
-              clock position and proximal depth, with the previous location kept as a
-              ghost marker for reference.
+              Select any planned opening on the device reconstruction to reveal a
+              redundant stack of fabric, strut, seam, and adjacent-vessel distances
+              for direct ruler-based marking.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -584,6 +585,24 @@ export function PlanningWorkspace({
           </div>
         </div>
       </CardHeader>
+
+      <div className="border-b border-[color:var(--border)] bg-[#dfeae7] p-3 sm:p-5">
+        <PmegMeasurementCockpit
+          project={project}
+          overlayResult={overlayResult}
+        />
+      </div>
+
+      <div className="border-b border-[color:var(--border)] bg-white/55 px-5 py-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--brand)]">
+          Precision editing & alternate views
+        </p>
+        <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">
+          Use the unrolled editing surface below when a coordinate needs to be
+          adjusted; the measurement reconstruction above remains the primary
+          back-table guide.
+        </p>
+      </div>
 
       <CardContent className="grid gap-6 px-0 py-0 xl:grid-cols-[1.35fr_0.65fr]">
         <div className="border-b border-[color:var(--border)] p-4 xl:border-b-0 xl:border-r">
