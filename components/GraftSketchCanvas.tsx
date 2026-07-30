@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { renderGraftSketch } from "@/lib/graftSketchRenderer";
+import {
+  renderGraftSketch,
+  type GraftSketchFenestrationHitTarget,
+} from "@/lib/graftSketchRenderer";
 import { cn } from "@/lib/utils";
 import type { CaseInput, DeviceAnalysisResult } from "@/lib/types";
 
@@ -23,6 +26,11 @@ interface GraftSketchCanvasProps {
   caseInput: CaseInput;
   height?: number;
   className?: string;
+  canvasClassName?: string;
+  layout?: "review" | "model-only";
+  fenestrationFrame?: "anatomical" | "graft";
+  selectedFenestrationIndex?: number | null;
+  onSelectFenestration?: (index: number) => void;
 }
 
 function clampZoom(value: number) {
@@ -34,6 +42,11 @@ export function GraftSketchCanvas({
   caseInput,
   height = 480,
   className,
+  canvasClassName,
+  layout = "review",
+  fenestrationFrame = "anatomical",
+  selectedFenestrationIndex = null,
+  onSelectFenestration,
 }: GraftSketchCanvasProps) {
   const defaultPanY = Math.round(height * PAN_Y_DEFAULT_RATIO);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -55,6 +68,9 @@ export function GraftSketchCanvas({
   const lastYRef = useRef(0);
   const pinchDistanceRef = useRef(0);
   const pinchCenterRef = useRef({ x: 0, y: 0 });
+  const gestureOriginRef = useRef({ x: 0, y: 0 });
+  const gestureMovedRef = useRef(false);
+  const hitTargetsRef = useRef<GraftSketchFenestrationHitTarget[]>([]);
 
   useEffect(() => {
     const element = frameRef.current;
@@ -93,7 +109,7 @@ export function GraftSketchCanvas({
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.scale(dpr, dpr);
 
-    renderGraftSketch({
+    const renderResult = renderGraftSketch({
       ctx: context,
       width,
       height,
@@ -105,8 +121,20 @@ export function GraftSketchCanvas({
       zoom: zoomRef.current,
       panX: panXRef.current,
       panY: panYRef.current,
+      layout,
+      fenestrationFrame,
+      selectedFenestrationIndex,
     });
-  }, [caseInput, height, result, width]);
+    hitTargetsRef.current = renderResult.fenestrationHitTargets;
+  }, [
+    caseInput,
+    fenestrationFrame,
+    height,
+    layout,
+    result,
+    selectedFenestrationIndex,
+    width,
+  ]);
 
   useEffect(() => {
     paint();
@@ -125,12 +153,53 @@ export function GraftSketchCanvas({
     panYRef.current += dy;
   }, []);
 
-  const handlePointerStart = useCallback((clientX: number, clientY: number) => {
-    draggingRef.current = true;
-    activeModeRef.current = mode;
-    lastXRef.current = clientX;
-    lastYRef.current = clientY;
-  }, [mode]);
+  const handlePointerStart = useCallback(
+    (clientX: number, clientY: number) => {
+      draggingRef.current = true;
+      activeModeRef.current = mode;
+      lastXRef.current = clientX;
+      lastYRef.current = clientY;
+      gestureOriginRef.current = { x: clientX, y: clientY };
+      gestureMovedRef.current = false;
+    },
+    [mode],
+  );
+
+  const selectAtClientPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas || !onSelectFenestration) {
+        return false;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const candidates = hitTargetsRef.current
+        .map((target) => ({
+          target,
+          normalizedDistance:
+            ((x - target.x) / target.radiusX) ** 2 +
+            ((y - target.y) / target.radiusY) ** 2,
+        }))
+        .filter(({ normalizedDistance }) => normalizedDistance <= 1.25)
+        .sort((a, b) => {
+          if (a.target.front !== b.target.front) {
+            return a.target.front ? -1 : 1;
+          }
+          return a.normalizedDistance - b.normalizedDistance;
+        });
+
+      const match = candidates[0]?.target;
+      if (!match) {
+        return false;
+      }
+
+      onSelectFenestration(match.index);
+      return true;
+    },
+    [onSelectFenestration],
+  );
 
   const onMouseDown = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     handlePointerStart(event.clientX, event.clientY);
@@ -151,6 +220,14 @@ export function GraftSketchCanvas({
 
       const dx = event.clientX - lastXRef.current;
       const dy = event.clientY - lastYRef.current;
+      if (
+        Math.hypot(
+          event.clientX - gestureOriginRef.current.x,
+          event.clientY - gestureOriginRef.current.y,
+        ) > 4
+      ) {
+        gestureMovedRef.current = true;
+      }
       lastXRef.current = event.clientX;
       lastYRef.current = event.clientY;
 
@@ -203,6 +280,7 @@ export function GraftSketchCanvas({
 
     const onMove = (event: TouchEvent) => {
       if (event.touches.length >= 2) {
+        gestureMovedRef.current = true;
         const firstTouch = event.touches[0];
         const secondTouch = event.touches[1];
         const nextDistance = Math.hypot(
@@ -238,6 +316,14 @@ export function GraftSketchCanvas({
 
       const dx = event.touches[0].clientX - lastXRef.current;
       const dy = event.touches[0].clientY - lastYRef.current;
+      if (
+        Math.hypot(
+          event.touches[0].clientX - gestureOriginRef.current.x,
+          event.touches[0].clientY - gestureOriginRef.current.y,
+        ) > 4
+      ) {
+        gestureMovedRef.current = true;
+      }
       lastXRef.current = event.touches[0].clientX;
       lastYRef.current = event.touches[0].clientY;
 
@@ -256,6 +342,10 @@ export function GraftSketchCanvas({
         handlePointerStart(event.touches[0].clientX, event.touches[0].clientY);
       } else {
         draggingRef.current = false;
+        const changedTouch = event.changedTouches[0];
+        if (changedTouch && !gestureMovedRef.current) {
+          selectAtClientPoint(changedTouch.clientX, changedTouch.clientY);
+        }
       }
       pinchDistanceRef.current = 0;
     };
@@ -269,7 +359,14 @@ export function GraftSketchCanvas({
       canvas.removeEventListener("touchend", onEnd);
       canvas.removeEventListener("touchcancel", onEnd);
     };
-  }, [applyMoveDelta, applyRotateDelta, handlePointerStart, paint, syncZoomDisplay]);
+  }, [
+    applyMoveDelta,
+    applyRotateDelta,
+    handlePointerStart,
+    paint,
+    selectAtClientPoint,
+    syncZoomDisplay,
+  ]);
 
   const adjustZoom = useCallback((factor: number) => {
     zoomRef.current = clampZoom(zoomRef.current * factor);
@@ -294,8 +391,26 @@ export function GraftSketchCanvas({
           ref={canvasRef}
           onMouseDown={onMouseDown}
           onTouchStart={onTouchStart}
+          onClick={(event) => {
+            if (gestureMovedRef.current) {
+              gestureMovedRef.current = false;
+              return;
+            }
+            selectAtClientPoint(event.clientX, event.clientY);
+          }}
           onWheel={onWheel}
-          className="w-full rounded-[18px] border border-[color:var(--border)] cursor-grab active:cursor-grabbing"
+          role={onSelectFenestration ? "application" : undefined}
+          tabIndex={onSelectFenestration ? 0 : undefined}
+          aria-label={
+            onSelectFenestration
+              ? "Interactive PMEG model. Drag to rotate and select a fenestration to inspect measurements."
+              : undefined
+          }
+          className={cn(
+            "w-full rounded-[18px] border border-[color:var(--border)] cursor-grab active:cursor-grabbing",
+            onSelectFenestration && "cursor-crosshair",
+            canvasClassName,
+          )}
         />
 
         <div className="absolute bottom-3 left-3 flex items-center gap-2">

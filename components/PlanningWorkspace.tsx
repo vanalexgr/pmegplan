@@ -32,7 +32,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { GraftSketchCanvas } from "@/components/GraftSketchCanvas";
 import { PmegMeasurementCockpit } from "@/components/PmegMeasurementCockpit";
 import {
   buildBenchCtRenderModel,
@@ -164,7 +163,6 @@ export function PlanningWorkspace({
   const [showStruts, setShowStruts] = useState(true);
   const [showGhosts, setShowGhosts] = useState(true);
   const [moveAllMode, setMoveAllMode] = useState(false);
-  const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [overlayDeviceId, setOverlayDeviceId] = useState<string | null>(
     recommendedResult?.device.id ?? null,
   );
@@ -306,24 +304,6 @@ export function PlanningWorkspace({
     setEditDraft(toEditDraft(selectedCaseFenestration));
     setEditorStatus(null);
   }, [selectedCaseFenestration, activeSelectedIndex]);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 768px)");
-    const applyViewportMode = (matches: boolean) => {
-      setIsCompactViewport(matches);
-    };
-
-    applyViewportMode(mediaQuery.matches);
-    const handleChange = (event: MediaQueryListEvent) => {
-      applyViewportMode(event.matches);
-    };
-
-    mediaQuery.addEventListener("change", handleChange);
-
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-    };
-  }, []);
 
   const applyDeltaToPoint = (
     point: PlanarPointMm,
@@ -649,6 +629,7 @@ export function PlanningWorkspace({
 
       <div className="border-b border-[color:var(--border)] bg-[#dfeae7] p-3 sm:p-5">
         <PmegMeasurementCockpit
+          caseInput={caseInput}
           project={project}
           overlayResult={overlayResult}
         />
@@ -939,43 +920,6 @@ export function PlanningWorkspace({
             </svg>
           </div>
 
-          {overlayResult?.size ? (
-            <div className="mt-6 rounded-[28px] border border-[color:var(--border)] bg-[rgba(255,255,255,0.9)] p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 text-[color:var(--brand)]">
-                    <Orbit className="size-4" />
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em]">
-                      Interactive 3D view
-                    </p>
-                  </div>
-                  <p className="mt-3 text-sm font-semibold text-[color:var(--foreground)]">
-                    {overlayResult.device.benchCtDescriptor
-                      ? `Measured CT anatomy for ${overlayResult.device.shortName}`
-                      : `Device sketch for ${overlayResult.device.shortName}`}
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-[color:var(--muted-foreground)]">
-                    {overlayResult.device.benchCtDescriptor?.geometry?.shape === "conical"
-                      ? "Measured ring apices are placed on the changing CT-derived diameter profile; rotate to inspect the taper rather than a cylindrical approximation."
-                      : overlayResult.device.benchCtDescriptor?.geometry?.proximal_fixation.ring_count
-                        ? "Measured wire rows are shown with a separate bare fixation zone and topology-annotated barb hooks above the fabric edge."
-                        : "Use this as the main device-specific review view. Switch between rotate and move, use the zoom controls, and inspect strut windows before dropping back to the summary cards."}
-                  </p>
-                </div>
-                <Badge className="bg-white text-[color:var(--foreground)]">
-                  {overlayResult.size.graftDiameter} mm graft
-                </Badge>
-              </div>
-
-              <div className="mt-4">
-                <GraftSketchCanvas
-                  result={overlayResult}
-                  caseInput={caseInput}
-                  height={isCompactViewport ? 360 : 520}
-                />
-              </div>
-            </div>
-          ) : null}
         </div>
 
         <div className="space-y-5 p-4">

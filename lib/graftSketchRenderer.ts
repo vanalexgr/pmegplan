@@ -421,7 +421,7 @@ function buildTreoRingPts3D(
   return pts;
 }
 
-function getRingPhaseFraction(deviceId: string, ringIdx: number): number {
+function getRingPhaseFraction(deviceId: string): number {
   switch (deviceId) {
     case "treo":
       return 0;  // TREO: all rings in-phase (peaks align with peaks)
@@ -467,7 +467,7 @@ function buildRingPtsForDevice(
     );
   }
 
-  const phaseFraction = getRingPhaseFraction(deviceId, ringIdx);
+  const phaseFraction = getRingPhaseFraction(deviceId);
 
   if (stentType === "M-stent") {
     return buildMShapedRingPts3D(
@@ -851,7 +851,13 @@ function drawFenestration3D(
   vessel: string, ftype: string, isConflicted: boolean, minDist: number, isStrFree: boolean,
   _delta: number, circ: number, az: number, el: number, ox: number, oy: number, scale: number, sc: ScaleContext,
   radiusAtDepth?: (depthMm: number) => number,
-): { sy: number; label: string; color: string } | null {
+  isSelected = false,
+): {
+  sy: number;
+  label: string;
+  color: string;
+  hitTarget: Omit<GraftSketchFenestrationHitTarget, "index">;
+} {
   const color  = VESSEL_COLORS[vessel] ?? "#334155";
   const arcMm = (clockDeg / 360) * circ;
   const radiusFor = (zMm: number) => radiusAtDepth?.(zMm) ?? R;
@@ -870,6 +876,24 @@ function drawFenestration3D(
     ctx.fillStyle = qRim.front ? color + "28" : color + "12";
     ctx.strokeStyle = qRim.front ? color : color + "80";
     ctx.lineWidth = sc.strokeCore;
+    if (isSelected) {
+      ctx.save();
+      ctx.strokeStyle = "#ff7a61";
+      ctx.lineWidth = sc.strokeCore + 4;
+      ctx.globalAlpha = 0.34;
+      ctx.beginPath();
+      ctx.moveTo(qRim.sx - nW - 3, qRim.sy);
+      ctx.lineTo(qRim.sx - nW - 3, qRim.sy + nH);
+      ctx.quadraticCurveTo(
+        qRim.sx,
+        qRim.sy + nH * 1.75,
+        qRim.sx + nW + 3,
+        qRim.sy + nH,
+      );
+      ctx.lineTo(qRim.sx + nW + 3, qRim.sy);
+      ctx.stroke();
+      ctx.restore();
+    }
     if (!qRim.front) {
       ctx.setLineDash([sc.v_4_3, sc.v_3_2]);
     }
@@ -888,7 +912,18 @@ function drawFenestration3D(
       ctx.fillText(`${vessel} back`, qRim.sx, qRim.sy - (sc.v_11_8));
     }
     ctx.textAlign = "left"; ctx.restore();
-    return null;
+    return {
+      sy: qRim.sy,
+      label: "0",
+      color,
+      hitTarget: {
+        x: qRim.sx,
+        y: qRim.sy + nH * 0.55,
+        radiusX: nW + 8,
+        radiusY: nH + 8,
+        front: qRim.front,
+      },
+    };
   }
 
   const left = projectSurfacePoint(arcMm - widthMm / 2, depthMm, circ, radiusFor(depthMm), az, el, ox, oy, scale);
@@ -932,6 +967,23 @@ function drawFenestration3D(
   const haloRy = guideRy + (sc.haloExpand);
 
   ctx.save();
+  if (isSelected) {
+    ctx.beginPath();
+    ctx.ellipse(
+      q.sx,
+      q.sy,
+      haloRx + sc.v_5_3,
+      haloRy + sc.v_5_3,
+      rotation,
+      0,
+      2 * Math.PI,
+    );
+    ctx.strokeStyle = "#ff7a61";
+    ctx.lineWidth = sc.strokeCore + 2.5;
+    ctx.globalAlpha = 0.5;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
   if (isConflicted) {
     ctx.beginPath(); ctx.ellipse(q.sx, q.sy, haloRx, haloRy, rotation, 0, 2 * Math.PI);
     ctx.strokeStyle = "#dc262672"; ctx.lineWidth = sc.v_1_6_1_1;
@@ -994,7 +1046,18 @@ function drawFenestration3D(
 
   ctx.textAlign = "left";
   ctx.restore();
-  return { sy: q.sy, label: `${depthMm}`, color };
+  return {
+    sy: q.sy,
+    label: `${depthMm}`,
+    color,
+    hitTarget: {
+      x: q.sx,
+      y: q.sy,
+      radiusX: Math.max(haloRx + 8, 18),
+      radiusY: Math.max(haloRy + 8, 18),
+      front: q.front,
+    },
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1013,6 +1076,22 @@ export interface GraftSketchOptions {
   zoom?:     number;
   panX?:     number;
   panY?:     number;
+  layout?:   "review" | "model-only";
+  fenestrationFrame?: "anatomical" | "graft";
+  selectedFenestrationIndex?: number | null;
+}
+
+export interface GraftSketchFenestrationHitTarget {
+  index: number;
+  x: number;
+  y: number;
+  radiusX: number;
+  radiusY: number;
+  front: boolean;
+}
+
+export interface GraftSketchRenderResult {
+  fenestrationHitTargets: GraftSketchFenestrationHitTarget[];
 }
 
 export function renderGraftSketch({
@@ -1027,7 +1106,14 @@ export function renderGraftSketch({
   zoom = 1,
   panX = 0,
   panY = 0,
-}: GraftSketchOptions): void {
+  layout = "review",
+  fenestrationFrame = "anatomical",
+  selectedFenestrationIndex = null,
+}: GraftSketchOptions): GraftSketchRenderResult {
+
+  const renderResult: GraftSketchRenderResult = {
+    fenestrationHitTargets: [],
+  };
 
   ctx.clearRect(0, 0, width, height);
 
@@ -1037,7 +1123,7 @@ export function renderGraftSketch({
     if (s !== 1) ctx.scale(s, s);
     ctx.fillStyle = "#45605b"; ctx.font = "400 14px sans-serif";
     ctx.fillText("No compatible graft size for this anatomy.", 24, 40);
-    return;
+    return renderResult;
   }
 
   const sc = buildScaleContext(mode);
@@ -1054,7 +1140,10 @@ export function renderGraftSketch({
 
   // Same 52/48 layout split as v1
   const totalBodyW = lw - margin * 2;
-  const drawPanelW = Math.round(totalBodyW * 0.52);
+  const drawPanelW =
+    layout === "model-only"
+      ? totalBodyW
+      : Math.round(totalBodyW * 0.52);
   const specPanelX = margin + drawPanelW + (sc.v_16_14);
   const specPanelW = lw - specPanelX - margin;
   const bodyY      = margin + headerH;
@@ -1336,11 +1425,19 @@ export function renderGraftSketch({
     // where fenestrations sit in the patient after deployment, matching the
     // CT / workstation 3-D reconstruction.  The punch card uses adjustedClock
     // (graft-frame cut positions) — both are correct for their purpose.
-    const clockDeg    = (clockToArc(fen.clock, circ) / circ) * 360;
+    const renderClock =
+      fenestrationFrame === "graft"
+        ? conflict?.adjustedClock ?? fen.clock
+        : fen.clock;
+    const renderDepth =
+      fenestrationFrame === "graft" && fen.ftype !== "SCALLOP"
+        ? result.depthOptimisation.adjustedDepths[idx] ?? fen.depthMm
+        : fen.depthMm;
+    const clockDeg    = (clockToArc(renderClock, circ) / circ) * 360;
     const isStrFree = !isConflict && fen.ftype !== "SCALLOP" && (benchModel
       ? true
       : isInInterRingGap(
-          fen.depthMm,
+          renderDepth,
           ringHeight,
           interRingGap,
           nRings,
@@ -1348,12 +1445,17 @@ export function renderGraftSketch({
         ));
 
     const dl = drawFenestration3D(
-      ctx, R, clockDeg, fen.depthMm, fen.widthMm, fen.heightMm,
+      ctx, R, clockDeg, renderDepth, fen.widthMm, fen.heightMm,
       fen.vessel, fen.ftype, isConflict, conflict?.minDist ?? 0, isStrFree,
       delta, circ, az, el, originX, originY, scale, sc,
       benchModel ? (depthMm) => benchModel.diameterAt(depthMm) / 2 : undefined,
+      selectedFenestrationIndex === idx,
     );
-    if (dl) dimLines.push(dl);
+    dimLines.push(dl);
+    renderResult.fenestrationHitTargets.push({
+      index: idx,
+      ...dl.hitTarget,
+    });
   });
 
   // ── Depth dimension lines (Cook CMD style) ───────────────────────────────
@@ -1410,6 +1512,7 @@ export function renderGraftSketch({
   // SPEC PANEL — exact copy from v1, no changes
   // ══════════════════════════════════════════════════════════════════════════
 
+  if (layout === "review") {
   const lineH = sc.v_15_12;
   let sy      = bodyY + (sc.v_6_4);
   const sw    = specPanelW;
@@ -1495,6 +1598,7 @@ export function renderGraftSketch({
     ctx.fillStyle = "#45605b"; ctx.font = `400 italic ${sc.isPrint ? 10 : 8}px sans-serif`;
     sy = wrapText(ctx, `Note: ${caseInput.surgeonNote}`, specPanelX, sy, sw, lineH, 4);
   }
+  }
 
   // ── Footer (unchanged from v1) ────────────────────────────────────────────
   const footerY = lh - footerH + (sc.v_14_8);
@@ -1506,4 +1610,6 @@ export function renderGraftSketch({
   if (sc.isPrint) {
     ctx.fillText("Signature: ___________________________   Date: ___________", lw / 2 - 10, footerY);
   }
+
+  return renderResult;
 }
