@@ -5,6 +5,15 @@ import {
 } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 
+/**
+ * The subset of the Workers service binding this worker uses. Declared here
+ * alongside `ExecutionContext` rather than pulled from `@cloudflare/workers-types`,
+ * which would put Workers globals in scope for the whole app.
+ */
+interface Fetcher {
+  fetch(request: Request): Promise<Response>;
+}
+
 interface Env {
   ASSETS: Fetcher;
   IMAGES: {

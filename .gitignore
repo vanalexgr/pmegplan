@@ -21,6 +21,7 @@
 /build
 /data
 /dist
+/.open-next
 /.wrangler
 
 # misc
@@ -45,3 +46,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python virtualenv for the CT geometry extractor
+/venv
+
+# Raw bench-CT source data and the extractor scratch area. This repository is
+# public and the DICOM series run to hundreds of megabytes; only the derived
+# geometry descriptors under lib/geometry belong in version control.
+/new plan/

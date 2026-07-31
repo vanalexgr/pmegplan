@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Python virtualenv for the CT geometry extractor. It ships bundled JS
+    // (matplotlib's web backend) that is not ours to lint.
+    "venv/**",
+    // Cloudflare/vinext build output.
+    "dist/**",
   ]),
 ]);
 
