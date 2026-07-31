@@ -1,8 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Info, RotateCw, Ruler } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  RotateCw,
+  Ruler,
+  ScanLine,
+} from "lucide-react";
 
+import { GraftModel3D } from "@/components/GraftModel3D";
 import { UnrolledGraftCanvas } from "@/components/UnrolledGraftCanvas";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,6 +75,7 @@ function toNumber(value: string): number {
 function buildCase(
   entries: VesselEntry[],
   sealZoneDiameterMm: string,
+  proximalLandingLengthMm: string,
 ): AnatomyCase | { error: string } {
   const vessels: AnatomyVessel[] = [];
 
@@ -93,11 +102,19 @@ function buildCase(
     return { error: "Seal-zone aortic diameter is not a number." };
   }
 
+  const landing = toNumber(proximalLandingLengthMm);
+  if (Number.isNaN(landing) || landing <= 0) {
+    return { error: "Healthy aorta above the top vessel is not a number." };
+  }
+
   return {
     clockConvention: "axial_ct",
     vessels,
     fenestrate: entries.filter((entry) => entry.fenestrate).map((entry) => entry.name),
-    aorta: { sealZoneDiameterMm: diameter },
+    aorta: {
+      sealZoneDiameterMm: diameter,
+      proximalLandingLengthMm: landing,
+    },
   };
 }
 
@@ -263,8 +280,8 @@ function LimitNotice({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
 }
 
 function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
-  const { solution, graft, anatomy } = plan;
-  const { selection } = graft;
+  const { solution, graft, anatomy, oversizeFraction } = plan;
+  const { scan } = graft;
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -287,18 +304,17 @@ function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
         detail="applied to the whole pattern"
       />
       <Metric
-        label="Device"
-        value={selection.component.code}
-        detail={`${selection.component.proximalGraftDiameterMm} mm × ${selection.selectedLengthMm} mm · ${selection.platform.shortLabel}`}
+        icon={<ScanLine className="size-4" />}
+        label="Scanned device"
+        value={scan.reference.id.toUpperCase()}
+        detail={`${scan.platform.shortLabel} · ${graft.proximalDiameterMm.toFixed(
+          1,
+        )} mm measured · ${(oversizeFraction * 100).toFixed(0)}% oversize`}
       />
       <Metric
         label="Worst clearance"
         value={`${solution.marginMm.toFixed(2)} mm`}
-        detail={
-          selection.evidence === "measured_scan"
-            ? "on directly measured CT geometry"
-            : "on a CT-scaled proxy — verify before use"
-        }
+        detail="on directly measured bench-CT geometry"
       />
     </div>
   );
@@ -331,7 +347,9 @@ function Metric({
 
 export function PmegPlanner() {
   const [entries, setEntries] = useState<VesselEntry[]>(initialEntries);
-  const [sealZoneDiameterMm, setSealZoneDiameterMm] = useState("30");
+  const [sealZoneDiameterMm, setSealZoneDiameterMm] = useState("36");
+  const [proximalLandingLengthMm, setProximalLandingLengthMm] = useState("25");
+  const [view, setView] = useState<"flat" | "model">("flat");
 
   const patch = (index: number, next: Partial<VesselEntry>) => {
     setEntries((current) =>
@@ -342,12 +360,12 @@ export function PmegPlanner() {
   };
 
   const built = useMemo(
-    () => buildCase(entries, sealZoneDiameterMm),
-    [entries, sealZoneDiameterMm],
+    () => buildCase(entries, sealZoneDiameterMm, proximalLandingLengthMm),
+    [entries, sealZoneDiameterMm, proximalLandingLengthMm],
   );
 
-  // planGraft caches clearance fields by catalog component internally, so
-  // editing anatomy re-solves without rebuilding the measured lattice.
+  // planGraft caches clearance fields by scanned device internally, so editing
+  // anatomy re-solves without rebuilding the measured lattice.
   const plan = useMemo<PlanResult | null>(
     () => ("error" in built ? null : planGraft(built)),
     [built],
@@ -365,11 +383,16 @@ export function PmegPlanner() {
           Plan a physician-modified endograft
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-[color:var(--muted-foreground)]">
-          Enter the measured anatomy. The planner sizes the device from the seal
-          zone, then finds where to place the hole pattern on the measured stent
-          lattice. Anatomy fixes the holes relative to each other, so the only
-          things it can move are how far the pattern is pushed in and how far the
-          graft is turned — both applied to every hole together.
+          Enter the measured anatomy. The planner picks from the endografts that
+          have been through the bench CT, then finds where to place the hole
+          pattern on that device&rsquo;s measured stent lattice. Anatomy fixes the
+          holes relative to each other, so the only things it can move are how far
+          the pattern is pushed in and how far the graft is turned — both applied
+          to every hole together.
+        </p>
+        <p className="mt-2 max-w-3xl text-[11px] leading-5 text-[color:var(--muted-foreground)]">
+          Prototype. The library holds three scanned devices, so it demonstrates
+          the method rather than covering the range a real one would need.
         </p>
       </header>
 
@@ -385,19 +408,36 @@ export function PmegPlanner() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-5 pt-0">
-              <Field
-                label="Aortic diameter at seal zone"
-                hint="Outer wall, at the intended proximal landing. Drives device sizing."
-              >
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  value={sealZoneDiameterMm}
-                  aria-label="Aortic diameter at seal zone in mm"
-                  onChange={(event) => setSealZoneDiameterMm(event.target.value)}
-                />
-              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field
+                  label="Seal zone Ø"
+                  hint="Outer wall. Drives device choice."
+                >
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    value={sealZoneDiameterMm}
+                    aria-label="Aortic diameter at seal zone in mm"
+                    onChange={(event) => setSealZoneDiameterMm(event.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Healthy aorta above"
+                  hint="Above the top vessel. Caps the push-in."
+                >
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    value={proximalLandingLengthMm}
+                    aria-label="Healthy aorta above the top vessel in mm"
+                    onChange={(event) =>
+                      setProximalLandingLengthMm(event.target.value)
+                    }
+                  />
+                </Field>
+              </div>
 
               <div className="flex flex-col gap-3">
                 <div className="grid grid-cols-[1fr_72px_72px_66px] gap-2 px-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-[color:var(--muted-foreground)]">
@@ -483,7 +523,8 @@ export function PmegPlanner() {
                 variant="outline"
                 onClick={() => {
                   setEntries(initialEntries());
-                  setSealZoneDiameterMm("30");
+                  setSealZoneDiameterMm("36");
+                  setProximalLandingLengthMm("25");
                 }}
               >
                 Reset to example case
@@ -507,26 +548,56 @@ export function PmegPlanner() {
                   <Readout plan={plan} />
 
                   <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">
-                        Graft laid flat — mark from here
-                      </CardTitle>
+                    <CardHeader className="gap-2 pb-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <CardTitle className="text-base">
+                          {view === "flat"
+                            ? "Graft laid flat — mark from here"
+                            : "Reconstruction from the bench CT"}
+                        </CardTitle>
+                        <div className="flex gap-1 rounded-full border border-[color:var(--border)] bg-white/70 p-1">
+                          {(["flat", "model"] as const).map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              className={cn(
+                                "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                                view === option
+                                  ? "bg-[color:var(--brand)] text-white"
+                                  : "text-[color:var(--muted-foreground)] hover:bg-white",
+                              )}
+                              onClick={() => setView(option)}
+                            >
+                              {option === "flat" ? "Flat" : "3D"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <CardDescription>
-                        Measured wire from the bench CT of{" "}
-                        {plan.graft.selection.reference.id.toUpperCase()}. Depths
-                        are from the proximal fabric edge; the shaded band is the
-                        seal.
+                        {plan.graft.scan.reference.id.toUpperCase()} ·{" "}
+                        {plan.graft.scan.platform.label} · measured{" "}
+                        {plan.graft.proximalDiameterMm.toFixed(1)} mm ×{" "}
+                        {plan.graft.fabricLengthMm.toFixed(0)} mm of fabric
+                        {plan.graft.renderModel.barbs.length > 0
+                          ? `, bare fixation ring with ${plan.graft.renderModel.barbs.length} barbs above the fabric`
+                          : ", no bare fixation ring"}
+                        .
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="pt-2">
-                      <UnrolledGraftCanvas
-                        segments={plan.graft.segments}
-                        circumferenceMm={plan.graft.circumferenceMm}
-                        fabricLengthMm={plan.graft.fabricLengthMm}
-                        openings={plan.openings}
-                        wireRadiusMm={plan.graft.wireRadiusMm}
-                        proximalDepthMm={plan.solution.pose.proximalDepthMm}
-                      />
+                      {view === "flat" ? (
+                        <UnrolledGraftCanvas
+                          graft={plan.graft}
+                          openings={plan.openings}
+                          proximalDepthMm={plan.solution.pose.proximalDepthMm}
+                        />
+                      ) : (
+                        <GraftModel3D
+                          graft={plan.graft}
+                          openings={plan.openings}
+                          proximalDepthMm={plan.solution.pose.proximalDepthMm}
+                        />
+                      )}
                     </CardContent>
                   </Card>
 
@@ -589,10 +660,80 @@ export function PmegPlanner() {
                   </Card>
                 </>
               ) : null}
+
+              <DeviceLibrary plan={plan} />
             </>
           ) : null}
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * The scanned library and how each device measured up.
+ *
+ * Shown whether or not a plan was found: when nothing fits, the reason is the
+ * point, and it is what tells you which endograft is worth scanning next.
+ */
+function DeviceLibrary({ plan }: { plan: PlanResult }) {
+  if (plan.considered.length === 0) return null;
+  const chosen = plan.ok ? plan.graft.scan.reference.id : null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Scanned device library</CardTitle>
+        <CardDescription>
+          Every endograft that has been through the bench CT, measured in the
+          free state. Adding a device to the library means scanning it, not
+          entering its specification.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2 pt-2">
+        {plan.considered.map((fit) => {
+          const { scan } = fit.model;
+          const isChosen = scan.reference.id === chosen;
+          return (
+            <div
+              key={scan.reference.id}
+              className={cn(
+                "flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-2xl border p-3 text-sm",
+                isChosen
+                  ? "border-[color:var(--brand)]/40 bg-[color:var(--brand)]/[0.06]"
+                  : "border-[color:var(--border)] bg-white/50",
+              )}
+            >
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-xs font-semibold">
+                  {scan.reference.id.toUpperCase()}
+                </span>
+                <span className="font-medium">{scan.platform.shortLabel}</span>
+                <span className="font-mono text-xs text-[color:var(--muted-foreground)]">
+                  {fit.model.proximalDiameterMm.toFixed(1)} mm ×{" "}
+                  {fit.model.fabricLengthMm.toFixed(0)} mm
+                </span>
+              </div>
+              <span
+                className={cn(
+                  "text-xs",
+                  fit.rejection
+                    ? "text-[color:var(--muted-foreground)]"
+                    : isChosen
+                      ? "font-semibold text-[color:var(--brand-strong)]"
+                      : "text-[color:var(--muted-foreground)]",
+                )}
+              >
+                {fit.rejection
+                  ? `set aside — ${fit.rejection}`
+                  : `${(fit.oversizeFraction * 100).toFixed(0)}% oversize${
+                      isChosen ? " · selected" : ""
+                    }`}
+              </span>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }

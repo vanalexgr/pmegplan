@@ -30,13 +30,13 @@ function juxtarenalCase(smaToRenalMm: number): AnatomyCase {
       { name: "RRA", gapFromPreviousMm: 5, clock: "9:00", ostiumDiameterMm: 6 },
     ],
     fenestrate: ["LRA", "RRA"],
-    aorta: { sealZoneDiameterMm: 30 },
+    aorta: { sealZoneDiameterMm: 26 },
   };
 }
 
 describe("requiredGraftLengthMm", () => {
   it("adds the seal, the fixed pattern span, and a distal allowance", () => {
-    const anatomy = normalizeAnatomy(taaaCase(30));
+    const anatomy = normalizeAnatomy(taaaCase(36));
 
     expect(anatomy.fenestrationSpanMm).toBe(45);
     expect(requiredGraftLengthMm(anatomy)).toBe(85);
@@ -45,23 +45,58 @@ describe("requiredGraftLengthMm", () => {
 });
 
 describe("planGraft", () => {
-  it("sizes from the seal-zone diameter and solves a pose in one pass", () => {
-    const plan = planGraft(taaaCase(30));
+  it("picks a scanned device and solves a pose in one pass", () => {
+    const plan = planGraft(taaaCase(36));
 
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
 
-    expect(plan.graft.selection.component.proximalAorticRangeMm.min).toBeLessThanOrEqual(30);
-    expect(plan.graft.selection.component.proximalAorticRangeMm.max).toBeGreaterThanOrEqual(30);
-    expect(plan.graft.selection.selectedLengthMm).toBeGreaterThanOrEqual(
-      plan.requiredLengthMm,
-    );
+    // The device must be one that was actually scanned, not a scaled proxy.
+    expect(["scan1", "scan2", "scan3"]).toContain(plan.graft.scan.reference.id);
+    expect(plan.graft.fabricLengthMm).toBeGreaterThanOrEqual(plan.requiredLengthMm);
     expect(plan.openings).toHaveLength(4);
     expect(plan.solution.clearances).toHaveLength(4);
   });
 
+  it("keeps the chosen device inside the oversizing window", () => {
+    const plan = planGraft(taaaCase(36));
+
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.oversizeFraction).toBeGreaterThanOrEqual(0.1);
+    expect(plan.oversizeFraction).toBeLessThanOrEqual(0.3);
+  });
+
+  it("reports every scanned device it weighed, with a reason for each rejection", () => {
+    const plan = planGraft(taaaCase(36));
+
+    expect(plan.considered).toHaveLength(3);
+    for (const fit of plan.considered) {
+      if (fit.rejection !== null) expect(fit.rejection).not.toHaveLength(0);
+    }
+  });
+
+  it("takes geometry from the bench CT rather than a nominal specification", () => {
+    const plan = planGraft(taaaCase(36));
+
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    const { renderModel, segments } = plan.graft;
+    expect(renderModel.rings.length).toBeGreaterThan(0);
+    // Apices are measured, so ring spacing is irregular; a parametric waveform
+    // would put every ring at an identical pitch.
+    const ringTops = renderModel.rings.map((ring) =>
+      Math.min(...ring.points.map((point) => point.zMm)),
+    );
+    const pitches = ringTops.slice(1).map((top, index) => top - ringTops[index]);
+    const spread = Math.max(...pitches) - Math.min(...pitches);
+    expect(spread).toBeGreaterThan(0.5);
+    expect(segments.length).toBeGreaterThan(renderModel.rings.length);
+  });
+
   it("honours the 10 mm seal floor on every plan it returns", () => {
-    for (const diameter of [26, 30, 34, 38]) {
+    for (const diameter of [26, 34, 36, 38]) {
       const plan = planGraft(taaaCase(diameter));
       if (!plan.ok) continue;
       expect(plan.solution.pose.proximalDepthMm).toBeGreaterThanOrEqual(10);
@@ -104,7 +139,7 @@ describe("planGraft", () => {
   });
 
   it("keeps the turn inside the cap it was given", () => {
-    const plan = planGraft(taaaCase(30), { maxRotationDeg: 30 });
+    const plan = planGraft(taaaCase(36), { maxRotationDeg: 30 });
 
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
@@ -114,12 +149,12 @@ describe("planGraft", () => {
   it("reuses a cached graft model instead of rebuilding the clearance field", () => {
     const cache = new Map();
 
-    const first = planGraft(taaaCase(30), {}, cache);
+    const first = planGraft(taaaCase(36), {}, cache);
     expect(cache.size).toBeGreaterThan(0);
 
     // Different anatomy, same seal-zone diameter: the lattice is unchanged, so
     // the identical model object has to come back rather than a rebuilt one.
-    const moved = taaaCase(30);
+    const moved = taaaCase(36);
     moved.vessels[2].gapFromPreviousMm = 26;
     const second = planGraft(moved, {}, cache);
 
@@ -130,7 +165,7 @@ describe("planGraft", () => {
   });
 
   it("rejects an anatomy error without pretending to have sized anything", () => {
-    const broken = taaaCase(30);
+    const broken = taaaCase(36);
     broken.fenestrate = [];
 
     const plan = planGraft(broken);
@@ -141,12 +176,45 @@ describe("planGraft", () => {
     expect(plan.reason).toMatch(/at least one fenestration/);
   });
 
-  it("reports a sizing failure rather than extrapolating past the catalog", () => {
+  it("declines the gap between the scanned sizes instead of stretching into it", () => {
+    // The library holds 31 mm and two 42 mm devices, so at 10-30% oversizing it
+    // covers roughly 24-28 mm and 32-39 mm. A 30 mm aorta falls between them,
+    // and the honest answer is to scan a device for it.
+    const plan = planGraft(taaaCase(30));
+
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.considered.some((fit) => /only \d+% oversizing/.test(fit.rejection ?? ""))).toBe(
+      true,
+    );
+    expect(plan.considered.some((fit) => /infolding/.test(fit.rejection ?? ""))).toBe(
+      true,
+    );
+  });
+
+  it("declines an aorta no scanned device covers rather than scaling one up", () => {
     const plan = planGraft(taaaCase(120));
 
     expect(plan.ok).toBe(false);
     if (plan.ok) return;
     expect(plan.anatomy).not.toBeNull();
-    expect(plan.sizingFailures.length).toBeGreaterThan(0);
+    expect(plan.considered).toHaveLength(3);
+    // Every device was set aside for being far too small, and says so.
+    for (const fit of plan.considered) {
+      expect(fit.rejection).toMatch(/undersized/);
+    }
+  });
+
+  it("declines when the pattern is longer than any scanned device's fabric", () => {
+    const long = taaaCase(36);
+    long.vessels[2].gapFromPreviousMm = 200;
+
+    const plan = planGraft(long);
+
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.considered.every((fit) => /fabric/.test(fit.rejection ?? ""))).toBe(
+      true,
+    );
   });
 });

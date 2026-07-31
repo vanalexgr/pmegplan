@@ -3,33 +3,33 @@
 import { useEffect, useRef } from "react";
 
 import type { PlacedOpening } from "@/lib/planning/anatomy";
-import type { StrutSegment } from "@/lib/types";
+import type { GraftModel } from "@/lib/planning/plan";
 
-const PADDING = { top: 26, right: 18, bottom: 30, left: 46 };
+const PADDING = { top: 20, right: 18, bottom: 30, left: 46 };
 const CLOCK_TICKS = [0, 3, 6, 9];
+/** Breathing room past the most proximal metal, in mm. */
+const HEADROOM_MM = 4;
 
 export interface UnrolledGraftCanvasProps {
-  segments: StrutSegment[];
-  circumferenceMm: number;
-  fabricLengthMm: number;
+  graft: GraftModel;
   openings: PlacedOpening[];
-  wireRadiusMm: number;
   /** Depth of the most proximal opening below the fabric edge, in mm. */
   proximalDepthMm: number;
 }
 
 /**
- * The graft laid flat: measured wire, the seal band above the first hole, and
- * the openings at the solved pose. This is the view the modification is
- * actually marked from, so it is drawn to scale in both axes and nothing on it
- * is schematic.
+ * The graft laid flat: measured wire, the bare fixation ring above the fabric,
+ * the seal band, and the openings at the solved pose.
+ *
+ * This is what the modification is marked from, so it is drawn to one scale in
+ * both axes and every feature on it is measured rather than schematic. The
+ * region above the fabric edge is drawn rather than clipped, because on both
+ * Zenith Alpha scans the fixation ring and its barbs sit proximal to the fabric
+ * and the surgeon needs to see where the fabric actually starts.
  */
 export function UnrolledGraftCanvas({
-  segments,
-  circumferenceMm,
-  fabricLengthMm,
+  graft,
   openings,
-  wireRadiusMm,
   proximalDepthMm,
 }: UnrolledGraftCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -40,15 +40,21 @@ export function UnrolledGraftCanvas({
     const wrapper = wrapperRef.current;
     if (!canvas || !wrapper) return;
 
+    const { circumferenceMm, fabricLengthMm, segments, wireRadiusMm, renderModel } =
+      graft;
+
     const draw = () => {
       const cssWidth = wrapper.clientWidth;
       const plotWidth = cssWidth - PADDING.left - PADDING.right;
       if (plotWidth <= 0) return;
 
+      // Metal above the fabric edge sits at negative depth; make room for it.
+      const topMm = Math.min(0, renderModel.minimumZMm) - HEADROOM_MM;
+      const bottomMm = fabricLengthMm + HEADROOM_MM;
+
       // One scale for both axes: a hole that looks round on screen is round.
       const scale = plotWidth / circumferenceMm;
-      const plotHeight = fabricLengthMm * scale;
-      const cssHeight = plotHeight + PADDING.top + PADDING.bottom;
+      const cssHeight = (bottomMm - topMm) * scale + PADDING.top + PADDING.bottom;
 
       const ratio = window.devicePixelRatio || 1;
       canvas.width = Math.round(cssWidth * ratio);
@@ -62,37 +68,19 @@ export function UnrolledGraftCanvas({
       ctx.clearRect(0, 0, cssWidth, cssHeight);
 
       const x = (arcMm: number) => PADDING.left + arcMm * scale;
-      const y = (depthMm: number) => PADDING.top + depthMm * scale;
+      const y = (depthMm: number) => PADDING.top + (depthMm - topMm) * scale;
 
-      // Fabric
-      ctx.fillStyle = "rgba(255,255,255,0.72)";
-      ctx.fillRect(x(0), y(0), plotWidth, plotHeight);
-      ctx.strokeStyle = "rgba(16,33,31,0.22)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x(0), y(0), plotWidth, plotHeight);
+      // Fabric — the only part that can be cut.
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(x(0), y(0), plotWidth, fabricLengthMm * scale);
 
-      // Seal band — fabric above the first hole that has to appose the aorta.
+      // Seal band: fabric above the first hole that has to appose the aorta.
       ctx.fillStyle = "rgba(15,118,110,0.10)";
       ctx.fillRect(x(0), y(0), plotWidth, proximalDepthMm * scale);
-      ctx.strokeStyle = "rgba(15,118,110,0.55)";
-      ctx.setLineDash([5, 4]);
-      ctx.beginPath();
-      ctx.moveTo(x(0), y(proximalDepthMm));
-      ctx.lineTo(x(circumferenceMm), y(proximalDepthMm));
-      ctx.stroke();
-      ctx.setLineDash([]);
 
-      ctx.fillStyle = "rgba(15,118,110,0.9)";
-      ctx.font = "500 10px var(--font-ibm-plex-mono), monospace";
-      ctx.fillText(
-        `seal ${proximalDepthMm.toFixed(1)} mm`,
-        x(0) + 6,
-        y(proximalDepthMm) - 5,
-      );
-
-      // Measured wire. Segments can run past the seam because the closing wire
-      // is emitted one circumference on; draw a wrapped copy so it reads as a
-      // continuous ring rather than stopping at the edge.
+      // Wire. Segments can run past the seam because the closing wire is
+      // emitted one circumference on; draw a wrapped copy so rings read as
+      // continuous rather than stopping at the edge.
       ctx.strokeStyle = "rgba(16,33,31,0.5)";
       ctx.lineWidth = Math.max(1, wireRadiusMm * 2 * scale);
       ctx.lineCap = "round";
@@ -108,7 +96,75 @@ export function UnrolledGraftCanvas({
       }
       ctx.stroke();
 
-      // Openings
+      // Barbs on the bare fixation ring, where the scan found them.
+      if (renderModel.barbs.length > 0) {
+        ctx.strokeStyle = "rgba(180,83,9,0.85)";
+        ctx.lineWidth = Math.max(1, wireRadiusMm * 1.4 * scale);
+        ctx.beginPath();
+        for (const barb of renderModel.barbs) {
+          const arcOf = (thetaRad: number) =>
+            (thetaRad / (Math.PI * 2)) * circumferenceMm;
+          for (const shift of [0, -circumferenceMm]) {
+            const bx = arcOf(barb.base.thetaRad) + shift;
+            const tx = arcOf(barb.tip.thetaRad) + shift;
+            const hx = arcOf(barb.hook.thetaRad) + shift;
+            if (Math.max(bx, tx) < 0 || Math.min(bx, tx) > circumferenceMm) {
+              continue;
+            }
+            ctx.moveTo(x(bx), y(barb.base.zMm));
+            ctx.lineTo(x(tx), y(barb.tip.zMm));
+            ctx.lineTo(x(hx), y(barb.hook.zMm));
+          }
+        }
+        ctx.stroke();
+      }
+
+      // Fabric edges, drawn over the wire so they read as boundaries.
+      ctx.strokeStyle = "#0f766e";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x(0), y(0));
+      ctx.lineTo(x(circumferenceMm), y(0));
+      ctx.moveTo(x(0), y(fabricLengthMm));
+      ctx.lineTo(x(circumferenceMm), y(fabricLengthMm));
+      ctx.stroke();
+
+      ctx.fillStyle = "#0f766e";
+      ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+      ctx.textAlign = "left";
+      ctx.fillText("FABRIC EDGE", x(0) + 5, y(0) - 5);
+      ctx.fillText("FABRIC END", x(0) + 5, y(fabricLengthMm) + 13);
+
+      if (renderModel.minimumZMm < -0.5) {
+        ctx.fillStyle = "rgba(77,101,97,0.9)";
+        ctx.font = "500 9px var(--font-ibm-plex-mono), monospace";
+        ctx.textAlign = "right";
+        ctx.fillText(
+          `bare fixation ring · ${Math.abs(renderModel.minimumZMm).toFixed(1)} mm above fabric`,
+          x(circumferenceMm) - 4,
+          y(topMm) + 12,
+        );
+      }
+
+      // Seal depth marker.
+      ctx.strokeStyle = "rgba(15,118,110,0.6)";
+      ctx.setLineDash([5, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x(0), y(proximalDepthMm));
+      ctx.lineTo(x(circumferenceMm), y(proximalDepthMm));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(15,118,110,0.95)";
+      ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(
+        `seal ${proximalDepthMm.toFixed(1)} mm`,
+        x(0) + 5,
+        y(proximalDepthMm) - 5,
+      );
+
+      // Openings.
       for (const opening of openings) {
         for (const shift of [0, -circumferenceMm, circumferenceMm]) {
           const centreArc = opening.arcMm + shift;
@@ -127,13 +183,12 @@ export function UnrolledGraftCanvas({
             0,
             Math.PI * 2,
           );
-          ctx.fillStyle = "rgba(217,119,6,0.20)";
+          ctx.fillStyle = "rgba(217,119,6,0.22)";
           ctx.fill();
           ctx.strokeStyle = "#b45309";
           ctx.lineWidth = 1.5;
           ctx.stroke();
 
-          // Centre cross — the point that gets marked on the fabric.
           const arm = Math.min(5, opening.radiusMm * scale * 0.7);
           ctx.beginPath();
           ctx.moveTo(x(centreArc) - arm, y(opening.depthMm));
@@ -144,6 +199,7 @@ export function UnrolledGraftCanvas({
 
           ctx.fillStyle = "#7c2d12";
           ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+          ctx.textAlign = "left";
           ctx.fillText(
             opening.vessel.name,
             x(centreArc) + opening.radiusMm * scale + 4,
@@ -152,23 +208,19 @@ export function UnrolledGraftCanvas({
         }
       }
 
-      // Axes
+      // Axes.
       ctx.fillStyle = "rgba(77,101,97,0.85)";
       ctx.font = "500 9px var(--font-ibm-plex-mono), monospace";
       ctx.textAlign = "center";
       for (const hour of CLOCK_TICKS) {
         const arcMm = (hour / 12) * circumferenceMm;
-        ctx.strokeStyle = "rgba(16,33,31,0.14)";
+        ctx.strokeStyle = "rgba(16,33,31,0.12)";
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(x(arcMm), y(0));
-        ctx.lineTo(x(arcMm), y(fabricLengthMm));
+        ctx.moveTo(x(arcMm), y(topMm));
+        ctx.lineTo(x(arcMm), y(bottomMm));
         ctx.stroke();
-        ctx.fillText(
-          `${hour === 0 ? 12 : hour}:00`,
-          x(arcMm),
-          y(fabricLengthMm) + 14,
-        );
+        ctx.fillText(`${hour === 0 ? 12 : hour}:00`, x(arcMm), y(bottomMm) + 14);
       }
 
       ctx.textAlign = "right";
@@ -183,14 +235,7 @@ export function UnrolledGraftCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [
-    segments,
-    circumferenceMm,
-    fabricLengthMm,
-    openings,
-    wireRadiusMm,
-    proximalDepthMm,
-  ]);
+  }, [graft, openings, proximalDepthMm]);
 
   return (
     <div ref={wrapperRef} className="w-full">
