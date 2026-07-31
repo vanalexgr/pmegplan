@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import type { PlacedOpening } from "@/lib/planning/anatomy";
+import { arcMmToClockText } from "@/lib/planning/clock";
 import { measureHole } from "@/lib/planning/holeMeasurements";
 import type { GraftModel } from "@/lib/planning/plan";
 import { cn } from "@/lib/utils";
@@ -252,6 +253,42 @@ export function GraftModel3D({
         }
       };
 
+      /**
+       * Clock positions read off the graft itself.
+       *
+       * Hour lines run down the near surface and the label sits on the fabric
+       * edge ring, so an opening's clock can be checked against the model
+       * rather than only against the cut list.
+       */
+      const drawClock = () => {
+        for (let hour = 0; hour < 12; hour += 1) {
+          const theta = (hour / 12) * Math.PI * 2;
+          if (!facesViewer(theta)) continue;
+          const anterior = hour === 0;
+
+          ctx.strokeStyle = anterior
+            ? "rgba(15,118,110,0.55)"
+            : "rgba(16,33,31,0.16)";
+          ctx.lineWidth = anterior ? 1.2 : 0.8;
+          ctx.setLineDash(anterior ? [] : [3, 3]);
+          ctx.beginPath();
+          for (let step = 0; step <= 12; step += 1) {
+            const zMm = (step / 12) * bottomMm;
+            const point = project(theta, zMm, radiusAt(zMm));
+            if (step === 0) ctx.moveTo(point.sx, point.sy);
+            else ctx.lineTo(point.sx, point.sy);
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          const label = project(theta, 0, radiusAt(0));
+          ctx.fillStyle = anterior ? "#0f766e" : "rgba(77,101,97,0.85)";
+          ctx.font = `${anterior ? 700 : 500} 10px "IBM Plex Mono", ui-monospace, monospace`;
+          ctx.textAlign = "center";
+          ctx.fillText(`${hour === 0 ? 12 : hour}`, label.sx, label.sy - 6);
+        }
+      };
+
       const drawFabricEdges = () => {
         // The proximal edge is a real boundary; the distal one is only where
         // the view was cropped, so it is dashed to say so.
@@ -274,7 +311,7 @@ export function GraftModel3D({
 
         const edge = project(Math.PI, 0, radiusAt(0));
         ctx.fillStyle = "#0f766e";
-        ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+        ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
         ctx.textAlign = "center";
         ctx.fillText("FABRIC EDGE", edge.sx, edge.sy - 10);
       };
@@ -313,9 +350,16 @@ export function GraftModel3D({
             radiusPx: Math.max(12, opening.radiusMm * scale),
           });
           ctx.fillStyle = "#7c2d12";
-          ctx.font = "600 11px var(--font-ibm-plex-mono), monospace";
+          ctx.font = "600 11px \"IBM Plex Mono\", ui-monospace, monospace";
           ctx.textAlign = "center";
-          ctx.fillText(opening.vessel.name, label.sx, label.sy - 4);
+          ctx.fillText(
+            `${opening.vessel.name} ${arcMmToClockText(
+              opening.arcMm,
+              circumferenceMm,
+            )}`,
+            label.sx,
+            label.sy - 4,
+          );
         }
       };
 
@@ -371,7 +415,7 @@ export function GraftModel3D({
           ctx.setLineDash([]);
 
           const mid = visible[Math.floor(visible.length / 2)];
-          ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+          ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const width = ctx.measureText(label).width + 6;
@@ -443,6 +487,7 @@ export function GraftModel3D({
       drawSurface(false);
       drawSurface(true);
       drawSealBand();
+      drawClock();
       drawFabricEdges();
       drawWire(true);
       drawOpenings();

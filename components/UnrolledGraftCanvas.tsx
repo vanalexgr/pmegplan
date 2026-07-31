@@ -3,12 +3,12 @@
 import { useEffect, useRef } from "react";
 
 import type { PlacedOpening } from "@/lib/planning/anatomy";
+import { arcMmToClockText } from "@/lib/planning/clock";
 import { measureHole } from "@/lib/planning/holeMeasurements";
 import type { GraftModel } from "@/lib/planning/plan";
 import { cn } from "@/lib/utils";
 
 const PADDING = { top: 20, right: 18, bottom: 30, left: 46 };
-const CLOCK_TICKS = [0, 3, 6, 9];
 /** Breathing room past the most proximal metal, in mm. */
 const HEADROOM_MM = 4;
 
@@ -127,7 +127,7 @@ export function UnrolledGraftCanvas({
       ctx.stroke();
 
       ctx.fillStyle = "#0f766e";
-      ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+      ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
       ctx.textAlign = "left";
       ctx.fillText("FABRIC EDGE", x(0) + 5, y(0) - 5);
       ctx.fillText("FABRIC END", x(0) + 5, y(fabricLengthMm) + 13);
@@ -140,7 +140,7 @@ export function UnrolledGraftCanvas({
       );
       if (hasBareRing) {
         ctx.fillStyle = "rgba(77,101,97,0.9)";
-        ctx.font = "500 9px var(--font-ibm-plex-mono), monospace";
+        ctx.font = "500 9px \"IBM Plex Mono\", ui-monospace, monospace";
         ctx.textAlign = "right";
         ctx.fillText(
           `bare fixation ring · ${Math.abs(renderModel.minimumZMm).toFixed(1)} mm above fabric`,
@@ -159,7 +159,7 @@ export function UnrolledGraftCanvas({
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = "rgba(15,118,110,0.95)";
-      ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+      ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
       ctx.textAlign = "left";
       ctx.fillText(
         `seal ${proximalDepthMm.toFixed(1)} mm`,
@@ -212,10 +212,11 @@ export function UnrolledGraftCanvas({
           ctx.stroke();
 
           ctx.fillStyle = "#7c2d12";
-          ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+          ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
           ctx.textAlign = "left";
+          const clock = arcMmToClockText(opening.arcMm, circumferenceMm);
           ctx.fillText(
-            opening.vessel.name,
+            `${opening.vessel.name} ${clock}`,
             x(centreArc) + opening.radiusMm * scale + 4,
             y(opening.depthMm) + 3,
           );
@@ -266,7 +267,7 @@ export function UnrolledGraftCanvas({
 
           const midX = (ax + bx) / 2;
           const midY = (ay + by) / 2;
-          ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+          ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const width = ctx.measureText(label).width + 6;
@@ -325,7 +326,7 @@ export function UnrolledGraftCanvas({
           ctx.stroke();
           ctx.setLineDash([]);
           ctx.fillStyle = "#b45309";
-          ctx.font = "600 9px var(--font-ibm-plex-mono), monospace";
+          ctx.font = "600 9px \"IBM Plex Mono\", ui-monospace, monospace";
           ctx.textAlign = "left";
           ctx.fillText(
             `${landmark.kind} ${landmark.distanceMm.toFixed(1)}`,
@@ -335,20 +336,30 @@ export function UnrolledGraftCanvas({
         }
       }
 
-      // Axes.
-      ctx.fillStyle = "rgba(77,101,97,0.85)";
-      ctx.font = "500 9px var(--font-ibm-plex-mono), monospace";
+      // Clock grid, every hour. The quarters are drawn heavier because they are
+      // what a graft's markers are read against.
+      ctx.font = "500 9px \"IBM Plex Mono\", ui-monospace, monospace";
       ctx.textAlign = "center";
-      for (const hour of CLOCK_TICKS) {
+      for (let hour = 0; hour < 12; hour += 1) {
         const arcMm = (hour / 12) * circumferenceMm;
-        ctx.strokeStyle = "rgba(16,33,31,0.12)";
+        const quarter = hour % 3 === 0;
+        ctx.strokeStyle = quarter
+          ? "rgba(16,33,31,0.22)"
+          : "rgba(16,33,31,0.08)";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x(arcMm), y(topMm));
         ctx.lineTo(x(arcMm), y(bottomMm));
         ctx.stroke();
-        ctx.fillText(`${hour === 0 ? 12 : hour}:00`, x(arcMm), y(bottomMm) + 14);
+
+        ctx.fillStyle = quarter
+          ? "rgba(77,101,97,0.95)"
+          : "rgba(77,101,97,0.6)";
+        ctx.font = `${quarter ? 600 : 500} 9px "IBM Plex Mono", ui-monospace, monospace`;
+        ctx.fillText(`${hour === 0 ? 12 : hour}`, x(arcMm), y(bottomMm) + 14);
       }
+      ctx.fillStyle = "rgba(77,101,97,0.85)";
+      ctx.font = "500 9px \"IBM Plex Mono\", ui-monospace, monospace";
 
       ctx.textAlign = "right";
       for (let depthMm = 0; depthMm <= fabricLengthMm; depthMm += 20) {
