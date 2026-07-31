@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import type { PlacedOpening } from "@/lib/planning/anatomy";
+import { measureHole } from "@/lib/planning/holeMeasurements";
 import type { GraftModel } from "@/lib/planning/plan";
 import { cn } from "@/lib/utils";
 
@@ -217,6 +218,119 @@ export function UnrolledGraftCanvas({
             opening.vessel.name,
             x(centreArc) + opening.radiusMm * scale + 4,
             y(opening.depthMm) + 3,
+          );
+        }
+      }
+
+      // Measurements for the selected hole, drawn as the lines the numbers were
+      // taken along so the panel and the template cannot disagree.
+      const selected = openings.find(
+        (opening) => opening.vessel.name === selectedVessel,
+      );
+      if (selected) {
+        const measurement = measureHole(graft, selected, 0);
+        const shift = measurement.arcMm > circumferenceMm / 2 ? -circumferenceMm : 0;
+
+        const rule = (
+          fromArc: number,
+          fromDepth: number,
+          toArc: number,
+          toDepth: number,
+          label: string,
+        ) => {
+          const ax = x(fromArc);
+          const ay = y(fromDepth);
+          const bx = x(toArc);
+          const by = y(toDepth);
+
+          ctx.strokeStyle = "#0f766e";
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // End ticks, so the span being measured is unambiguous.
+          const angle = Math.atan2(by - ay, bx - ax) + Math.PI / 2;
+          for (const [px, py] of [
+            [ax, ay],
+            [bx, by],
+          ]) {
+            ctx.beginPath();
+            ctx.moveTo(px - Math.cos(angle) * 4, py - Math.sin(angle) * 4);
+            ctx.lineTo(px + Math.cos(angle) * 4, py + Math.sin(angle) * 4);
+            ctx.stroke();
+          }
+
+          const midX = (ax + bx) / 2;
+          const midY = (ay + by) / 2;
+          ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const width = ctx.measureText(label).width + 6;
+          ctx.fillStyle = "rgba(255,255,255,0.92)";
+          ctx.fillRect(midX - width / 2, midY - 7, width, 14);
+          ctx.fillStyle = "#0f766e";
+          ctx.fillText(label, midX, midY);
+          ctx.textBaseline = "alphabetic";
+        };
+
+        const centreArc = measurement.arcMm + shift;
+        const rimMm = selected.radiusMm + graft.wireRadiusMm;
+
+        if (measurement.gaps.above) {
+          const gap = measurement.gaps.above;
+          rule(
+            centreArc,
+            measurement.depthMm - rimMm,
+            centreArc,
+            gap.atDepthMm,
+            `${gap.distanceMm.toFixed(1)}`,
+          );
+        }
+        if (measurement.gaps.below) {
+          const gap = measurement.gaps.below;
+          rule(
+            centreArc,
+            measurement.depthMm + rimMm,
+            centreArc,
+            gap.atDepthMm,
+            `${gap.distanceMm.toFixed(1)}`,
+          );
+        }
+        for (const gap of [measurement.gaps.left, measurement.gaps.right]) {
+          if (!gap) continue;
+          const target = centreArc + (gap.atArcMm - measurement.arcMm);
+          const sign = Math.sign(target - centreArc) || 1;
+          rule(
+            centreArc + sign * rimMm,
+            measurement.depthMm,
+            target,
+            measurement.depthMm,
+            `${gap.distanceMm.toFixed(1)}`,
+          );
+        }
+
+        for (const landmark of [measurement.apexAbove, measurement.valleyBelow]) {
+          if (!landmark) continue;
+          const target = centreArc + landmark.arcOffsetMm;
+          ctx.strokeStyle = "rgba(180,83,9,0.8)";
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x(centreArc), y(measurement.depthMm));
+          ctx.lineTo(x(target), y(landmark.depthMm));
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#b45309";
+          ctx.font = "600 9px var(--font-ibm-plex-mono), monospace";
+          ctx.textAlign = "left";
+          ctx.fillText(
+            `${landmark.kind} ${landmark.distanceMm.toFixed(1)}`,
+            x(target) + 4,
+            y(landmark.depthMm) - 3,
           );
         }
       }

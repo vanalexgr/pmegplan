@@ -49,8 +49,24 @@ a {
 
 @media print {
   @page {
-    margin: 0;
+    margin: 8mm;
     size: auto;
+  }
+
+  /*
+   * The cutting template is drawn at true size, so it must reach paper
+   * unscaled and alone. Everything outside it is planning UI: hiding it also
+   * stops the browser shrinking the sheet to fit alongside.
+   */
+  body:has(.punch-card-sheet) > *:not(.punch-card-sheet) {
+    display: none !important;
+  }
+
+  .punch-card-sheet {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: white;
   }
 
   html,

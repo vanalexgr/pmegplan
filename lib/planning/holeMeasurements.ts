@@ -25,6 +25,17 @@ export interface StrutLandmark {
 }
 
 /**
+ * One direction's free fabric, with the point it was measured to so the views
+ * can draw the same line the number came from.
+ */
+export interface HoleGap {
+  distanceMm: number;
+  /** Where the blocking wire sits, in graft coordinates. */
+  atArcMm: number;
+  atDepthMm: number;
+}
+
+/**
  * The free fabric around a hole, measured from its edge outward.
  *
  * `null` means no metal was found in that direction inside the search window,
@@ -32,10 +43,10 @@ export interface StrutLandmark {
  * the direction is not the binding one.
  */
 export interface HoleGaps {
-  aboveMm: number | null;
-  belowMm: number | null;
-  leftMm: number | null;
-  rightMm: number | null;
+  above: HoleGap | null;
+  below: HoleGap | null;
+  left: HoleGap | null;
+  right: HoleGap | null;
 }
 
 export interface HoleMeasurement {
@@ -81,10 +92,10 @@ export function measureHole(
   const centreArc = opening.arcMm;
   const centreDepth = opening.depthMm;
 
-  let aboveMm: number | null = null;
-  let belowMm: number | null = null;
-  let leftMm: number | null = null;
-  let rightMm: number | null = null;
+  let above: HoleGap | null = null;
+  let below: HoleGap | null = null;
+  let left: HoleGap | null = null;
+  let right: HoleGap | null = null;
   let apexAbove: StrutLandmark | null = null;
   let valleyBelow: StrutLandmark | null = null;
   let insideRingBand = false;
@@ -105,12 +116,16 @@ export function measureHole(
     if (lateralMm < radiusMm) {
       const halfChordMm = Math.sqrt(radiusMm * radiusMm - lateralMm * lateralMm);
       if (bottom <= centreDepth - halfChordMm) {
-        const gap = centreDepth - bottom - halfChordMm;
-        if (aboveMm === null || gap < aboveMm) aboveMm = gap;
+        const distanceMm = centreDepth - bottom - halfChordMm;
+        if (above === null || distanceMm < above.distanceMm) {
+          above = { distanceMm, atArcMm: arcMm, atDepthMm: bottom };
+        }
       }
       if (top >= centreDepth + halfChordMm) {
-        const gap = top - centreDepth - halfChordMm;
-        if (belowMm === null || gap < belowMm) belowMm = gap;
+        const distanceMm = top - centreDepth - halfChordMm;
+        if (below === null || distanceMm < below.distanceMm) {
+          below = { distanceMm, atArcMm: arcMm, atDepthMm: top };
+        }
       }
     }
 
@@ -128,10 +143,18 @@ export function measureHole(
       const halfChordMm =
         Math.sqrt(radiusMm * radiusMm - verticalMm * verticalMm);
       if (lateralMm >= halfChordMm) {
-        const gap = lateralMm - halfChordMm;
+        const distanceMm = lateralMm - halfChordMm;
+        // The depth the ruler would sit at: the stroke's nearest point.
+        const atDepthMm =
+          verticalMm === 0
+            ? centreDepth
+            : Math.abs(centreDepth - top) < Math.abs(centreDepth - bottom)
+              ? top
+              : bottom;
+        const gap = { distanceMm, atArcMm: arcMm, atDepthMm };
         if (dArc < 0) {
-          if (leftMm === null || gap < leftMm) leftMm = gap;
-        } else if (rightMm === null || gap < rightMm) rightMm = gap;
+          if (left === null || distanceMm < left.distanceMm) left = gap;
+        } else if (right === null || distanceMm < right.distanceMm) right = gap;
       }
     }
 
@@ -198,7 +221,7 @@ export function measureHole(
     arcMm: centreArc,
     clock: arcMmToClockText(centreArc, circumferenceMm),
     clearanceMm,
-    gaps: { aboveMm, belowMm, leftMm, rightMm },
+    gaps: { above, below, left, right },
     apexAbove,
     valleyBelow,
     insideRingBand,

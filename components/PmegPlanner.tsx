@@ -5,12 +5,14 @@ import {
   AlertTriangle,
   CheckCircle2,
   Info,
+  Printer,
   RotateCw,
   Ruler,
   ScanLine,
 } from "lucide-react";
 
 import { GraftModel3D } from "@/components/GraftModel3D";
+import { PunchCard } from "@/components/PunchCard";
 import { UnrolledGraftCanvas } from "@/components/UnrolledGraftCanvas";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +28,7 @@ import type { AnatomyCase, AnatomyVessel } from "@/lib/planning/anatomy";
 import { planGraft, type GraftModel, type PlanResult } from "@/lib/planning/plan";
 import {
   measureHole,
+  type HoleGap,
   type StrutLandmark,
 } from "@/lib/planning/holeMeasurements";
 import { cn } from "@/lib/utils";
@@ -353,8 +356,9 @@ export function PmegPlanner() {
   const [entries, setEntries] = useState<VesselEntry[]>(initialEntries);
   const [sealZoneDiameterMm, setSealZoneDiameterMm] = useState("36");
   const [proximalLandingLengthMm, setProximalLandingLengthMm] = useState("25");
-  const [view, setView] = useState<"flat" | "model">("flat");
+  const [view, setView] = useState<"flat" | "model">("model");
   const [selectedVessel, setSelectedVessel] = useState<string | null>(null);
+  const [showPunchCard, setShowPunchCard] = useState(false);
 
   const patch = (index: number, next: Partial<VesselEntry>) => {
     setEntries((current) =>
@@ -378,7 +382,10 @@ export function PmegPlanner() {
 
   const fenestrationCount = entries.filter((entry) => entry.fenestrate).length;
 
+  const solved = plan?.ok && plan.openings.length > 0 ? plan : null;
+
   return (
+    <>
     <main className="mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
       <header className="mb-8">
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--brand)]">
@@ -631,6 +638,27 @@ export function PmegPlanner() {
                     />
                   ) : null}
 
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      variant={showPunchCard ? "secondary" : "default"}
+                      onClick={() => setShowPunchCard((current) => !current)}
+                    >
+                      <Printer className="mr-2 size-4" />
+                      {showPunchCard ? "Hide punch card" : "Punch card"}
+                    </Button>
+                    {showPunchCard ? (
+                      <>
+                        <Button variant="outline" onClick={() => window.print()}>
+                          Print at 100%
+                        </Button>
+                        <span className="text-[11px] leading-4 text-[color:var(--muted-foreground)]">
+                          Turn off &ldquo;fit to page&rdquo; — the template is
+                          drawn at true size and the ruler on it is the check.
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+
                   <Card>
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base">Cut list</CardTitle>
@@ -712,11 +740,18 @@ export function PmegPlanner() {
         </div>
       </div>
     </main>
+
+    {showPunchCard && solved ? (
+      <section className="punch-card-sheet mx-auto w-full max-w-[1400px] px-4 pb-10 sm:px-6 lg:px-8">
+        <PunchCard plan={solved} />
+      </section>
+    ) : null}
+    </>
   );
 }
 
-function gapText(value: number | null): string {
-  return value === null ? "clear" : `${value.toFixed(1)} mm`;
+function gapText(gap: HoleGap | null): string {
+  return gap === null ? "clear" : `${gap.distanceMm.toFixed(1)} mm`;
 }
 
 /**
@@ -777,10 +812,10 @@ function HoleMeasurementPanel({
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {(
               [
-                ["Above", measurement.gaps.aboveMm],
-                ["Below", measurement.gaps.belowMm],
-                ["Left (CCW)", measurement.gaps.leftMm],
-                ["Right (CW)", measurement.gaps.rightMm],
+                ["Above", measurement.gaps.above],
+                ["Below", measurement.gaps.below],
+                ["Left (CCW)", measurement.gaps.left],
+                ["Right (CW)", measurement.gaps.right],
               ] as const
             ).map(([label, value]) => (
               <div
@@ -793,7 +828,7 @@ function HoleMeasurementPanel({
                 <p
                   className={cn(
                     "mt-0.5 font-mono text-lg font-semibold",
-                    value !== null && value < 1 && "text-amber-700",
+                    value !== null && value.distanceMm < 1 && "text-amber-700",
                   )}
                 >
                   {gapText(value)}

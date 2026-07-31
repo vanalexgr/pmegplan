@@ -46,10 +46,10 @@ describe("measureHole", () => {
       // A hole the solver cleared cannot be sitting on wire.
       expect(measurement.insideRingBand).toBe(false);
       const sides = [
-        measurement.gaps.aboveMm,
-        measurement.gaps.belowMm,
-        measurement.gaps.leftMm,
-        measurement.gaps.rightMm,
+        measurement.gaps.above?.distanceMm ?? null,
+        measurement.gaps.below?.distanceMm ?? null,
+        measurement.gaps.left?.distanceMm ?? null,
+        measurement.gaps.right?.distanceMm ?? null,
       ].filter((gap): gap is number => gap !== null);
       expect(sides.length).toBeGreaterThan(0);
       for (const gap of sides) expect(gap).toBeGreaterThan(0);
@@ -81,10 +81,10 @@ describe("measureHole", () => {
 
     const measurement = measureHole(graft, opening, 5);
 
-    expect(measurement.gaps.aboveMm).toBeCloseTo(5, 10);
-    expect(measurement.gaps.belowMm).toBeCloseTo(8, 10);
-    expect(measurement.gaps.leftMm).toBeCloseTo(5, 10);
-    expect(measurement.gaps.rightMm).toBeCloseTo(8, 10);
+    expect(measurement.gaps.above?.distanceMm ?? null).toBeCloseTo(5, 10);
+    expect(measurement.gaps.below?.distanceMm ?? null).toBeCloseTo(8, 10);
+    expect(measurement.gaps.left?.distanceMm ?? null).toBeCloseTo(5, 10);
+    expect(measurement.gaps.right?.distanceMm ?? null).toBeCloseTo(8, 10);
     expect(measurement.insideRingBand).toBe(false);
   });
 
@@ -106,10 +106,10 @@ describe("measureHole", () => {
 
     const measurement = measureHole(graft, opening, 1);
 
-    expect(measurement.gaps.rightMm).toBeCloseTo(5, 10);
+    expect(measurement.gaps.right?.distanceMm ?? null).toBeCloseTo(5, 10);
     // Sliding up, the same stroke is 4 above centre but offset 8 sideways —
     // further than the radius, so it can never be reached that way.
-    expect(measurement.gaps.aboveMm).toBeNull();
+    expect(measurement.gaps.above?.distanceMm ?? null).toBeNull();
   });
 
   it("knows when the hole is sitting on the ring rather than in a window", () => {

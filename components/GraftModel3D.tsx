@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import type { PlacedOpening } from "@/lib/planning/anatomy";
+import { measureHole } from "@/lib/planning/holeMeasurements";
 import type { GraftModel } from "@/lib/planning/plan";
 import { cn } from "@/lib/utils";
 
@@ -72,6 +73,25 @@ export function GraftModel3D({
     elevation: number;
     moved: boolean;
   } | null>(null);
+
+  // Turn the graft to face a newly selected hole. Half the openings are on the
+  // far side at any one time, and a selection that leaves the model looking
+  // unchanged reads as the click having failed. Adjusted during render rather
+  // than in an effect, so the first paint after a selection already faces it.
+  const [facedVessel, setFacedVessel] = useState<string | null>(null);
+  if (selectedVessel !== facedVessel) {
+    setFacedVessel(selectedVessel);
+    const opening = openings.find(
+      (candidate) => candidate.vessel.name === selectedVessel,
+    );
+    if (opening) {
+      const theta = (opening.arcMm / graft.circumferenceMm) * Math.PI * 2;
+      const target = theta - Math.PI;
+      // The nearest equivalent angle, so the graft takes the short way round.
+      const turns = Math.round((azimuth - target) / (Math.PI * 2));
+      setAzimuth(target + turns * Math.PI * 2);
+    }
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -299,6 +319,125 @@ export function GraftModel3D({
         }
       };
 
+      /**
+       * The selected hole's measurements, laid on the cylinder surface.
+       *
+       * Each run is sampled along the surface rather than drawn as a straight
+       * screen line, so a span that wraps round the graft curves with it and
+       * still reads as the distance a tape would follow.
+       */
+      const drawMeasurements = () => {
+        const selected = openings.find(
+          (opening) => opening.vessel.name === selectedVessel,
+        );
+        if (!selected) return;
+
+        const measurement = measureHole(graft, selected, 0);
+        const centreTheta = (measurement.arcMm / circumferenceMm) * Math.PI * 2;
+        const rimMm = selected.radiusMm + graft.wireRadiusMm;
+
+        const surfaceRun = (
+          fromTheta: number,
+          fromZ: number,
+          toTheta: number,
+          toZ: number,
+          label: string,
+          colour: string,
+        ) => {
+          const steps = 24;
+          const points: Projected[] = [];
+          for (let step = 0; step <= steps; step += 1) {
+            const t = step / steps;
+            const theta = fromTheta + (toTheta - fromTheta) * t;
+            const zMm = fromZ + (toZ - fromZ) * t;
+            points.push(project(theta, zMm, radiusAt(zMm)));
+          }
+          // Hidden once it passes behind the graft.
+          const visible = points.filter((_, index) => {
+            const t = index / steps;
+            return facesViewer(fromTheta + (toTheta - fromTheta) * t);
+          });
+          if (visible.length < 2) return;
+
+          ctx.strokeStyle = colour;
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          visible.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.sx, point.sy);
+            else ctx.lineTo(point.sx, point.sy);
+          });
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          const mid = visible[Math.floor(visible.length / 2)];
+          ctx.font = "600 10px var(--font-ibm-plex-mono), monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const width = ctx.measureText(label).width + 6;
+          ctx.fillStyle = "rgba(255,255,255,0.92)";
+          ctx.fillRect(mid.sx - width / 2, mid.sy - 7, width, 14);
+          ctx.fillStyle = colour;
+          ctx.fillText(label, mid.sx, mid.sy);
+          ctx.textBaseline = "alphabetic";
+        };
+
+        const teal = "#0f766e";
+        if (measurement.gaps.above) {
+          const gap = measurement.gaps.above;
+          surfaceRun(
+            centreTheta,
+            measurement.depthMm - rimMm,
+            centreTheta,
+            gap.atDepthMm,
+            gap.distanceMm.toFixed(1),
+            teal,
+          );
+        }
+        if (measurement.gaps.below) {
+          const gap = measurement.gaps.below;
+          surfaceRun(
+            centreTheta,
+            measurement.depthMm + rimMm,
+            centreTheta,
+            gap.atDepthMm,
+            gap.distanceMm.toFixed(1),
+            teal,
+          );
+        }
+        for (const gap of [measurement.gaps.left, measurement.gaps.right]) {
+          if (!gap) continue;
+          const offsetMm = gap.atArcMm - measurement.arcMm;
+          const wrapped =
+            offsetMm > circumferenceMm / 2
+              ? offsetMm - circumferenceMm
+              : offsetMm < -circumferenceMm / 2
+                ? offsetMm + circumferenceMm
+                : offsetMm;
+          const sign = Math.sign(wrapped) || 1;
+          surfaceRun(
+            centreTheta + ((sign * rimMm) / circumferenceMm) * Math.PI * 2,
+            measurement.depthMm,
+            centreTheta + (wrapped / circumferenceMm) * Math.PI * 2,
+            measurement.depthMm,
+            gap.distanceMm.toFixed(1),
+            teal,
+          );
+        }
+
+        for (const landmark of [measurement.apexAbove, measurement.valleyBelow]) {
+          if (!landmark) continue;
+          surfaceRun(
+            centreTheta,
+            measurement.depthMm,
+            centreTheta + (landmark.arcOffsetMm / circumferenceMm) * Math.PI * 2,
+            landmark.depthMm,
+            `${landmark.kind} ${landmark.distanceMm.toFixed(1)}`,
+            "#b45309",
+          );
+        }
+      };
+
       // Far side first, then the surface, then the near side over it.
       drawWire(false);
       drawSurface(false);
@@ -307,6 +446,7 @@ export function GraftModel3D({
       drawFabricEdges();
       drawWire(true);
       drawOpenings();
+      drawMeasurements();
     };
 
     draw();
