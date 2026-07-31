@@ -24,6 +24,10 @@ import { Input } from "@/components/ui/input";
 import { MIN_PROXIMAL_FENESTRATION_DEPTH_MM } from "@/lib/planning/anatomy";
 import type { AnatomyCase, AnatomyVessel } from "@/lib/planning/anatomy";
 import { planGraft, type GraftModel, type PlanResult } from "@/lib/planning/plan";
+import {
+  measureHole,
+  type StrutLandmark,
+} from "@/lib/planning/holeMeasurements";
 import { cn } from "@/lib/utils";
 
 /**
@@ -350,6 +354,7 @@ export function PmegPlanner() {
   const [sealZoneDiameterMm, setSealZoneDiameterMm] = useState("36");
   const [proximalLandingLengthMm, setProximalLandingLengthMm] = useState("25");
   const [view, setView] = useState<"flat" | "model">("flat");
+  const [selectedVessel, setSelectedVessel] = useState<string | null>(null);
 
   const patch = (index: number, next: Partial<VesselEntry>) => {
     setEntries((current) =>
@@ -603,20 +608,36 @@ export function PmegPlanner() {
                           graft={plan.graft}
                           openings={plan.openings}
                           proximalDepthMm={plan.solution.pose.proximalDepthMm}
+                          selectedVessel={selectedVessel}
+                          onSelect={setSelectedVessel}
                         />
                       ) : (
                         <GraftModel3D
                           graft={plan.graft}
                           openings={plan.openings}
                           proximalDepthMm={plan.solution.pose.proximalDepthMm}
+                          selectedVessel={selectedVessel}
+                          onSelect={setSelectedVessel}
                         />
                       )}
                     </CardContent>
                   </Card>
 
+                  {selectedVessel ? (
+                    <HoleMeasurementPanel
+                      plan={plan}
+                      vesselName={selectedVessel}
+                      onClose={() => setSelectedVessel(null)}
+                    />
+                  ) : null}
+
                   <Card>
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base">Cut list</CardTitle>
+                      <CardDescription>
+                        Select a row, or a hole on the graft, for the marking
+                        measurements around it.
+                      </CardDescription>
                     </CardHeader>
                     <CardContent className="pt-2">
                       <div className="overflow-x-auto">
@@ -637,7 +658,18 @@ export function PmegPlanner() {
                               return (
                                 <tr
                                   key={opening.vessel.name}
-                                  className="border-t border-[color:var(--border)]"
+                                  className={cn(
+                                    "cursor-pointer border-t border-[color:var(--border)] transition-colors hover:bg-white/60",
+                                    selectedVessel === opening.vessel.name &&
+                                      "bg-[color:var(--brand)]/[0.08]",
+                                  )}
+                                  onClick={() =>
+                                    setSelectedVessel((current) =>
+                                      current === opening.vessel.name
+                                        ? null
+                                        : opening.vessel.name,
+                                    )
+                                  }
                                 >
                                   <td className="py-2.5 pr-4 font-sans font-medium">
                                     {opening.vessel.name}
@@ -680,6 +712,153 @@ export function PmegPlanner() {
         </div>
       </div>
     </main>
+  );
+}
+
+function gapText(value: number | null): string {
+  return value === null ? "clear" : `${value.toFixed(1)} mm`;
+}
+
+/**
+ * Everything needed to mark one hole out on the bench.
+ *
+ * The cut list says where the hole goes in graft coordinates; this says what is
+ * around it. A surgeon marking fabric works from the struts they can see, so
+ * the free fabric in each direction and the nearest apex and valley are what a
+ * ruler actually gets laid against.
+ */
+function HoleMeasurementPanel({
+  plan,
+  vesselName,
+  onClose,
+}: {
+  plan: Extract<PlanResult, { ok: true }>;
+  vesselName: string;
+  onClose: () => void;
+}) {
+  const index = plan.openings.findIndex(
+    (opening) => opening.vessel.name === vesselName,
+  );
+  if (index < 0) return null;
+
+  const opening = plan.openings[index];
+  const clearance = plan.solution.clearances[index]?.clearanceMm ?? 0;
+  const measurement = measureHole(plan.graft, opening, clearance);
+
+  return (
+    <Card className="border-[color:var(--brand)]/40">
+      <CardHeader className="flex-row items-start justify-between gap-3 pb-2">
+        <div>
+          <CardTitle className="text-base">
+            {measurement.vesselName} — how to mark it
+          </CardTitle>
+          <CardDescription>
+            Ø {measurement.diameterMm.toFixed(1)} mm at{" "}
+            {measurement.clock}, {measurement.depthMm.toFixed(1)} mm below the
+            proximal fabric edge.
+          </CardDescription>
+        </div>
+        <Button variant="outline" size="sm" onClick={onClose}>
+          Close
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4 pt-2">
+        {measurement.insideRingBand ? (
+          <p className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-[11px] leading-5 text-rose-900">
+            This hole overlaps a strut. It cannot be cut here without crossing
+            wire.
+          </p>
+        ) : null}
+
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted-foreground)]">
+            Free fabric from the hole edge
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(
+              [
+                ["Above", measurement.gaps.aboveMm],
+                ["Below", measurement.gaps.belowMm],
+                ["Left (CCW)", measurement.gaps.leftMm],
+                ["Right (CW)", measurement.gaps.rightMm],
+              ] as const
+            ).map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-xl border border-[color:var(--border)] bg-white/70 px-3 py-2"
+              >
+                <p className="text-[10px] uppercase tracking-[0.1em] text-[color:var(--muted-foreground)]">
+                  {label}
+                </p>
+                <p
+                  className={cn(
+                    "mt-0.5 font-mono text-lg font-semibold",
+                    value !== null && value < 1 && "text-amber-700",
+                  )}
+                >
+                  {gapText(value)}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] leading-4 text-[color:var(--muted-foreground)]">
+            How far the hole could slide each way before its rim meets wire,
+            measured to the wire&rsquo;s surface. The {clearance.toFixed(2)} mm
+            clearance is the shortest distance in any direction at all, so it
+            sits at or below every figure here.
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted-foreground)]">
+            Landmarks to measure from
+          </p>
+          <div className="flex flex-col gap-2">
+            {measurement.apexAbove ? (
+              <LandmarkRow
+                label="Nearest apex above"
+                landmark={measurement.apexAbove}
+                holeDepthMm={measurement.depthMm}
+              />
+            ) : null}
+            {measurement.valleyBelow ? (
+              <LandmarkRow
+                label="Nearest valley below"
+                landmark={measurement.valleyBelow}
+                holeDepthMm={measurement.depthMm}
+              />
+            ) : null}
+            {!measurement.apexAbove && !measurement.valleyBelow ? (
+              <p className="text-[11px] text-[color:var(--muted-foreground)]">
+                No strut within 40 mm — this hole sits in open fabric.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LandmarkRow({
+  label,
+  landmark,
+  holeDepthMm,
+}: {
+  label: string;
+  landmark: StrutLandmark;
+  holeDepthMm: number;
+}) {
+  const axialMm = Math.abs(landmark.depthMm - holeDepthMm);
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-xl border border-[color:var(--border)] bg-white/60 px-3 py-2 text-sm">
+      <span className="text-[color:var(--muted-foreground)]">{label}</span>
+      <span className="font-mono text-xs">
+        {landmark.distanceMm.toFixed(1)} mm from edge · {axialMm.toFixed(1)} mm
+        axially · {Math.abs(landmark.arcOffsetMm).toFixed(1)} mm{" "}
+        {landmark.arcOffsetMm >= 0 ? "CW" : "CCW"} · at {landmark.clock}
+      </span>
+    </div>
   );
 }
 

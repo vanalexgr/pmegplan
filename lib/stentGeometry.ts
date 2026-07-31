@@ -16,6 +16,7 @@ import {
   buildBenchCtRenderModel,
   sampleBenchCtRing,
 } from "@/lib/geometry/benchCtRenderModel";
+import { wrapMm } from "@/lib/planning/geometry";
 import type { BenchCtDeviceDescriptor } from "@/lib/geometry/benchCtDeviceLibrary";
 import type { WaveformPattern } from "@/lib/geometry/waveform";
 import type { DeviceGeometry, StrutSegment } from "@/lib/types";
@@ -58,10 +59,13 @@ function buildWireMapSegments(
   const step = map.theta_step_deg;
   for (const [bin, runs] of map.runs.entries()) {
     if (runs.length === 0) continue;
-    // Bin centres, matching the extractor's [-180, 180) binning and the sign
-    // convention the apex rows already use.
+    // Bin centres, matching the extractor's [-180, 180) binning. Wrapped into
+    // [0, circumference) because every stroke here is vertical — one arc
+    // position, two depths — so wrapping cannot split one across the seam, and
+    // consumers that draw in [0, circumference) would otherwise lose the half
+    // of the device sitting at negative arc.
     const thetaDeg = -180 + (bin + 0.5) * step;
-    const arcMm = (thetaDeg / 360) * circumferenceMm;
+    const arcMm = wrapMm((thetaDeg / 360) * circumferenceMm, circumferenceMm);
     for (const [startMm, endMm] of runs) {
       segments.push([arcMm, toRenderZ(startMm), arcMm, toRenderZ(endMm)]);
     }

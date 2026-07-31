@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 import type { PlacedOpening } from "@/lib/planning/anatomy";
 import type { GraftModel } from "@/lib/planning/plan";
+import { cn } from "@/lib/utils";
 
 const PADDING = { top: 20, right: 18, bottom: 30, left: 46 };
 const CLOCK_TICKS = [0, 3, 6, 9];
@@ -15,6 +16,15 @@ export interface UnrolledGraftCanvasProps {
   openings: PlacedOpening[];
   /** Depth of the most proximal opening below the fabric edge, in mm. */
   proximalDepthMm: number;
+  selectedVessel?: string | null;
+  onSelect?: (vesselName: string | null) => void;
+}
+
+interface HitTarget {
+  vesselName: string;
+  x: number;
+  y: number;
+  radiusPx: number;
 }
 
 /**
@@ -31,9 +41,12 @@ export function UnrolledGraftCanvas({
   graft,
   openings,
   proximalDepthMm,
+  selectedVessel = null,
+  onSelect,
 }: UnrolledGraftCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const hitTargets = useRef<HitTarget[]>([]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -86,7 +99,8 @@ export function UnrolledGraftCanvas({
       ctx.lineCap = "round";
       ctx.beginPath();
       for (const [x1, y1, x2, y2] of segments) {
-        for (const shift of [0, -circumferenceMm]) {
+        // Both neighbouring copies, so wire near either seam is never dropped.
+        for (const shift of [0, -circumferenceMm, circumferenceMm]) {
           const a = x1 + shift;
           const b = x2 + shift;
           if (Math.max(a, b) < 0 || Math.min(a, b) > circumferenceMm) continue;
@@ -96,28 +110,10 @@ export function UnrolledGraftCanvas({
       }
       ctx.stroke();
 
-      // Barbs on the bare fixation ring, where the scan found them.
-      if (renderModel.barbs.length > 0) {
-        ctx.strokeStyle = "rgba(180,83,9,0.85)";
-        ctx.lineWidth = Math.max(1, wireRadiusMm * 1.4 * scale);
-        ctx.beginPath();
-        for (const barb of renderModel.barbs) {
-          const arcOf = (thetaRad: number) =>
-            (thetaRad / (Math.PI * 2)) * circumferenceMm;
-          for (const shift of [0, -circumferenceMm]) {
-            const bx = arcOf(barb.base.thetaRad) + shift;
-            const tx = arcOf(barb.tip.thetaRad) + shift;
-            const hx = arcOf(barb.hook.thetaRad) + shift;
-            if (Math.max(bx, tx) < 0 || Math.min(bx, tx) > circumferenceMm) {
-              continue;
-            }
-            ctx.moveTo(x(bx), y(barb.base.zMm));
-            ctx.lineTo(x(tx), y(barb.tip.zMm));
-            ctx.lineTo(x(hx), y(barb.hook.zMm));
-          }
-        }
-        ctx.stroke();
-      }
+      // Barbs are deliberately not drawn. They were extruded from an annotated
+      // 5.5 mm length, but the segmentation resolves no metal at all beyond the
+      // fixation ring's own apices, so drawing them would put wire on the
+      // template where the scan found none.
 
       // Fabric edges, drawn over the wire so they read as boundaries.
       ctx.strokeStyle = "#0f766e";
@@ -135,7 +131,13 @@ export function UnrolledGraftCanvas({
       ctx.fillText("FABRIC EDGE", x(0) + 5, y(0) - 5);
       ctx.fillText("FABRIC END", x(0) + 5, y(fabricLengthMm) + 13);
 
-      if (renderModel.minimumZMm < -0.5) {
+      // Only when the device actually has one. A covered device still segments
+      // a fraction of a millimetre past its fabric edge, and calling that a
+      // fixation ring would invent a feature the TX2 does not have.
+      const hasBareRing = renderModel.rings.some(
+        (ring) => ring.kind === "bare_fixation",
+      );
+      if (hasBareRing) {
         ctx.fillStyle = "rgba(77,101,97,0.9)";
         ctx.font = "500 9px var(--font-ibm-plex-mono), monospace";
         ctx.textAlign = "right";
@@ -165,7 +167,9 @@ export function UnrolledGraftCanvas({
       );
 
       // Openings.
+      hitTargets.current = [];
       for (const opening of openings) {
+        const selected = opening.vessel.name === selectedVessel;
         for (const shift of [0, -circumferenceMm, circumferenceMm]) {
           const centreArc = opening.arcMm + shift;
           if (
@@ -175,6 +179,13 @@ export function UnrolledGraftCanvas({
             continue;
           }
 
+          hitTargets.current.push({
+            vesselName: opening.vessel.name,
+            x: x(centreArc),
+            y: y(opening.depthMm),
+            radiusPx: Math.max(10, opening.radiusMm * scale),
+          });
+
           ctx.beginPath();
           ctx.arc(
             x(centreArc),
@@ -183,10 +194,12 @@ export function UnrolledGraftCanvas({
             0,
             Math.PI * 2,
           );
-          ctx.fillStyle = "rgba(217,119,6,0.22)";
+          ctx.fillStyle = selected
+            ? "rgba(217,119,6,0.42)"
+            : "rgba(217,119,6,0.22)";
           ctx.fill();
           ctx.strokeStyle = "#b45309";
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = selected ? 3 : 1.5;
           ctx.stroke();
 
           const arm = Math.min(5, opening.radiusMm * scale * 0.7);
@@ -235,11 +248,25 @@ export function UnrolledGraftCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [graft, openings, proximalDepthMm]);
+  }, [graft, openings, proximalDepthMm, selectedVessel]);
 
   return (
     <div ref={wrapperRef} className="w-full">
-      <canvas ref={canvasRef} className="block w-full" />
+      <canvas
+        ref={canvasRef}
+        className={cn("block w-full", onSelect && "cursor-pointer")}
+        onClick={(event) => {
+          if (!onSelect) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const clickX = event.clientX - bounds.left;
+          const clickY = event.clientY - bounds.top;
+          const hit = hitTargets.current.find(
+            (target) =>
+              Math.hypot(target.x - clickX, target.y - clickY) <= target.radiusPx,
+          );
+          onSelect(hit ? hit.vesselName : null);
+        }}
+      />
     </div>
   );
 }

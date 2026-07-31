@@ -58,6 +58,35 @@ describe("bench CT device library", () => {
     expect(segments.length).toBe(scan1.wire_map!.runs.flat().length);
   });
 
+  it("covers the whole circumference, not half of it", () => {
+    // The extractor bins theta over [-180, 180), so unwrapped arcs run from
+    // minus half a circumference. A consumer drawing [0, circumference) then
+    // shows only the near half of the device.
+    for (const [name, scan] of [
+      ["Endograft_1", "scan1"],
+      ["Endograft_2", "scan2"],
+      ["Endograft_3", "scan3"],
+    ] as const) {
+      const descriptor = getBenchCtDeviceDescriptor(name, scan);
+      if (!descriptor) throw new Error(`Expected ${name}`);
+      const circumferenceMm = Math.PI * 42.5;
+      const arcs = buildBenchCtStrutSegments(descriptor, circumferenceMm).map(
+        (segment) => segment[0],
+      );
+
+      expect(Math.min(...arcs)).toBeGreaterThanOrEqual(0);
+      expect(Math.max(...arcs)).toBeLessThan(circumferenceMm);
+
+      // Every twelfth of the circumference carries wire.
+      for (let hour = 0; hour < 12; hour += 1) {
+        const from = (hour / 12) * circumferenceMm;
+        const to = ((hour + 1) / 12) * circumferenceMm;
+        const inSector = arcs.filter((arc) => arc >= from && arc < to).length;
+        expect(inSector).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("keeps the bare fixation ring above the fabric in the segments", () => {
     for (const [name, scan] of [
       ["Endograft_1", "scan1"],

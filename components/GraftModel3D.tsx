@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  Maximize2,
+  Minus,
+  Plus,
+  RotateCcw,
+  RotateCw,
+} from "lucide-react";
 
-import { sampleBenchCtRing } from "@/lib/geometry/benchCtRenderModel";
 import type { PlacedOpening } from "@/lib/planning/anatomy";
 import type { GraftModel } from "@/lib/planning/plan";
+import { cn } from "@/lib/utils";
 
 const SURFACE_FACETS = 72;
 const HOLE_SAMPLES = 36;
@@ -16,7 +23,19 @@ export interface GraftModel3DProps {
   graft: GraftModel;
   openings: PlacedOpening[];
   proximalDepthMm: number;
+  selectedVessel?: string | null;
+  onSelect?: (vesselName: string | null) => void;
 }
+
+interface HitTarget {
+  vesselName: string;
+  x: number;
+  y: number;
+  radiusPx: number;
+}
+
+const MIN_ZOOM = 0.6;
+const MAX_ZOOM = 6;
 
 interface Projected {
   sx: number;
@@ -37,11 +56,22 @@ export function GraftModel3D({
   graft,
   openings,
   proximalDepthMm,
+  selectedVessel = null,
+  onSelect,
 }: GraftModel3DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [azimuth, setAzimuth] = useState(0.5);
-  const drag = useRef<{ x: number; azimuth: number } | null>(null);
+  const [elevation, setElevation] = useState(DEFAULT_ELEVATION);
+  const [zoom, setZoom] = useState(1);
+  const hitTargets = useRef<HitTarget[]>([]);
+  const drag = useRef<{
+    x: number;
+    y: number;
+    azimuth: number;
+    elevation: number;
+    moved: boolean;
+  } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -80,10 +110,10 @@ export function GraftModel3D({
       );
       const spanMm = bottomMm - topMm;
       const maxRadiusMm = graft.proximalDiameterMm / 2;
-      const elevation = DEFAULT_ELEVATION;
 
       const scale =
         0.9 *
+        zoom *
         Math.min(
           cssWidth / (maxRadiusMm * 2.4),
           cssHeight / (spanMm * Math.cos(elevation) + maxRadiusMm * 1.6),
@@ -169,70 +199,37 @@ export function GraftModel3D({
         }
       };
 
-      const drawRings = (nearSide: boolean) => {
-        for (const ring of renderModel.rings) {
-          const points = sampleBenchCtRing(ring.points);
-          if (points.length < 2) continue;
-          // Rings past the crop belong to fabric that is not shown.
-          if (Math.min(...points.map((point) => point.zMm)) > bottomMm) continue;
+      /**
+       * The same measured wire the flat view and the clearance field use, so
+       * all three agree about where metal is. Each stroke is one angular bin's
+       * interval of segmented metal; nothing is interpolated between them.
+       */
+      const drawWire = (nearSide: boolean) => {
+        ctx.lineCap = "round";
+        ctx.lineWidth = Math.max(0.8, graft.wireRadiusMm * 1.6 * scale);
 
-          const bare = ring.kind === "bare_fixation";
-          ctx.strokeStyle = bare
+        // Metal proximal to the fabric edge is the bare fixation ring.
+        for (const fixation of [false, true]) {
+          ctx.strokeStyle = fixation
             ? nearSide
               ? "rgba(180,83,9,0.95)"
-              : "rgba(180,83,9,0.28)"
+              : "rgba(180,83,9,0.25)"
             : nearSide
-              ? "rgba(16,33,31,0.8)"
-              : "rgba(16,33,31,0.20)";
-          ctx.lineWidth = Math.max(1, graft.wireRadiusMm * 2 * scale);
-          ctx.lineCap = "round";
-          ctx.lineJoin = "round";
-
-          // Close the ring by repeating the first point one turn on.
-          const loop = [
-            ...points,
-            { ...points[0], thetaRad: points[0].thetaRad + Math.PI * 2 },
-          ];
-
+              ? "rgba(16,33,31,0.75)"
+              : "rgba(16,33,31,0.18)";
           ctx.beginPath();
-          let penDown = false;
-          for (let index = 0; index < loop.length - 1; index += 1) {
-            const from = loop[index];
-            const to = loop[index + 1];
-            const midTheta = (from.thetaRad + to.thetaRad) / 2;
-            if (facesViewer(midTheta) !== nearSide) {
-              penDown = false;
-              continue;
-            }
-            const a = project(from.thetaRad, from.zMm, from.radiusMm);
-            const b = project(to.thetaRad, to.zMm, to.radiusMm);
-            if (!penDown) {
-              ctx.moveTo(a.sx, a.sy);
-              penDown = true;
-            }
+          for (const [arcMm, fromZ, , toZ] of graft.segments) {
+            if (fromZ > bottomMm) continue;
+            if (fromZ < 0 !== fixation) continue;
+            const theta = (arcMm / circumferenceMm) * Math.PI * 2;
+            if (facesViewer(theta) !== nearSide) continue;
+            const a = project(theta, fromZ, radiusAt(fromZ));
+            const b = project(theta, toZ, radiusAt(toZ));
+            ctx.moveTo(a.sx, a.sy);
             ctx.lineTo(b.sx, b.sy);
           }
           ctx.stroke();
         }
-      };
-
-      const drawBarbs = (nearSide: boolean) => {
-        if (renderModel.barbs.length === 0) return;
-        ctx.strokeStyle = nearSide
-          ? "rgba(180,83,9,0.95)"
-          : "rgba(180,83,9,0.25)";
-        ctx.lineWidth = Math.max(1, graft.wireRadiusMm * 1.6 * scale);
-        ctx.beginPath();
-        for (const barb of renderModel.barbs) {
-          if (facesViewer(barb.base.thetaRad) !== nearSide) continue;
-          const base = project(barb.base.thetaRad, barb.base.zMm, barb.base.radiusMm);
-          const tip = project(barb.tip.thetaRad, barb.tip.zMm, barb.tip.radiusMm);
-          const hook = project(barb.hook.thetaRad, barb.hook.zMm, barb.hook.radiusMm);
-          ctx.moveTo(base.sx, base.sy);
-          ctx.lineTo(tip.sx, tip.sy);
-          ctx.lineTo(hook.sx, hook.sy);
-        }
-        ctx.stroke();
       };
 
       const drawFabricEdges = () => {
@@ -263,9 +260,11 @@ export function GraftModel3D({
       };
 
       const drawOpenings = () => {
+        hitTargets.current = [];
         for (const opening of openings) {
           const theta0 = (opening.arcMm / circumferenceMm) * Math.PI * 2;
           if (!facesViewer(theta0)) continue;
+          const selected = opening.vessel.name === selectedVessel;
 
           const radiusMm = radiusAt(opening.depthMm);
           ctx.beginPath();
@@ -278,13 +277,21 @@ export function GraftModel3D({
             else ctx.lineTo(point.sx, point.sy);
           }
           ctx.closePath();
-          ctx.fillStyle = "rgba(217,119,6,0.35)";
+          ctx.fillStyle = selected
+            ? "rgba(217,119,6,0.6)"
+            : "rgba(217,119,6,0.35)";
           ctx.fill();
           ctx.strokeStyle = "#b45309";
-          ctx.lineWidth = 1.6;
+          ctx.lineWidth = selected ? 3 : 1.6;
           ctx.stroke();
 
           const label = project(theta0, opening.depthMm, radiusMm);
+          hitTargets.current.push({
+            vesselName: opening.vessel.name,
+            x: label.sx,
+            y: label.sy,
+            radiusPx: Math.max(12, opening.radiusMm * scale),
+          });
           ctx.fillStyle = "#7c2d12";
           ctx.font = "600 11px var(--font-ibm-plex-mono), monospace";
           ctx.textAlign = "center";
@@ -293,14 +300,12 @@ export function GraftModel3D({
       };
 
       // Far side first, then the surface, then the near side over it.
-      drawRings(false);
-      drawBarbs(false);
+      drawWire(false);
       drawSurface(false);
       drawSurface(true);
       drawSealBand();
       drawFabricEdges();
-      drawRings(true);
-      drawBarbs(true);
+      drawWire(true);
       drawOpenings();
     };
 
@@ -308,30 +313,147 @@ export function GraftModel3D({
     const observer = new ResizeObserver(draw);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [graft, openings, proximalDepthMm, azimuth]);
+  }, [graft, openings, proximalDepthMm, azimuth, elevation, zoom, selectedVessel]);
+
+  const spin = (deltaRad: number) => setAzimuth((current) => current + deltaRad);
+  const clampZoom = (value: number) =>
+    Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 
   return (
     <div ref={wrapperRef} className="w-full select-none">
       <canvas
         ref={canvasRef}
-        className="block w-full cursor-ew-resize touch-none"
+        className={cn(
+          "block w-full touch-none",
+          onSelect ? "cursor-crosshair" : "cursor-ew-resize",
+        )}
         onPointerDown={(event) => {
-          drag.current = { x: event.clientX, azimuth };
+          drag.current = {
+            x: event.clientX,
+            y: event.clientY,
+            azimuth,
+            elevation,
+            moved: false,
+          };
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
           const start = drag.current;
           if (!start) return;
-          setAzimuth(start.azimuth + (event.clientX - start.x) * 0.01);
+          const dx = event.clientX - start.x;
+          const dy = event.clientY - start.y;
+          if (Math.hypot(dx, dy) > 3) start.moved = true;
+          setAzimuth(start.azimuth + dx * 0.01);
+          // Held short of vertical, where the cylinder degenerates to a disc.
+          setElevation(
+            Math.max(-1.2, Math.min(1.2, start.elevation + dy * 0.006)),
+          );
         }}
-        onPointerUp={() => {
+        onPointerUp={(event) => {
+          const start = drag.current;
           drag.current = null;
+          // A drag rotates; only a click selects.
+          if (!onSelect || !start || start.moved) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const clickX = event.clientX - bounds.left;
+          const clickY = event.clientY - bounds.top;
+          const hit = hitTargets.current.find(
+            (target) =>
+              Math.hypot(target.x - clickX, target.y - clickY) <= target.radiusPx,
+          );
+          onSelect(hit ? hit.vesselName : null);
+        }}
+        onWheel={(event) => {
+          setZoom((current) =>
+            clampZoom(current * (event.deltaY < 0 ? 1.12 : 1 / 1.12)),
+          );
         }}
       />
+
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px]">
+        <div className="flex items-center gap-1">
+          <ControlButton label="Rotate left" onClick={() => spin(-Math.PI / 8)}>
+            <RotateCcw className="size-3.5" />
+          </ControlButton>
+          <span className="w-16 text-center font-mono text-[color:var(--muted-foreground)]">
+            {(((azimuth * 180) / Math.PI) % 360).toFixed(0)}°
+          </span>
+          <ControlButton label="Rotate right" onClick={() => spin(Math.PI / 8)}>
+            <RotateCw className="size-3.5" />
+          </ControlButton>
+        </div>
+
+        <label className="flex items-center gap-2 text-[color:var(--muted-foreground)]">
+          Tilt
+          <input
+            type="range"
+            min={-1.2}
+            max={1.2}
+            step={0.02}
+            value={elevation}
+            aria-label="Viewing tilt"
+            className="w-24 accent-[color:var(--brand)]"
+            onChange={(event) => setElevation(Number(event.target.value))}
+          />
+        </label>
+
+        <div className="flex items-center gap-1">
+          <ControlButton
+            label="Zoom out"
+            onClick={() => setZoom((z) => clampZoom(z / 1.25))}
+          >
+            <Minus className="size-3.5" />
+          </ControlButton>
+          <span className="w-12 text-center font-mono text-[color:var(--muted-foreground)]">
+            {zoom.toFixed(1)}×
+          </span>
+          <ControlButton
+            label="Zoom in"
+            onClick={() => setZoom((z) => clampZoom(z * 1.25))}
+          >
+            <Plus className="size-3.5" />
+          </ControlButton>
+        </div>
+
+        <ControlButton
+          label="Reset view"
+          onClick={() => {
+            setAzimuth(0.5);
+            setElevation(DEFAULT_ELEVATION);
+            setZoom(1);
+          }}
+        >
+          <Maximize2 className="size-3.5" />
+        </ControlButton>
+      </div>
+
       <p className="mt-1 text-center text-[11px] text-[color:var(--muted-foreground)]">
-        Drag to rotate. Cropped below the last opening; the dashed ring is the
+        Drag to rotate and tilt, scroll to zoom, click a hole for its
+        measurements. Cropped below the last opening; the dashed ring is the
         crop, not the end of the graft.
       </p>
     </div>
+  );
+}
+
+function ControlButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex size-7 items-center justify-center rounded-full border border-[color:var(--border)] bg-white/70 text-[color:var(--foreground)] transition-colors hover:bg-white"
+    >
+      {children}
+    </button>
   );
 }
