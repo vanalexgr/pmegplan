@@ -609,8 +609,7 @@ export function PmegPlanner() {
                           </>
                         ) : null}
                       </CardDescription>
-                      <SealingRingNote graft={plan.graft} />
-                      <WireProvenanceNote graft={plan.graft} />
+                      <WireProvenanceWarning graft={plan.graft} />
                     </CardHeader>
                     <CardContent className="pt-2">
                       {view === "flat" ? (
@@ -901,67 +900,23 @@ function LandmarkRow({
 }
 
 /**
- * Whether the wire clearance was measured against is the scan's own, and how
- * closely it agrees with the apex rows.
+ * Fires only when the strut path is not the scan's own.
  *
- * Worth stating plainly: a clearance figure is only as good as the strut path
- * it was computed from, and an interpolated path is a guess dressed as a
- * measurement.
+ * When the geometry is segmented there is nothing to say — that is the normal
+ * case and narrating it just buries the plan. When it is an interpolated curve
+ * through a dozen apices per ring, the clearance figures are a guess and the
+ * surgeon has to know.
  */
-function WireProvenanceNote({ graft }: { graft: GraftModel }) {
+function WireProvenanceWarning({ graft }: { graft: GraftModel }) {
   const { wireProvenance: wire } = graft;
-
-  if (wire.source !== "segmented") {
-    return (
-      <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
-        <span className="font-semibold">Wire path is interpolated.</span> This
-        device has no segmented wire map, so the struts are a curve fitted
-        through {wire.apexCount} apices. Clearance below is indicative only.
-      </p>
-    );
-  }
+  if (wire.source === "segmented") return null;
 
   return (
-    <p className="rounded-xl border border-[color:var(--border)] bg-white/60 px-3 py-2 text-[11px] leading-5 text-[color:var(--muted-foreground)]">
-      <span className="font-semibold text-[color:var(--foreground)]">
-        Clearance measured against the scan itself.
-      </span>{" "}
-      {wire.segmentCount.toLocaleString()} wire strokes taken from the metal
-      segmentation, not {wire.apexCount} apices joined by a curve. The apex rows
-      agree with the segmentation to{" "}
-      {wire.apexAgreementMm?.toFixed(2)} mm.
-    </p>
-  );
-}
-
-/**
- * What the sealing ring is, when it is not just another body ring.
- *
- * The seal and usually the first fenestration both land inside it, so its
- * geometry — not the repeating pattern further down — is what the proximal end
- * of the plan has to work around.
- */
-function SealingRingNote({ graft }: { graft: GraftModel }) {
-  const { sealingRing } = graft;
-  if (!sealingRing.differsFromBody) return null;
-
-  const tallerBy = sealingRing.heightMm - sealingRing.bodyHeightMm;
-  const widerBy = sealingRing.diameterMm - sealingRing.bodyDiameterMm;
-
-  return (
-    <p className="rounded-xl border border-[color:var(--border)] bg-white/60 px-3 py-2 text-[11px] leading-5 text-[color:var(--muted-foreground)]">
-      <span className="font-semibold text-[color:var(--foreground)]">
-        Sealing ring is its own stent.
-      </span>{" "}
-      {sealingRing.apexCount} apices, {sealingRing.heightMm.toFixed(1)} mm tall
-      and {sealingRing.diameterMm.toFixed(1)} mm across — {tallerBy.toFixed(1)} mm
-      taller and {Math.abs(widerBy).toFixed(1)} mm{" "}
-      {widerBy > 0 ? "wider" : "narrower"} than the body rings. It reaches{" "}
-      {sealingRing.fromDepthMm < 0
-        ? `${Math.abs(sealingRing.fromDepthMm).toFixed(1)} mm above the fabric edge and runs to ${sealingRing.toDepthMm.toFixed(1)} mm below it`
-        : `${sealingRing.fromDepthMm.toFixed(1)} mm to ${sealingRing.toDepthMm.toFixed(1)} mm below the fabric edge`}
-      , so the seal and usually the first fenestration both sit inside it.
-      Oversizing is judged against this ring, not the body diameter.
+    <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+      <span className="font-semibold">Wire path is interpolated.</span> This
+      device has no segmented wire map, so the struts are a curve fitted through
+      {" "}
+      {wire.apexCount} apices. Treat the clearances as indicative only.
     </p>
   );
 }

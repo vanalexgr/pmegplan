@@ -276,7 +276,7 @@ export const CT_SCAN_REFERENCES: readonly CtScanReference[] = [
       lengthMm: 173,
     },
     identityNote:
-      "Platform confirmed as Zenith Alpha. Candidate nominal 42 × 173 mm from measured diameter and fabric span; confirm from packaging.",
+      "Platform confirmed as Zenith Alpha. Diameter is well supported: body rings measure 42.3 mm against a nominal 42. The LENGTH is not — measured covered length is 186.8 mm and the 42 series offers 121/147/173/225, so 173 is 13.8 mm out. The same measurement matches scan3's nominal 201 to within 1.9 mm, so the method is sound and this device's length needs confirming from packaging.",
   },
   {
     id: "scan3",
@@ -288,7 +288,7 @@ export const CT_SCAN_REFERENCES: readonly CtScanReference[] = [
       lengthMm: 201,
     },
     identityNote:
-      "Platform confirmed as Zenith Alpha. Candidate nominal 32 × 201 mm from measured diameter and fabric span; confirm from packaging.",
+      "Platform confirmed as Zenith Alpha. Best-supported of the three: body rings measure 31.6 mm against a nominal 32, and measured covered length is 199.1 mm against a catalog 201 — under 2 mm out. Size still inferred rather than read off packaging.",
   },
   {
     id: "scan2",
@@ -300,7 +300,7 @@ export const CT_SCAN_REFERENCES: readonly CtScanReference[] = [
       lengthMm: 165,
     },
     identityNote:
-      "Platform confirmed as TX2. Candidate nominal 42 → 32 × 165 mm from measured taper and fabric span; confirm from packaging.",
+      "Platform confirmed as TX2. Taper is well supported: the proximal sealing ring measures 42.6 against a nominal 42, and the distal body rings settle at 32.8-32.9 against a nominal 32 — the 34.5 mm last ring is the flared distal sealing stent, not the graft body. Length is the weakest part: the extractor could not segment this device's fabric at all, so covered_length_mm is null and the 165 mm rests on the annotated span.",
   },
 ] as const;
 
