@@ -283,8 +283,7 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-[11px]">
         <div>
           <p className="text-sm font-semibold">
-            PMEG cutting template — {graft.scan.platform.shortLabel}{" "}
-            {graft.proximalDiameterMm.toFixed(1)} mm
+            PMEG cutting template — {graft.naming.full}
           </p>
           <p className="text-[color:var(--muted-foreground)]">
             {caseLabel ? `${caseLabel} · ` : ""}

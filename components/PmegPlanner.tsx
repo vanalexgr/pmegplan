@@ -313,10 +313,10 @@ function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
       <Metric
         icon={<ScanLine className="size-4" />}
         label="Scanned device"
-        value={scan.reference.id.toUpperCase()}
-        detail={`${scan.platform.shortLabel} · ${graft.proximalDiameterMm.toFixed(
-          1,
-        )} mm measured · ${(oversizeFraction * 100).toFixed(0)}% oversize`}
+        value={graft.naming.code ?? scan.platform.shortLabel}
+        detail={`${graft.naming.size} · ${(oversizeFraction * 100).toFixed(
+          0,
+        )}% oversize · ${scan.reference.id.toUpperCase()}`}
       />
       <Metric
         label="Worst clearance"
@@ -586,23 +586,26 @@ export function PmegPlanner() {
                         </div>
                       </div>
                       <CardDescription>
-                        {plan.graft.scan.reference.id.toUpperCase()} ·{" "}
-                        {plan.graft.scan.platform.label} · measured{" "}
-                        {plan.graft.proximalDiameterMm.toFixed(1)} mm ×{" "}
+                        {plan.graft.naming.full} ·{" "}
+                        {plan.graft.scan.reference.id.toUpperCase()} bench CT ·{" "}
                         {plan.graft.fabricLengthMm.toFixed(0)} mm of fabric
-                        {plan.graft.renderModel.barbs.length > 0
-                          ? `, plus a bare fixation ring ${Math.abs(
+                        measured
+                        {plan.graft.renderModel.rings.some(
+                          (ring) => ring.kind === "bare_fixation",
+                        )
+                          ? `, plus a bare fixation ring reaching ${Math.abs(
                               plan.graft.renderModel.minimumZMm,
-                            ).toFixed(0)} mm above the fabric`
+                            ).toFixed(1)} mm above the fabric`
                           : ", fabric-covered end to end"}
                         .
-                        {plan.graft.renderModel.barbs.length > 0 ? (
+                        {plan.graft.renderModel.rings.some(
+                          (ring) => ring.kind === "bare_fixation",
+                        ) ? (
                           <>
                             {" "}
-                            Its{" "}
-                            {plan.graft.renderModel.barbs.length} barbs are drawn
-                            from an annotated length, not segmented from the
-                            scan — treat their paths as indicative.
+                            Its barbs are not drawn: the segmentation resolves no
+                            metal past that ring&rsquo;s own apices, so their
+                            length and direction are not in this scan.
                           </>
                         ) : null}
                       </CardDescription>
@@ -1001,10 +1004,11 @@ function DeviceLibrary({ plan }: { plan: PlanResult }) {
                 <span className="font-mono text-xs font-semibold">
                   {scan.reference.id.toUpperCase()}
                 </span>
-                <span className="font-medium">{scan.platform.shortLabel}</span>
+                <span className="font-medium">
+                  {fit.model.naming.code ?? scan.platform.shortLabel}
+                </span>
                 <span className="font-mono text-xs text-[color:var(--muted-foreground)]">
-                  {fit.model.proximalDiameterMm.toFixed(1)} mm ×{" "}
-                  {fit.model.fabricLengthMm.toFixed(0)} mm
+                  {fit.model.naming.size}
                 </span>
               </div>
               <span

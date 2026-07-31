@@ -56,6 +56,49 @@ export interface MeasuredCtScanModel {
   reference: CtScanReference;
   platform: CtPlatform;
   device: DeviceGeometry;
+  /**
+   * The catalog component the scan's candidate nominal size corresponds to.
+   *
+   * Its `code` is the platform's own component code and carries no length —
+   * Cook's ordering codes do, but this catalog does not record that suffix and
+   * inventing one would put a product identifier in front of a surgeon that
+   * nothing here verified. Quote the code and the length separately.
+   */
+  component: CtComponentSize | null;
+}
+
+/** How a scanned device should be named in the interface. */
+export interface CtDeviceNaming {
+  /** Full platform name, e.g. "Cook Zenith Alpha Thoracic". */
+  platformLabel: string;
+  /** Component code, e.g. "ZTA-P-42", or null when nothing matched. */
+  code: string | null;
+  /** Size as ordered, e.g. "42 × 173 mm" or "42 → 32 × 165 mm". */
+  size: string;
+  /** One line for headers: platform, code and size. */
+  full: string;
+  /** Whether the nominal size was confirmed rather than inferred from the scan. */
+  sizeConfirmed: boolean;
+}
+
+export function describeCtDevice(scan: MeasuredCtScanModel): CtDeviceNaming {
+  const { proximalDiameterMm, distalDiameterMm, lengthMm } =
+    scan.reference.candidateNominal;
+  const tapered = proximalDiameterMm !== distalDiameterMm;
+  const size = tapered
+    ? `${proximalDiameterMm} → ${distalDiameterMm} × ${lengthMm} mm`
+    : `${proximalDiameterMm} × ${lengthMm} mm`;
+  const code = scan.component?.code ?? null;
+
+  return {
+    platformLabel: scan.platform.label,
+    code,
+    size,
+    full: [scan.platform.label, code, size].filter(Boolean).join(" · "),
+    // Every scan's size is still derived from measured geometry rather than
+    // read off the packaging; the identity note records what was confirmed.
+    sizeConfirmed: false,
+  };
 }
 
 export interface CtSizeSelection {
@@ -564,6 +607,7 @@ export function getMeasuredCtScanModel(
   return {
     reference,
     platform,
+    component,
     device: {
       ...referenceDevice,
       id: `ct-measured-${reference.id}`,

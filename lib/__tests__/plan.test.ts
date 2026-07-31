@@ -56,15 +56,45 @@ describe("buildGraftModel", () => {
     }
   });
 
-  it("judges oversizing at the sealing ring, not the fabric surface", () => {
+  it("judges oversizing on the labelled diameter, not a measured one", () => {
+    // The measured sealing ring is 40.7 mm on a device labelled 42. Sizing
+    // against the measurement would report 13% oversizing in a 36 mm aorta
+    // where the label gives 16.7%, and understating oversizing is the direction
+    // that makes an undersized device look acceptable.
     const model = buildGraftModel("scan1");
 
-    expect(model.proximalDiameterMm).toBe(model.sealingRing.diameterMm);
-    // The Alpha's sealing ring is narrower than its body rings, so taking the
-    // body diameter would overstate oversizing.
-    expect(model.sealingRing.diameterMm).toBeLessThan(
-      model.sealingRing.bodyDiameterMm,
+    expect(model.proximalDiameterMm).toBe(42);
+    expect(model.sealingRing.diameterMm).toBeLessThan(41);
+    expect(model.proximalDiameterMm).toBeGreaterThan(
+      model.sealingRing.diameterMm,
     );
+  });
+
+  it("keeps the unrolled circumference on measured geometry", () => {
+    // Sizing switches to the label; the frame the wire and holes share must not,
+    // or every strut moves relative to every opening.
+    const model = buildGraftModel("scan1");
+
+    expect(model.circumferenceMm).toBeLessThan(Math.PI * 42);
+    expect(model.circumferenceMm).toBeCloseTo(
+      Math.PI * model.renderModel.diameterAt(0),
+      6,
+    );
+  });
+
+  it("names the device by its catalog code and ordered size", () => {
+    const alpha = buildGraftModel("scan1");
+    expect(alpha.naming.code).toBe("ZTA-P-42");
+    expect(alpha.naming.size).toBe("42 × 173 mm");
+    expect(alpha.naming.platformLabel).toBe("Cook Zenith Alpha Thoracic");
+
+    // A tapered device is named with both ends.
+    const tx2 = buildGraftModel("scan2");
+    expect(tx2.naming.code).toBe("ZTEG-2PT-42-32");
+    expect(tx2.naming.size).toBe("42 → 32 × 165 mm");
+
+    // The size is still inferred from the scan, never read off packaging.
+    expect(alpha.naming.sizeConfirmed).toBe(false);
   });
 
   it("puts the anatomically proximal end first on an inverted scan", () => {
@@ -247,7 +277,9 @@ describe("planGraft", () => {
     if (plan.ok) return;
     // Too small below the gap, too large above it.
     expect(
-      plan.considered.some((fit) => /undersized/.test(fit.rejection ?? "")),
+      plan.considered.some((fit) =>
+        /undersized|only \d+% oversizing/.test(fit.rejection ?? ""),
+      ),
     ).toBe(true);
     expect(
       plan.considered.some((fit) => /infolding/.test(fit.rejection ?? "")),

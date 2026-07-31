@@ -18,7 +18,9 @@ import {
 } from "@/lib/planning/poseSolver";
 import {
   CT_SCAN_REFERENCES,
+  describeCtDevice,
   getMeasuredCtScanModel,
+  type CtDeviceNaming,
   type CtScanId,
   type MeasuredCtScanModel,
 } from "@/lib/ctDeviceCatalog";
@@ -69,9 +71,15 @@ export interface PlanOptions {
 /** Everything one scanned device contributes to a plan. */
 export interface GraftModel {
   scan: MeasuredCtScanModel;
+  /** Platform, component code and ordered size, for anything user-facing. */
+  naming: CtDeviceNaming;
   /** Free-state render model, carrying the fabric edges and bare rings. */
   renderModel: BenchCtRenderModel;
-  /** Measured outer diameter at the proximal fabric edge, in mm. */
+  /**
+   * Labelled proximal diameter, in mm. Oversizing is judged against this
+   * because it is what the IFU range refers to and what a surgeon sizes from.
+   * See `sealingRing.diameterMm` for what the scan measured there.
+   */
   proximalDiameterMm: number;
   sealingRing: SealingRing;
   circumferenceMm: number;
@@ -98,7 +106,16 @@ export interface GraftModel {
  * proximal part of the plan actually contends with.
  */
 export interface SealingRing {
-  /** Measured diameter across this ring, in mm. Drives oversizing. */
+  /**
+   * Measured diameter across this ring, in mm.
+   *
+   * Not the device's size and not what oversizing is judged on. It is the 90th
+   * percentile radius of this ring's *metal*, doubled, so it sits inside the
+   * fabric's outer surface by roughly the fabric thickness plus the wire. On
+   * top of that the proximal ring is genuinely narrower than the body in the
+   * free state — 40.7 against 42.3 on scan1, 29.8 against 31.6 on scan3 —
+   * because nothing holds the end open on the bench.
+   */
   diameterMm: number;
   /** Apex-to-apex height, in mm. */
   heightMm: number;
@@ -247,10 +264,18 @@ export function buildGraftModel(scanId: CtScanId): GraftModel {
   const descriptor = scan.reference.descriptor;
   const renderModel = buildBenchCtRenderModel(descriptor);
   const sealingRing = describeSealingRing(descriptor, renderModel);
-  // Oversizing is judged at the ring that seals, not at an interpolated point
-  // on the fabric surface: on every scanned device the two differ.
-  const proximalDiameterMm = sealingRing.diameterMm;
-  const circumferenceMm = Math.PI * proximalDiameterMm;
+  // Sizing and geometry take different diameters, deliberately.
+  //
+  // Oversizing is judged against the labelled diameter, because that is what
+  // the IFU range refers to and what a surgeon sizes from. Judging it against
+  // measured metal understates it — 13% rather than 16.7% for a 36 mm aorta on
+  // scan1 — and understating oversizing is the direction that makes an
+  // undersized device look acceptable.
+  const proximalDiameterMm = scan.reference.candidateNominal.proximalDiameterMm;
+  // The unrolled circumference stays measured, so that arc positions, wire
+  // spacing and clearances remain one self-consistent frame taken from the same
+  // scan. Rescaling it to nominal would move every strut relative to every hole.
+  const circumferenceMm = Math.PI * renderModel.diameterAt(0);
   const segments = buildBenchCtStrutSegments(
     scan.reference.descriptor,
     circumferenceMm,
@@ -258,6 +283,7 @@ export function buildGraftModel(scanId: CtScanId): GraftModel {
 
   return {
     scan,
+    naming: describeCtDevice(scan),
     renderModel,
     proximalDiameterMm,
     sealingRing,
