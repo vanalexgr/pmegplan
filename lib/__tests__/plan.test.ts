@@ -171,13 +171,21 @@ describe("planGraft", () => {
   });
 
   it("does not push deeper than a pose that already meets the target", () => {
-    // With no target to chase the solver has no reason to leave the seal floor.
-    const plan = planGraft(juxtarenalCase(22), { targetClearanceMm: 0 });
+    // With no clearance to chase, the solver should take the shallowest pose
+    // that merely clears rather than the one that clears best.
+    const relaxed = planGraft(juxtarenalCase(22), { targetClearanceMm: 0 });
+    const chasing = planGraft(juxtarenalCase(22), { targetClearanceMm: 1 });
 
-    expect(plan.ok).toBe(true);
-    if (!plan.ok) return;
-    expect(plan.solution.pose.proximalDepthMm).toBe(10);
-    expect(plan.solution.marginMm).toBeGreaterThan(0);
+    expect(relaxed.ok && chasing.ok).toBe(true);
+    if (!relaxed.ok || !chasing.ok) return;
+
+    expect(relaxed.solution.marginMm).toBeGreaterThan(0);
+    expect(relaxed.solution.pose.proximalDepthMm).toBeLessThanOrEqual(
+      chasing.solution.pose.proximalDepthMm,
+    );
+    // Close to the seal floor: the measured wire leaves 10.00 mm itself
+    // conflicted, so "shallowest that clears" is just above it rather than on it.
+    expect(relaxed.solution.pose.proximalDepthMm).toBeLessThan(12);
   });
 
   it("reports the SMA as the blocker when it sits too close to the renals", () => {

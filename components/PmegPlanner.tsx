@@ -595,6 +595,7 @@ export function PmegPlanner() {
                         ) : null}
                       </CardDescription>
                       <SealingRingNote graft={plan.graft} />
+                      <WireProvenanceNote graft={plan.graft} />
                     </CardHeader>
                     <CardContent className="pt-2">
                       {view === "flat" ? (
@@ -679,6 +680,40 @@ export function PmegPlanner() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Whether the wire clearance was measured against is the scan's own, and how
+ * closely it agrees with the apex rows.
+ *
+ * Worth stating plainly: a clearance figure is only as good as the strut path
+ * it was computed from, and an interpolated path is a guess dressed as a
+ * measurement.
+ */
+function WireProvenanceNote({ graft }: { graft: GraftModel }) {
+  const { wireProvenance: wire } = graft;
+
+  if (wire.source !== "segmented") {
+    return (
+      <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+        <span className="font-semibold">Wire path is interpolated.</span> This
+        device has no segmented wire map, so the struts are a curve fitted
+        through {wire.apexCount} apices. Clearance below is indicative only.
+      </p>
+    );
+  }
+
+  return (
+    <p className="rounded-xl border border-[color:var(--border)] bg-white/60 px-3 py-2 text-[11px] leading-5 text-[color:var(--muted-foreground)]">
+      <span className="font-semibold text-[color:var(--foreground)]">
+        Clearance measured against the scan itself.
+      </span>{" "}
+      {wire.segmentCount.toLocaleString()} wire strokes taken from the metal
+      segmentation, not {wire.apexCount} apices joined by a curve. The apex rows
+      agree with the segmentation to{" "}
+      {wire.apexAgreementMm?.toFixed(2)} mm.
+    </p>
   );
 }
 

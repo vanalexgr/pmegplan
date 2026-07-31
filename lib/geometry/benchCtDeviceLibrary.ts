@@ -69,7 +69,49 @@ export interface BenchCtDeviceDescriptor {
     radial_scale: number;
     axial_scale: number;
   };
+  /**
+   * Axial intervals of segmented metal per angular bin, in this descriptor's
+   * own z and theta datums.
+   *
+   * The apex rows below describe a ring as an idealised zigzag through ten to
+   * twenty-eight points. This is the wire the scan actually found — several
+   * thousand intervals per device — and it is what anything deciding strut
+   * conflict should use. It carries the bare fixation ring and its barbs
+   * without special handling, and it does not assume a ring is a clean zigzag,
+   * so a device whose struts the apex model cannot describe is still
+   * represented correctly.
+   *
+   * Written by `tools/extract_wire_map.py`; absent on descriptors predating it.
+   */
+  wire_map?: BenchCtWireMap;
   rings: BenchCtRing[];
+}
+
+export interface BenchCtWireMap {
+  theta_bins: number;
+  theta_step_deg: number;
+  hu_metal_threshold: number;
+  isotropic_spacing_mm: number;
+  /** Axial gap below which two samples are one run rather than two. */
+  run_gap_mm: number;
+  /**
+   * How the map was brought into the descriptor's frame, and how well. The
+   * residual is the distance from each stored apex to the nearest measured
+   * metal boundary, so a small median means the frame was genuinely recovered
+   * rather than approximately matched.
+   */
+  datum_fit: {
+    axis_sign: number;
+    z_offset_mm: number;
+    theta_shift_deg: number;
+    apex_residual_p50_mm: number;
+    apex_residual_p95_mm: number;
+  };
+  note: string;
+  /** Per bin, the `[zStart, zEnd]` intervals holding metal. */
+  runs: Array<Array<[number, number]>>;
+  /** Per bin, the 90th-percentile radius of that bin's metal, in mm. */
+  radius_mm: Array<number | null>;
 }
 
 function descriptorFromJson(value: unknown): BenchCtDeviceDescriptor {

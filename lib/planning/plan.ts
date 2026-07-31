@@ -83,6 +83,8 @@ export interface GraftModel {
    * scans the bare fixation ring sits about 12 mm proximal to the fabric.
    */
   segments: StrutSegment[];
+  /** How the wire was obtained, and how well it matches the scan. */
+  wireProvenance: WireProvenance;
   field: ClearanceField;
 }
 
@@ -111,6 +113,26 @@ export interface SealingRing {
   bodyDiameterMm: number;
   /** Whether it is a different stent from the body rings. */
   differsFromBody: boolean;
+}
+
+/**
+ * Where the strut geometry came from.
+ *
+ * `segmented` means the wire is the scan's own metal segmentation. `apex_model`
+ * means it was interpolated between a dozen or so apices per ring, which is a
+ * plausible path rather than a measured one — the distinction matters, because
+ * clearance is decided against whichever it is.
+ */
+export interface WireProvenance {
+  source: "segmented" | "apex_model";
+  /** Distinct wire strokes carried, versus apex rows the descriptor stores. */
+  segmentCount: number;
+  apexCount: number;
+  /**
+   * Median distance from a stored apex to the nearest segmented metal, in mm.
+   * Null on an apex model, where there is nothing independent to check against.
+   */
+  apexAgreementMm: number | null;
 }
 
 /** How one scanned device measures up against the seal zone. */
@@ -239,6 +261,17 @@ export function buildGraftModel(scanId: CtScanId): GraftModel {
     renderModel,
     proximalDiameterMm,
     sealingRing,
+    wireProvenance: {
+      source: descriptor.wire_map ? "segmented" : "apex_model",
+      segmentCount: segments.length,
+      apexCount: descriptor.rings.reduce(
+        (sum, ring) =>
+          sum + ring.proximal_apices.length + ring.distal_apices.length,
+        0,
+      ),
+      apexAgreementMm:
+        descriptor.wire_map?.datum_fit.apex_residual_p50_mm ?? null,
+    },
     circumferenceMm,
     fabricLengthMm: renderModel.fabricLengthMm,
     wireRadiusMm: scan.device.wireRadius,

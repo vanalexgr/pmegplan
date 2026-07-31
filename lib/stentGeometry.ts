@@ -28,9 +28,52 @@ interface StrutLayoutProfile {
 }
 
 /**
- * Build wire segments from measured apex positions instead of a parametric
- * waveform.  This preserves component-specific apex count, phase drift,
- * height, and axial overlap from a bench CT descriptor.
+ * Wire segments straight from the scan's metal segmentation.
+ *
+ * Each angular bin contributes one short axial stroke per interval of measured
+ * metal. Bins sit half a degree apart — well under a fifth of a millimetre on
+ * these devices — so the strokes rasterise into a continuous wire without any
+ * curve being assumed between them.
+ *
+ * This is the difference between a CT-derived plan and a plausible one: the
+ * apex path below interpolates through fourteen points per ring, whereas the
+ * scan resolves several thousand intervals per device, including the bare
+ * fixation ring and its barbs.
+ */
+function buildWireMapSegments(
+  descriptor: BenchCtDeviceDescriptor,
+  circumferenceMm: number,
+  model: ReturnType<typeof buildBenchCtRenderModel>,
+): StrutSegment[] {
+  const map = descriptor.wire_map;
+  if (!map) return [];
+
+  const axialFlip = descriptor.rendering?.anatomical_proximal_z === "high";
+  const toRenderZ = (zMm: number) => {
+    const rebased = zMm - model.fabricStartMm;
+    return axialFlip ? model.fabricLengthMm - rebased : rebased;
+  };
+
+  const segments: StrutSegment[] = [];
+  const step = map.theta_step_deg;
+  for (const [bin, runs] of map.runs.entries()) {
+    if (runs.length === 0) continue;
+    // Bin centres, matching the extractor's [-180, 180) binning and the sign
+    // convention the apex rows already use.
+    const thetaDeg = -180 + (bin + 0.5) * step;
+    const arcMm = (thetaDeg / 360) * circumferenceMm;
+    for (const [startMm, endMm] of runs) {
+      segments.push([arcMm, toRenderZ(startMm), arcMm, toRenderZ(endMm)]);
+    }
+  }
+  return segments;
+}
+
+/**
+ * Build wire segments from a bench CT descriptor.
+ *
+ * Prefers the measured wire map; falls back to interpolating between apex rows
+ * for descriptors written before the map existed.
  *
  * `circumferenceMm` permits rendering at the scanned nominal circumference;
  * callers should not use it to extrapolate the free-state scan to another
@@ -42,6 +85,10 @@ export function buildBenchCtStrutSegments(
 ): StrutSegment[] {
   const segments: StrutSegment[] = [];
   const model = buildBenchCtRenderModel(descriptor);
+
+  if (descriptor.wire_map) {
+    return buildWireMapSegments(descriptor, circumferenceMm, model);
+  }
 
   for (const ring of model.rings) {
     const measured = [...ring.points].sort(
