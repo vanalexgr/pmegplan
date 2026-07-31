@@ -23,7 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { MIN_PROXIMAL_FENESTRATION_DEPTH_MM } from "@/lib/planning/anatomy";
 import type { AnatomyCase, AnatomyVessel } from "@/lib/planning/anatomy";
-import { planGraft, type PlanResult } from "@/lib/planning/plan";
+import { planGraft, type GraftModel, type PlanResult } from "@/lib/planning/plan";
 import { cn } from "@/lib/utils";
 
 /**
@@ -579,10 +579,22 @@ export function PmegPlanner() {
                         {plan.graft.proximalDiameterMm.toFixed(1)} mm ×{" "}
                         {plan.graft.fabricLengthMm.toFixed(0)} mm of fabric
                         {plan.graft.renderModel.barbs.length > 0
-                          ? `, bare fixation ring with ${plan.graft.renderModel.barbs.length} barbs above the fabric`
-                          : ", no bare fixation ring"}
+                          ? `, plus a bare fixation ring ${Math.abs(
+                              plan.graft.renderModel.minimumZMm,
+                            ).toFixed(0)} mm above the fabric`
+                          : ", fabric-covered end to end"}
                         .
+                        {plan.graft.renderModel.barbs.length > 0 ? (
+                          <>
+                            {" "}
+                            Its{" "}
+                            {plan.graft.renderModel.barbs.length} barbs are drawn
+                            from an annotated length, not segmented from the
+                            scan — treat their paths as indicative.
+                          </>
+                        ) : null}
                       </CardDescription>
+                      <SealingRingNote graft={plan.graft} />
                     </CardHeader>
                     <CardContent className="pt-2">
                       {view === "flat" ? (
@@ -667,6 +679,38 @@ export function PmegPlanner() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * What the sealing ring is, when it is not just another body ring.
+ *
+ * The seal and usually the first fenestration both land inside it, so its
+ * geometry — not the repeating pattern further down — is what the proximal end
+ * of the plan has to work around.
+ */
+function SealingRingNote({ graft }: { graft: GraftModel }) {
+  const { sealingRing } = graft;
+  if (!sealingRing.differsFromBody) return null;
+
+  const tallerBy = sealingRing.heightMm - sealingRing.bodyHeightMm;
+  const widerBy = sealingRing.diameterMm - sealingRing.bodyDiameterMm;
+
+  return (
+    <p className="rounded-xl border border-[color:var(--border)] bg-white/60 px-3 py-2 text-[11px] leading-5 text-[color:var(--muted-foreground)]">
+      <span className="font-semibold text-[color:var(--foreground)]">
+        Sealing ring is its own stent.
+      </span>{" "}
+      {sealingRing.apexCount} apices, {sealingRing.heightMm.toFixed(1)} mm tall
+      and {sealingRing.diameterMm.toFixed(1)} mm across — {tallerBy.toFixed(1)} mm
+      taller and {Math.abs(widerBy).toFixed(1)} mm{" "}
+      {widerBy > 0 ? "wider" : "narrower"} than the body rings. It reaches{" "}
+      {sealingRing.fromDepthMm < 0
+        ? `${Math.abs(sealingRing.fromDepthMm).toFixed(1)} mm above the fabric edge and runs to ${sealingRing.toDepthMm.toFixed(1)} mm below it`
+        : `${sealingRing.fromDepthMm.toFixed(1)} mm to ${sealingRing.toDepthMm.toFixed(1)} mm below the fabric edge`}
+      , so the seal and usually the first fenestration both sit inside it.
+      Oversizing is judged against this ring, not the body diameter.
+    </p>
   );
 }
 

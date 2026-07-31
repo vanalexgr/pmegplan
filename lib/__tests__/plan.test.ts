@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AnatomyCase } from "@/lib/planning/anatomy";
-import { planGraft, requiredGraftLengthMm } from "@/lib/planning/plan";
+import { buildGraftModel, planGraft, requiredGraftLengthMm } from "@/lib/planning/plan";
 import { normalizeAnatomy } from "@/lib/planning/anatomy";
 
 /** Four-vessel thoracoabdominal: celiac, SMA and both renals fenestrated. */
@@ -41,6 +41,59 @@ describe("requiredGraftLengthMm", () => {
     expect(anatomy.fenestrationSpanMm).toBe(45);
     expect(requiredGraftLengthMm(anatomy)).toBe(85);
     expect(requiredGraftLengthMm(anatomy, 0)).toBe(55);
+  });
+});
+
+describe("buildGraftModel", () => {
+  it("treats the proximal covered ring as a different stent from the body", () => {
+    for (const scanId of ["scan1", "scan2", "scan3"] as const) {
+      const { sealingRing } = buildGraftModel(scanId);
+
+      expect(sealingRing.differsFromBody).toBe(true);
+      // Taller than the rings below it on every device scanned so far.
+      expect(sealingRing.heightMm).toBeGreaterThan(sealingRing.bodyHeightMm);
+      expect(sealingRing.fromDepthMm).toBeLessThan(sealingRing.toDepthMm);
+    }
+  });
+
+  it("judges oversizing at the sealing ring, not the fabric surface", () => {
+    const model = buildGraftModel("scan1");
+
+    expect(model.proximalDiameterMm).toBe(model.sealingRing.diameterMm);
+    // The Alpha's sealing ring is narrower than its body rings, so taking the
+    // body diameter would overstate oversizing.
+    expect(model.sealingRing.diameterMm).toBeLessThan(
+      model.sealingRing.bodyDiameterMm,
+    );
+  });
+
+  it("puts the anatomically proximal end first on an inverted scan", () => {
+    // scan2 was scanned tail-first: its 42 mm end is the sealing end, and the
+    // descriptor's first ring is the 32 mm one.
+    const tx2 = buildGraftModel("scan2");
+
+    expect(tx2.sealingRing.diameterMm).toBeGreaterThan(
+      tx2.sealingRing.bodyDiameterMm,
+    );
+    expect(tx2.sealingRing.diameterMm).toBeCloseTo(42.6, 1);
+  });
+
+  it("finds a bare fixation ring on the Alphas and none on the TX2", () => {
+    for (const scanId of ["scan1", "scan3"] as const) {
+      const model = buildGraftModel(scanId);
+      expect(
+        model.renderModel.rings.some((ring) => ring.kind === "bare_fixation"),
+      ).toBe(true);
+      // It sits proximal to the fabric, so its wire is at negative depth.
+      expect(model.renderModel.minimumZMm).toBeLessThan(-5);
+      expect(model.renderModel.barbs.length).toBeGreaterThan(0);
+    }
+
+    const tx2 = buildGraftModel("scan2");
+    expect(
+      tx2.renderModel.rings.every((ring) => ring.kind === "covered"),
+    ).toBe(true);
+    expect(tx2.renderModel.barbs).toHaveLength(0);
   });
 });
 
@@ -177,19 +230,20 @@ describe("planGraft", () => {
   });
 
   it("declines the gap between the scanned sizes instead of stretching into it", () => {
-    // The library holds 31 mm and two 42 mm devices, so at 10-30% oversizing it
-    // covers roughly 24-28 mm and 32-39 mm. A 30 mm aorta falls between them,
-    // and the honest answer is to scan a device for it.
+    // Sealing rings measure 29.7, 40.7 and 42.6 mm, so at 10-30% oversizing the
+    // library covers roughly 23-27 mm and 31-39 mm of aorta. A 30 mm seal zone
+    // falls between them, and the honest answer is to scan a device for it.
     const plan = planGraft(taaaCase(30));
 
     expect(plan.ok).toBe(false);
     if (plan.ok) return;
-    expect(plan.considered.some((fit) => /only \d+% oversizing/.test(fit.rejection ?? ""))).toBe(
-      true,
-    );
-    expect(plan.considered.some((fit) => /infolding/.test(fit.rejection ?? ""))).toBe(
-      true,
-    );
+    // Too small below the gap, too large above it.
+    expect(
+      plan.considered.some((fit) => /undersized/.test(fit.rejection ?? "")),
+    ).toBe(true);
+    expect(
+      plan.considered.some((fit) => /infolding/.test(fit.rejection ?? "")),
+    ).toBe(true);
   });
 
   it("declines an aorta no scanned device covers rather than scaling one up", () => {

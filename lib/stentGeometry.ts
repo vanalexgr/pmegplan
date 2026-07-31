@@ -12,7 +12,10 @@ import {
   pushPoint,
   pointsToSegments,
 } from "@/lib/geometry/waveform";
-import { buildBenchCtRenderModel } from "@/lib/geometry/benchCtRenderModel";
+import {
+  buildBenchCtRenderModel,
+  sampleBenchCtRing,
+} from "@/lib/geometry/benchCtRenderModel";
 import type { BenchCtDeviceDescriptor } from "@/lib/geometry/benchCtDeviceLibrary";
 import type { WaveformPattern } from "@/lib/geometry/waveform";
 import type { DeviceGeometry, StrutSegment } from "@/lib/types";
@@ -41,10 +44,15 @@ export function buildBenchCtStrutSegments(
   const model = buildBenchCtRenderModel(descriptor);
 
   for (const ring of model.rings) {
-    const pointsOnRing = [...ring.points].sort(
+    const measured = [...ring.points].sort(
       (left, right) => left.thetaRad - right.thetaRad,
     );
-    if (pointsOnRing.length < 2) continue;
+    if (measured.length < 2) continue;
+    // Nitinol wire runs in curves between apices rather than straight chords —
+    // clearly so on the Zenith Alpha fixation ring. Interpolating between the
+    // measured apices tracks the real path; a chord cuts the corner and would
+    // report clearance the fabric does not have.
+    const pointsOnRing = sampleBenchCtRing(measured);
 
     const points: Array<[number, number]> = pointsOnRing.map((point) => [
       (point.thetaRad / (Math.PI * 2)) * circumferenceMm,

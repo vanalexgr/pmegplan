@@ -22,15 +22,34 @@ describe("bench CT device library", () => {
     expect(getBenchCtDeviceDescriptor("Endograft_3", "scan3")?.rings).toHaveLength(10);
   });
 
-  it("converts measured apex rows into closed punch-card strut paths", () => {
+  it("runs the wire through every measured apex", () => {
     const scan2 = getBenchCtDeviceDescriptor("Endograft_2", "scan2");
     if (!scan2) throw new Error("Expected Endograft_2 scan descriptor");
-    const segments = buildBenchCtStrutSegments(scan2, Math.PI * 42.5);
+    const circumferenceMm = Math.PI * 42.5;
+    const segments = buildBenchCtStrutSegments(scan2, circumferenceMm);
     const apexCount = scan2.rings.reduce(
       (sum, ring) => sum + ring.proximal_apices.length + ring.distal_apices.length,
       0,
     );
-    expect(segments).toHaveLength(apexCount);
+
+    // The path is interpolated between apices rather than chorded across them,
+    // so it carries more vertices than apices while still visiting each one.
+    expect(segments.length).toBeGreaterThan(apexCount);
+
+    const model = buildBenchCtRenderModel(scan2);
+    const vertices = segments.map((segment) => [segment[0], segment[1]]);
+    for (const ring of model.rings) {
+      for (const apex of ring.points) {
+        const arcMm =
+          (apex.thetaRad / (Math.PI * 2)) * circumferenceMm;
+        const hit = vertices.some(
+          ([vertexArc, vertexZ]) =>
+            Math.abs(vertexArc - arcMm) < 0.01 &&
+            Math.abs(vertexZ - apex.zMm) < 0.01,
+        );
+        expect(hit).toBe(true);
+      }
+    }
   });
 
   it("uses the same proximal-fabric datum as the measured 3-D renderer", () => {

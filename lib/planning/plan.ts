@@ -26,6 +26,7 @@ import {
   buildBenchCtRenderModel,
   type BenchCtRenderModel,
 } from "@/lib/geometry/benchCtRenderModel";
+import type { BenchCtDeviceDescriptor } from "@/lib/geometry/benchCtDeviceLibrary";
 import { buildBenchCtStrutSegments } from "@/lib/stentGeometry";
 import type { StrutSegment } from "@/lib/types";
 
@@ -72,6 +73,7 @@ export interface GraftModel {
   renderModel: BenchCtRenderModel;
   /** Measured outer diameter at the proximal fabric edge, in mm. */
   proximalDiameterMm: number;
+  sealingRing: SealingRing;
   circumferenceMm: number;
   fabricLengthMm: number;
   wireRadiusMm: number;
@@ -82,6 +84,33 @@ export interface GraftModel {
    */
   segments: StrutSegment[];
   field: ClearanceField;
+}
+
+/**
+ * The most proximal covered ring — the one that does the sealing.
+ *
+ * It is not a body ring repeated. On both Zenith Alpha scans it is taller and
+ * about 1.5 mm narrower than the rings below it; on the TX2 it is 7 mm taller
+ * and 9 mm wider, being the large end of the taper. Since the seal zone and
+ * usually the first fenestration both fall inside it, its geometry is what the
+ * proximal part of the plan actually contends with.
+ */
+export interface SealingRing {
+  /** Measured diameter across this ring, in mm. Drives oversizing. */
+  diameterMm: number;
+  /** Apex-to-apex height, in mm. */
+  heightMm: number;
+  apexCount: number;
+  /** Depth of its proximal apices below the fabric edge, in mm. */
+  fromDepthMm: number;
+  /** Depth of its distal apices below the fabric edge, in mm. */
+  toDepthMm: number;
+  /** Median height of the rings below it, in mm. */
+  bodyHeightMm: number;
+  /** Median diameter of the rings below it, in mm. */
+  bodyDiameterMm: number;
+  /** Whether it is a different stent from the body rings. */
+  differsFromBody: boolean;
 }
 
 /** How one scanned device measures up against the seal zone. */
@@ -117,6 +146,73 @@ export interface PlanFailure {
 
 export type PlanResult = GraftPlan | PlanFailure;
 
+function median(values: number[]): number {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
+/** Height difference at which the proximal ring counts as a different stent. */
+const SEALING_RING_HEIGHT_TOLERANCE_MM = 0.75;
+
+function describeSealingRing(
+  descriptor: BenchCtDeviceDescriptor,
+  renderModel: BenchCtRenderModel,
+): SealingRing {
+  const bare = new Set(
+    descriptor.rendering?.proximal_bare_ring_indices ??
+      Array.from(
+        { length: descriptor.geometry?.proximal_fixation.ring_count ?? 0 },
+        (_, index) => index,
+      ),
+  );
+  const covered = descriptor.rings.filter((ring) => !bare.has(ring.index));
+  // Descriptor rings ascend in scan z; on an inverted scan the anatomically
+  // proximal end is the last one.
+  const anatomical =
+    descriptor.rendering?.anatomical_proximal_z === "high"
+      ? [...covered].reverse()
+      : covered;
+
+  const seal = anatomical[0];
+  const body = anatomical.slice(1);
+  const bodyHeightMm =
+    body.length > 0
+      ? median(body.map((ring) => ring.ring_height_mm))
+      : seal.ring_height_mm;
+  const bodyDiameterMm =
+    body.length > 0
+      ? median(body.map((ring) => ring.diameter_mm))
+      : seal.diameter_mm;
+
+  // Depths come from the render model, which has already rebased to the fabric
+  // edge and flipped an inverted scan.
+  const proximalCovered = renderModel.rings
+    .filter((ring) => ring.kind === "covered")
+    .reduce((highest, ring) =>
+      Math.min(...ring.points.map((point) => point.zMm)) <
+      Math.min(...highest.points.map((point) => point.zMm))
+        ? ring
+        : highest,
+    );
+  const depths = proximalCovered.points.map((point) => point.zMm);
+
+  return {
+    diameterMm: seal.diameter_mm,
+    heightMm: seal.ring_height_mm,
+    apexCount: seal.n_apices,
+    fromDepthMm: Math.min(...depths),
+    toDepthMm: Math.max(...depths),
+    bodyHeightMm,
+    bodyDiameterMm,
+    differsFromBody:
+      Math.abs(seal.ring_height_mm - bodyHeightMm) >
+      SEALING_RING_HEIGHT_TOLERANCE_MM,
+  };
+}
+
 /**
  * Resolve one scanned device into the geometry the solver needs.
  *
@@ -126,8 +222,12 @@ export type PlanResult = GraftPlan | PlanFailure;
  */
 export function buildGraftModel(scanId: CtScanId): GraftModel {
   const scan = getMeasuredCtScanModel(scanId);
-  const renderModel = buildBenchCtRenderModel(scan.reference.descriptor);
-  const proximalDiameterMm = renderModel.diameterAt(0);
+  const descriptor = scan.reference.descriptor;
+  const renderModel = buildBenchCtRenderModel(descriptor);
+  const sealingRing = describeSealingRing(descriptor, renderModel);
+  // Oversizing is judged at the ring that seals, not at an interpolated point
+  // on the fabric surface: on every scanned device the two differ.
+  const proximalDiameterMm = sealingRing.diameterMm;
   const circumferenceMm = Math.PI * proximalDiameterMm;
   const segments = buildBenchCtStrutSegments(
     scan.reference.descriptor,
@@ -138,6 +238,7 @@ export function buildGraftModel(scanId: CtScanId): GraftModel {
     scan,
     renderModel,
     proximalDiameterMm,
+    sealingRing,
     circumferenceMm,
     fabricLengthMm: renderModel.fabricLengthMm,
     wireRadiusMm: scan.device.wireRadius,
