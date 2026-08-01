@@ -19,6 +19,17 @@ export const MIN_PROXIMAL_FENESTRATION_DEPTH_MM = 10;
 export const MIN_SEAL_BELOW_SCALLOP_MM = 10;
 
 /**
+ * Circumferential width of a scallop, in mm.
+ *
+ * Not the ostium. A fenestration is cut to the vessel it serves, but all three
+ * scallops in the reference series are 20 mm wide — for an 8 mm coeliac twice
+ * and for an SMA once — because a scallop is a broad relief in the edge rather
+ * than a hole the vessel has to line up with, and it is the width that lets the
+ * edge sit above the vessel without the corners of the cut fouling it.
+ */
+export const SCALLOP_WIDTH_MM = 20;
+
+/**
  * How each vessel is handled.
  *
  * - `fenestration` — takes a closed hole and joins the rigid pattern. The
@@ -252,8 +263,15 @@ export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
 
   const normalized: NormalizedVessel[] = chained.map(({ vessel, rawZMm }) => {
     const isFenestrated = fenestrated.has(vessel.name);
-    if (isFenestrated && vessel.clock === undefined) {
-      throw new Error(`${vessel.name} is fenestrated and needs a clock position.`);
+    const isScalloped = scalloped.has(vessel.name);
+    // A scallop is a cut at a clock position just as a hole is, and it is drawn
+    // on the template, so an unstated clock would become a drawn claim.
+    if ((isFenestrated || isScalloped) && vessel.clock === undefined) {
+      throw new Error(
+        `${vessel.name} is ${
+          isFenestrated ? "fenestrated" : "scalloped"
+        } and needs a clock position.`,
+      );
     }
 
     return {
@@ -352,6 +370,64 @@ export function scallopHeightMm(
 ): number | null {
   const separation = scallopSeparationMm(anatomy);
   return separation === null ? null : pose.proximalDepthMm - separation;
+}
+
+/**
+ * The scallop cut a pose implies, on the unrolled graft.
+ *
+ * A scallop is not a hole in the fabric but a notch taken out of its proximal
+ * edge, so it is described by where the edge is cut and how far down the cut
+ * runs rather than by a centre and a radius.
+ */
+export interface PlacedScallop {
+  vessel: NormalizedVessel;
+  /** Circumferential centre on the unrolled graft after rotation, in mm. */
+  arcMm: number;
+  /** Half the cut's circumferential width, in mm. */
+  semiArcMm: number;
+  /** Depth of the deepest point of the cut below the fabric edge, in mm. */
+  heightMm: number;
+}
+
+/** Place the scalloped vessel's cut on the unrolled graft. Null when none. */
+export function placeScallop(
+  anatomy: NormalizedAnatomy,
+  pose: GraftPose,
+  circumferenceMm: number,
+): PlacedScallop | null {
+  const vessel = anatomy.scalloped;
+  const heightMm = scallopHeightMm(anatomy, pose);
+  if (vessel === null || heightMm === null) return null;
+
+  const rotationFraction = pose.rotationDeg / 360;
+  return {
+    vessel,
+    arcMm: wrapMm(
+      (vessel.clockFraction - rotationFraction) * circumferenceMm,
+      circumferenceMm,
+    ),
+    semiArcMm: SCALLOP_WIDTH_MM / 2,
+    heightMm,
+  };
+}
+
+/**
+ * Depth of the cut edge at an offset from the scallop's centre, in mm. Zero
+ * outside the cut, where the fabric edge is still the fabric edge.
+ *
+ * The profile is a U — straight sides running down from the edge, closed by a
+ * semicircle of the cut's own half-width — so the vessel sits in a round bottom
+ * rather than in square corners, which is both how a scallop is cut and where
+ * the fabric would otherwise tear.
+ */
+export function scallopEdgeDepthMm(
+  scallop: PlacedScallop,
+  arcOffsetMm: number,
+): number {
+  const { semiArcMm, heightMm } = scallop;
+  if (Math.abs(arcOffsetMm) >= semiArcMm) return 0;
+  const round = Math.sqrt(semiArcMm * semiArcMm - arcOffsetMm * arcOffsetMm);
+  return Math.max(0, heightMm - semiArcMm + round);
 }
 
 /** Axial position of the proximal fabric edge implied by a pose, in mm. */

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
+import { scallopEdgeDepthMm } from "@/lib/planning/anatomy";
 import { arcMmToClockText } from "@/lib/planning/clock";
 import { measureHole } from "@/lib/planning/holeMeasurements";
 import type { PlanResult } from "@/lib/planning/plan";
@@ -48,7 +49,7 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const { graft, openings, solution } = plan;
+    const { graft, openings, solution, scallop } = plan;
     const { circumferenceMm, segments, wireRadiusMm } = graft;
 
     const deepestMm = openings.reduce(
@@ -227,6 +228,70 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
       }
     });
 
+    // The scallop, as the line to cut along rather than a hole to punch. It
+    // opens onto the top edge, so the fabric inside it comes away; the hatching
+    // says which side of the line that is.
+    if (scallop) {
+      insideTemplate(() => {
+        for (const shift of [0, -circumferenceMm, circumferenceMm]) {
+          const centre = scallop.arcMm + shift;
+          if (
+            centre + scallop.semiArcMm < 0 ||
+            centre - scallop.semiArcMm > circumferenceMm
+          ) {
+            continue;
+          }
+
+          ctx.strokeStyle = "#000000";
+          ctx.lineWidth = 0.4;
+          ctx.beginPath();
+          const SAMPLES = 64;
+          for (let step = 0; step <= SAMPLES; step += 1) {
+            const offset = scallop.semiArcMm * (-1 + (2 * step) / SAMPLES);
+            const point = [
+              x(centre + offset),
+              y(scallopEdgeDepthMm(scallop, offset)),
+            ] as const;
+            if (step === 0) ctx.moveTo(...point);
+            else ctx.lineTo(...point);
+          }
+          ctx.stroke();
+
+          ctx.strokeStyle = "rgba(0,0,0,0.35)";
+          ctx.lineWidth = 0.2;
+          ctx.beginPath();
+          for (
+            let offset = -scallop.semiArcMm;
+            offset <= scallop.semiArcMm;
+            offset += 1.5
+          ) {
+            ctx.moveTo(x(centre + offset), y(0));
+            ctx.lineTo(x(centre + offset), y(scallopEdgeDepthMm(scallop, offset)));
+          }
+          ctx.stroke();
+        }
+      });
+
+      const label = `${scallop.vessel.name} SCALLOP`;
+      const size = `${(scallop.semiArcMm * 2).toFixed(1)} w × ${scallop.heightMm.toFixed(1)} h`;
+      ctx.font = font(700, 2.9);
+      const labelWidth = Math.max(
+        ctx.measureText(label).width,
+        ctx.measureText(size).width,
+      );
+      const toRight =
+        x(scallop.arcMm) + scallop.semiArcMm + 1.5 + labelWidth <
+        x(circumferenceMm);
+      const labelX =
+        x(scallop.arcMm) +
+        (toRight ? scallop.semiArcMm + 1.5 : -scallop.semiArcMm - 1.5);
+      ctx.textAlign = toRight ? "left" : "right";
+      ctx.fillStyle = "#000000";
+      ctx.fillText(label, labelX, y(scallop.heightMm) - 1.4);
+      ctx.font = font(500, 2.4);
+      ctx.fillText(size, labelX, y(scallop.heightMm) + 1.6);
+    }
+
     // Labels, unclipped and drawn once per hole, beside whichever copy has its
     // centre on the sheet. Naming both copies of a seam-straddling hole would
     // read as two fenestrations.
@@ -283,7 +348,7 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
     ctx.fillText("50 mm — verify on paper before use", x(52), rulerY);
   }, [plan]);
 
-  const { graft, openings, solution, oversizeFraction } = plan;
+  const { graft, openings, solution, oversizeFraction, scallop } = plan;
 
   return (
     <div className="punch-card">
@@ -355,6 +420,19 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
           })}
         </tbody>
       </table>
+
+      {scallop ? (
+        <p className="mt-3 text-[11px] leading-4">
+          <span className="font-semibold">
+            {scallop.vessel.name} scallop — cut, do not punch.
+          </span>{" "}
+          {(scallop.semiArcMm * 2).toFixed(1)} mm wide by{" "}
+          {scallop.heightMm.toFixed(1)} mm deep, centred at{" "}
+          {arcMmToClockText(scallop.arcMm, graft.circumferenceMm)}, taken out of
+          the proximal fabric edge. The hatched fabric comes away; the struts
+          crossing it stay.
+        </p>
+      ) : null}
 
       <p className="mt-3 text-[10px] leading-4 text-[color:var(--muted-foreground)]">
         Strut positions are the bench-CT segmentation of{" "}

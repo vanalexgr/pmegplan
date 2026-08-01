@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   minProximalDepthMm,
   normalizeAnatomy,
+  placeScallop,
+  scallopEdgeDepthMm,
   scallopHeightMm,
   scallopSeparationMm,
   type AnatomyCase,
@@ -112,6 +114,103 @@ describe("scallop", () => {
     broken.fenestrate = ["LRA", "RRA"];
 
     expect(() => normalizeAnatomy(broken)).toThrow(/Only one vessel can be scalloped/);
+  });
+
+  it("places the cut at the vessel's clock, turned with the graft", () => {
+    const anatomy = normalizeAnatomy(coeliacTooClose("scallop"));
+    const circumferenceMm = 120;
+
+    // 12:15 is an eighth of an hour past the top: 1/48 of the way round.
+    const straight = placeScallop(
+      anatomy,
+      { proximalDepthMm: 22, rotationDeg: 0 },
+      circumferenceMm,
+    );
+    expect(straight?.arcMm).toBeCloseTo(circumferenceMm / 48, 10);
+    expect(straight?.semiArcMm).toBe(10);
+    expect(straight?.heightMm).toBe(12);
+
+    // Turning the graft moves the cut with every other opening, since the
+    // whole pattern is rigid.
+    const turned = placeScallop(
+      anatomy,
+      { proximalDepthMm: 22, rotationDeg: 30 },
+      circumferenceMm,
+    );
+    // 30° back from 12:15 lands at 11:15, an eighth of the way round from 12.
+    expect(turned?.arcMm).toBeCloseTo((circumferenceMm * 45) / 48, 10);
+
+    expect(
+      placeScallop(
+        normalizeAnatomy(coeliacTooClose("preserve")),
+        { proximalDepthMm: 22, rotationDeg: 0 },
+        circumferenceMm,
+      ),
+    ).toBeNull();
+  });
+
+  it("cuts a round-bottomed notch that closes back onto the fabric edge", () => {
+    const scallop = placeScallop(
+      normalizeAnatomy(coeliacTooClose("scallop")),
+      { proximalDepthMm: 22, rotationDeg: 0 },
+      120,
+    );
+    if (!scallop) throw new Error("Expected a scallop.");
+
+    // Deepest at the centre, and the bottom is a semicircle of the cut's own
+    // half-width — 10 mm here — centred that far up from the deepest point.
+    expect(scallopEdgeDepthMm(scallop, 0)).toBeCloseTo(12, 10);
+    for (const offsetMm of [0, 3, 6, 9.9]) {
+      const depthMm = scallopEdgeDepthMm(scallop, offsetMm);
+      expect(Math.hypot(offsetMm, depthMm - 2)).toBeCloseTo(10, 10);
+    }
+    // Outside the cut the fabric edge is untouched.
+    expect(scallopEdgeDepthMm(scallop, 10)).toBe(0);
+    expect(scallopEdgeDepthMm(scallop, -20)).toBe(0);
+  });
+
+  it("takes the fabric edge up the neck rather than stopping at the vessel", () => {
+    // The seal rule alone would allow the edge to sit level with the coeliac,
+    // at 10 mm, which cuts no scallop at all. What the cut is for is the aorta
+    // above the vessel, so the pose should use the 20 mm of neck declared.
+    const plan = planGraft(coeliacTooClose("scallop"));
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    // 24.5 mm rather than the 30 mm the neck would allow, because deeper puts
+    // an opening into wire — the scallop takes what the neck offers and the
+    // struts permit, not whichever comes first.
+    expect(plan.solution.pose.proximalDepthMm).toBeCloseTo(24.5, 1);
+    expect(plan.solution.marginMm).toBeGreaterThan(0);
+    // Which is the order of the reference series: C002 has the same 10 mm
+    // coeliac-to-SMA gap and a 20 mm scallop.
+    expect(plan.scallop?.heightMm).toBeCloseTo(14.5, 1);
+  });
+
+  it("carries the placed cut on the plan", () => {
+    const plan = planGraft(coeliacTooClose("scallop"));
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    expect(plan.scallop?.vessel.name).toBe("CELIAC");
+    // The height is what the solved pose implies, not a separate choice.
+    expect(plan.scallop?.heightMm).toBeCloseTo(
+      plan.solution.pose.proximalDepthMm - 10,
+      10,
+    );
+
+    expect(planGraft(coeliacTooClose("preserve")).ok).toBe(true);
+    const preserved = planGraft(coeliacTooClose("preserve"));
+    expect(preserved.ok && preserved.scallop).toBeNull();
+  });
+
+  it("needs a clock for the vessel it cuts", () => {
+    const unplaced = coeliacTooClose("scallop");
+    delete unplaced.vessels[0].clock;
+
+    expect(() => normalizeAnatomy(unplaced)).toThrow(
+      /scalloped and needs a clock position/,
+    );
   });
 
   it("rejects a vessel that is both scalloped and fenestrated", () => {

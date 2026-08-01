@@ -802,6 +802,7 @@ export function PmegPlanner() {
                           graft={plan.graft}
                           openings={plan.openings}
                           proximalDepthMm={plan.solution.pose.proximalDepthMm}
+                          scallop={plan.scallop}
                           selectedVessel={selectedVessel}
                           onSelect={setSelectedVessel}
                         />
@@ -810,6 +811,7 @@ export function PmegPlanner() {
                           graft={plan.graft}
                           openings={plan.openings}
                           proximalDepthMm={plan.solution.pose.proximalDepthMm}
+                          scallop={plan.scallop}
                           selectedVessel={selectedVessel}
                           onSelect={setSelectedVessel}
                         />

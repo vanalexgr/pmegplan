@@ -2,9 +2,11 @@ import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
   normalizeAnatomy,
   placeOpenings,
+  placeScallop,
   type AnatomyCase,
   type NormalizedAnatomy,
   type PlacedOpening,
+  type PlacedScallop,
 } from "@/lib/planning/anatomy";
 import {
   buildClearanceField,
@@ -173,6 +175,8 @@ export interface DeviceFit {
   /** Pose solved on this device; null when it never got that far. */
   solution: PoseSolution | null;
   openings: PlacedOpening[];
+  /** The edge cut at the solved pose; null when nothing is scalloped. */
+  scallop: PlacedScallop | null;
   depthLimit: ProximalDepthLimit;
 }
 
@@ -185,6 +189,8 @@ export interface GraftPlan {
   solution: PoseSolution;
   /** The fenestrations at the solved pose, ready to mark out. */
   openings: PlacedOpening[];
+  /** The edge cut at the solved pose; null when nothing is scalloped. */
+  scallop: PlacedScallop | null;
   /** Length of graft the plan needs, in mm. */
   requiredLengthMm: number;
   /** Every scanned device considered, including the ones set aside. */
@@ -385,6 +391,7 @@ function assessFit(
     rejection,
     solution: null,
     openings: [],
+    scallop: null,
     depthLimit: { maxDepthMm: 0, limitingVesselName: null },
   };
 }
@@ -427,6 +434,10 @@ function solveFit(
       solution.map === null
         ? []
         : placeOpenings(anatomy, solution.pose, model.circumferenceMm),
+    scallop:
+      solution.map === null
+        ? null
+        : placeScallop(anatomy, solution.pose, model.circumferenceMm),
   };
 }
 
@@ -434,11 +445,13 @@ function solveFit(
  * Which solved device the planner would pick unprompted.
  *
  * Prefer one that actually clears; among those the shallowest, since every
- * extra millimetre of push-in is aorta covered for nothing. This is only a
- * default — where several devices clear, the choice between them is the
- * surgeon's, and the alternatives are kept so it can be made on their poses.
+ * extra millimetre of push-in is aorta covered for nothing — unless a scallop
+ * is cut, where the same millimetre is aorta sealed and the deepest wins
+ * instead. This is only a default — where several devices clear, the choice
+ * between them is the surgeon's, and the alternatives are kept so it can be
+ * made on their poses.
  */
-function recommend(solved: DeviceFit[]): DeviceFit {
+function recommend(solved: DeviceFit[], preferDeepest: boolean): DeviceFit {
   // A device inside the oversizing window is preferred over one outside it,
   // whatever the clearance: a hole that clears wire on a graft that will not
   // seal is not a better plan.
@@ -458,10 +471,10 @@ function recommend(solved: DeviceFit[]): DeviceFit {
     ) {
       return candidateSolution.meetsTargetClearance ? candidate : best;
     }
-    return candidateSolution.pose.proximalDepthMm <
-      bestSolution.pose.proximalDepthMm
-      ? candidate
-      : best;
+    const deeper =
+      candidateSolution.pose.proximalDepthMm >
+      bestSolution.pose.proximalDepthMm;
+    return deeper === preferDeepest ? candidate : best;
   });
 }
 
@@ -526,7 +539,7 @@ export function planGraft(
     };
   }
 
-  const recommended = recommend(solved);
+  const recommended = recommend(solved, anatomy.scalloped !== null);
   const requested =
     options.scanId === undefined
       ? undefined
@@ -544,6 +557,7 @@ export function planGraft(
     depthLimit: chosen.depthLimit,
     solution: chosen.solution as PoseSolution,
     openings: chosen.openings,
+    scallop: chosen.scallop,
     requiredLengthMm,
     considered,
     selectedScanId: chosen.model.scan.reference.id,

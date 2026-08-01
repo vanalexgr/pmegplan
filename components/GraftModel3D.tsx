@@ -9,13 +9,21 @@ import {
   RotateCw,
 } from "lucide-react";
 
-import type { PlacedOpening } from "@/lib/planning/anatomy";
+import {
+  scallopEdgeDepthMm,
+  type PlacedOpening,
+  type PlacedScallop,
+} from "@/lib/planning/anatomy";
 import { arcMmToClockText } from "@/lib/planning/clock";
 import { measureHole } from "@/lib/planning/holeMeasurements";
 import type { GraftModel } from "@/lib/planning/plan";
 import { cn } from "@/lib/utils";
 
-const SURFACE_FACETS = 72;
+/**
+ * Facets round the cylinder. Fine enough that a scallop — a couple of dozen
+ * degrees at most — is cut as a curve rather than as three flat steps.
+ */
+const SURFACE_FACETS = 180;
 const HOLE_SAMPLES = 36;
 const DEFAULT_ELEVATION = 0.2;
 /** Fabric shown below the deepest opening, in mm. */
@@ -25,6 +33,8 @@ export interface GraftModel3DProps {
   graft: GraftModel;
   openings: PlacedOpening[];
   proximalDepthMm: number;
+  /** The edge cut, when the plan has one. */
+  scallop?: PlacedScallop | null;
   selectedVessel?: string | null;
   onSelect?: (vesselName: string | null) => void;
 }
@@ -58,6 +68,7 @@ export function GraftModel3D({
   graft,
   openings,
   proximalDepthMm,
+  scallop = null,
   selectedVessel = null,
   onSelect,
 }: GraftModel3DProps) {
@@ -170,18 +181,44 @@ export function GraftModel3D({
 
       const radiusAt = (zMm: number) => renderModel.diameterAt(zMm) / 2;
 
-      // Fabric surface, as a quad strip so a tapered device tapers correctly.
-      // Only near-side facets are filled, otherwise the translucency doubles up.
-      const drawSurface = (nearSide: boolean) => {
+      /**
+       * Where the fabric starts at a given angle, in mm below the nominal edge.
+       *
+       * Zero everywhere except across a scallop, where the edge has been cut
+       * away — so every band that starts at the fabric edge starts here instead
+       * and the cut appears once rather than having to be drawn over the top.
+       */
+      const edgeDepthMm = (thetaRad: number) => {
+        if (!scallop) return 0;
+        const arcMm = (thetaRad / (Math.PI * 2)) * circumferenceMm;
+        let offsetMm =
+          (((arcMm - scallop.arcMm) % circumferenceMm) + circumferenceMm) %
+          circumferenceMm;
+        if (offsetMm > circumferenceMm / 2) offsetMm -= circumferenceMm;
+        return scallopEdgeDepthMm(scallop, offsetMm);
+      };
+
+      /** One band of fabric, from the cut edge down to a given depth. */
+      const drawBand = (
+        nearSide: boolean,
+        bottomOf: (thetaRad: number) => number,
+        fill: string,
+      ) => {
         for (let facet = 0; facet < SURFACE_FACETS; facet += 1) {
           const t0 = (facet / SURFACE_FACETS) * Math.PI * 2;
           const t1 = ((facet + 1) / SURFACE_FACETS) * Math.PI * 2;
           if (facesViewer((t0 + t1) / 2) !== nearSide) continue;
 
-          const a = project(t0, 0, radiusAt(0));
-          const b = project(t1, 0, radiusAt(0));
-          const c = project(t1, bottomMm, radiusAt(bottomMm));
-          const d = project(t0, bottomMm, radiusAt(bottomMm));
+          const top0 = edgeDepthMm(t0);
+          const top1 = edgeDepthMm(t1);
+          const base0 = bottomOf(t0);
+          const base1 = bottomOf(t1);
+          if (top0 >= base0 && top1 >= base1) continue;
+
+          const a = project(t0, top0, radiusAt(top0));
+          const b = project(t1, top1, radiusAt(top1));
+          const c = project(t1, base1, radiusAt(base1));
+          const d = project(t0, base0, radiusAt(base0));
 
           ctx.beginPath();
           ctx.moveTo(a.sx, a.sy);
@@ -189,35 +226,26 @@ export function GraftModel3D({
           ctx.lineTo(c.sx, c.sy);
           ctx.lineTo(d.sx, d.sy);
           ctx.closePath();
-          ctx.fillStyle = nearSide
-            ? "rgba(232,224,210,0.55)"
-            : "rgba(232,224,210,0.30)";
+          ctx.fillStyle = fill;
           ctx.fill();
         }
       };
 
+      // Fabric surface, as a quad strip so a tapered device tapers correctly.
+      // Only near-side facets are filled, otherwise the translucency doubles up.
+      const drawSurface = (nearSide: boolean) =>
+        drawBand(
+          nearSide,
+          () => bottomMm,
+          nearSide ? "rgba(232,224,210,0.55)" : "rgba(232,224,210,0.30)",
+        );
+
       // Seal band, on the near side only, so it reads as a band on the surface.
+      // Under a scallop it starts at the cut, which is what leaves the sealing
+      // fabric the scallop is allowed on.
       const drawSealBand = () => {
         if (proximalDepthMm <= 0) return;
-        for (let facet = 0; facet < SURFACE_FACETS; facet += 1) {
-          const t0 = (facet / SURFACE_FACETS) * Math.PI * 2;
-          const t1 = ((facet + 1) / SURFACE_FACETS) * Math.PI * 2;
-          if (!facesViewer((t0 + t1) / 2)) continue;
-
-          const a = project(t0, 0, radiusAt(0));
-          const b = project(t1, 0, radiusAt(0));
-          const c = project(t1, proximalDepthMm, radiusAt(proximalDepthMm));
-          const d = project(t0, proximalDepthMm, radiusAt(proximalDepthMm));
-
-          ctx.beginPath();
-          ctx.moveTo(a.sx, a.sy);
-          ctx.lineTo(b.sx, b.sy);
-          ctx.lineTo(c.sx, c.sy);
-          ctx.lineTo(d.sx, d.sy);
-          ctx.closePath();
-          ctx.fillStyle = "rgba(15,118,110,0.16)";
-          ctx.fill();
-        }
+        drawBand(true, () => proximalDepthMm, "rgba(15,118,110,0.16)");
       };
 
       /**
@@ -272,8 +300,9 @@ export function GraftModel3D({
           ctx.lineWidth = anterior ? 1.2 : 0.8;
           ctx.setLineDash(anterior ? [] : [3, 3]);
           ctx.beginPath();
+          const fromMm = edgeDepthMm(theta);
           for (let step = 0; step <= 12; step += 1) {
-            const zMm = (step / 12) * bottomMm;
+            const zMm = fromMm + (step / 12) * (bottomMm - fromMm);
             const point = project(theta, zMm, radiusAt(zMm));
             if (step === 0) ctx.moveTo(point.sx, point.sy);
             else ctx.lineTo(point.sx, point.sy);
@@ -290,8 +319,9 @@ export function GraftModel3D({
       };
 
       const drawFabricEdges = () => {
-        // The proximal edge is a real boundary; the distal one is only where
-        // the view was cropped, so it is dashed to say so.
+        // The proximal edge is a real boundary and dips into any scallop, since
+        // after the cut that is where the fabric edge is. The distal one is
+        // only where the view was cropped, so it is dashed to say so.
         for (const zMm of [0, bottomMm]) {
           const cropped = zMm === bottomMm && bottomMm < fabricLengthMm;
           ctx.strokeStyle = cropped ? "rgba(15,118,110,0.4)" : "#0f766e";
@@ -300,7 +330,8 @@ export function GraftModel3D({
           ctx.beginPath();
           for (let facet = 0; facet <= SURFACE_FACETS; facet += 1) {
             const theta = (facet / SURFACE_FACETS) * Math.PI * 2;
-            const point = project(theta, zMm, radiusAt(zMm));
+            const atMm = cropped ? zMm : zMm + edgeDepthMm(theta);
+            const point = project(theta, atMm, radiusAt(atMm));
             if (facet === 0) ctx.moveTo(point.sx, point.sy);
             else ctx.lineTo(point.sx, point.sy);
           }
@@ -314,6 +345,23 @@ export function GraftModel3D({
         ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
         ctx.textAlign = "center";
         ctx.fillText("FABRIC EDGE", edge.sx, edge.sy - 10);
+
+        // Name the cut where it faces the viewer, so turning the graft to the
+        // scallop tells you it is one rather than a gap in the render.
+        if (scallop) {
+          const theta = (scallop.arcMm / circumferenceMm) * Math.PI * 2;
+          if (facesViewer(theta)) {
+            const point = project(theta, scallop.heightMm / 2, radiusAt(0));
+            ctx.fillStyle = "#0f766e";
+            ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(
+              `${scallop.vessel.name} SCALLOP ${scallop.heightMm.toFixed(1)} mm`,
+              point.sx,
+              point.sy,
+            );
+          }
+        }
       };
 
       const drawOpenings = () => {
@@ -498,7 +546,16 @@ export function GraftModel3D({
     const observer = new ResizeObserver(draw);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [graft, openings, proximalDepthMm, azimuth, elevation, zoom, selectedVessel]);
+  }, [
+    graft,
+    openings,
+    proximalDepthMm,
+    scallop,
+    azimuth,
+    elevation,
+    zoom,
+    selectedVessel,
+  ]);
 
   const spin = (deltaRad: number) => setAzimuth((current) => current + deltaRad);
   const clampZoom = (value: number) =>

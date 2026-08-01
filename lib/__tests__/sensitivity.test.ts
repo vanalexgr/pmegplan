@@ -84,6 +84,8 @@ describe("analyseSensitivity", () => {
   it("points at the vessel gap when a scallop has too little fabric under it", () => {
     const scalloped = juxtarenal(6);
     scalloped.scallop = ["CELIAC"];
+    // A cut needs a clock, the same as a hole does.
+    scalloped.vessels[0].clock = "12:15";
 
     const { sensitivity } = analyse(scalloped);
 

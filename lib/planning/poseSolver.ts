@@ -226,6 +226,13 @@ function emptySolution(status: PoseStatus): PoseSolution {
  * `targetClearanceMm` wins. Maximising clearance outright would push the fabric
  * edge as far cranially as the constraints allow, buying fractions of a
  * millimetre of wire clearance at the cost of real aortic coverage.
+ *
+ * A scallop inverts that. The cut is what lets the fabric edge sit above its
+ * vessel without covering it, so the aorta gained is sealed rather than merely
+ * covered, and stopping at the vessel would cut a scallop of no height — which
+ * is to say no scallop at all. Where one is present the deepest qualifying pose
+ * wins instead, which is what all three scalloped plans in the reference series
+ * did: 16 to 20 mm past the shallowest the seal rule would have allowed.
  */
 export function solvePose(
   anatomy: NormalizedAnatomy,
@@ -289,12 +296,17 @@ export function solvePose(
   const targetClearanceMm =
     options.targetClearanceMm ?? DEFAULT_TARGET_CLEARANCE_MM;
 
-  let deepestValue = Number.NEGATIVE_INFINITY;
-  let deepestDepthIndex = 0;
-  let deepestRotationIndex = 0;
-  let shallowestDepthIndex = -1;
-  let shallowestRotationIndex = 0;
-  let shallowestValue = Number.NEGATIVE_INFINITY;
+  // With a scallop the fabric edge wants to be as high as the neck allows, so
+  // the last qualifying depth row is taken rather than the first. See the
+  // function's comment for why the two cases pull opposite ways.
+  const preferDeepest = anatomy.scalloped !== null;
+
+  let clearestValue = Number.NEGATIVE_INFINITY;
+  let clearestDepthIndex = 0;
+  let clearestRotationIndex = 0;
+  let preferredDepthIndex = -1;
+  let preferredRotationIndex = 0;
+  let preferredValue = Number.NEGATIVE_INFINITY;
   let uncappedDepthIndex = -1;
   let uncappedTurnDeg = 0;
   let uncappedValue = Number.NEGATIVE_INFINITY;
@@ -367,33 +379,39 @@ export function solvePose(
       }
     }
 
-    if (rowBestValue > deepestValue) {
-      deepestValue = rowBestValue;
-      deepestDepthIndex = depthIndex;
-      deepestRotationIndex = rowBestRotationIndex;
+    if (rowBestValue > clearestValue) {
+      clearestValue = rowBestValue;
+      clearestDepthIndex = depthIndex;
+      clearestRotationIndex = rowBestRotationIndex;
     }
 
-    if (shallowestDepthIndex < 0 && rowTurnRotationIndex >= 0) {
-      shallowestDepthIndex = depthIndex;
-      shallowestRotationIndex = rowTurnRotationIndex;
-      shallowestValue = rowTurnValue;
+    if (
+      rowTurnRotationIndex >= 0 &&
+      (preferDeepest || preferredDepthIndex < 0)
+    ) {
+      preferredDepthIndex = depthIndex;
+      preferredRotationIndex = rowTurnRotationIndex;
+      preferredValue = rowTurnValue;
     }
 
-    if (uncappedDepthIndex < 0 && rowUncappedMagnitudeDeg < Infinity) {
+    if (
+      rowUncappedMagnitudeDeg < Infinity &&
+      (preferDeepest || uncappedDepthIndex < 0)
+    ) {
       uncappedDepthIndex = depthIndex;
       uncappedTurnDeg = rowUncappedTurnDeg;
       uncappedValue = rowUncappedValue;
     }
   }
 
-  const meetsTargetClearance = shallowestDepthIndex >= 0;
+  const meetsTargetClearance = preferredDepthIndex >= 0;
   const chosenDepthIndex = meetsTargetClearance
-    ? shallowestDepthIndex
-    : deepestDepthIndex;
+    ? preferredDepthIndex
+    : clearestDepthIndex;
   const chosenRotationIndex = meetsTargetClearance
-    ? shallowestRotationIndex
-    : deepestRotationIndex;
-  const bestValue = meetsTargetClearance ? shallowestValue : deepestValue;
+    ? preferredRotationIndex
+    : clearestRotationIndex;
+  const bestValue = meetsTargetClearance ? preferredValue : clearestValue;
 
   // Report the shorter way round: 340° clockwise is 20° the other way.
   const pose: GraftPose = {

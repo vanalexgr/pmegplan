@@ -2,7 +2,11 @@
 
 import { useEffect, useRef } from "react";
 
-import type { PlacedOpening } from "@/lib/planning/anatomy";
+import {
+  scallopEdgeDepthMm,
+  type PlacedOpening,
+  type PlacedScallop,
+} from "@/lib/planning/anatomy";
 import { arcMmToClockText } from "@/lib/planning/clock";
 import { measureHole } from "@/lib/planning/holeMeasurements";
 import type { GraftModel } from "@/lib/planning/plan";
@@ -11,12 +15,19 @@ import { cn } from "@/lib/utils";
 const PADDING = { top: 20, right: 18, bottom: 30, left: 46 };
 /** Breathing room past the most proximal metal, in mm. */
 const HEADROOM_MM = 4;
+/**
+ * Points the proximal fabric edge is drawn from. Enough that the curve of a
+ * scallop bottom reads as a curve rather than as a chamfer.
+ */
+const EDGE_SAMPLES = 480;
 
 export interface UnrolledGraftCanvasProps {
   graft: GraftModel;
   openings: PlacedOpening[];
   /** Depth of the most proximal opening below the fabric edge, in mm. */
   proximalDepthMm: number;
+  /** The edge cut, when the plan has one. */
+  scallop?: PlacedScallop | null;
   selectedVessel?: string | null;
   onSelect?: (vesselName: string | null) => void;
 }
@@ -42,6 +53,7 @@ export function UnrolledGraftCanvas({
   graft,
   openings,
   proximalDepthMm,
+  scallop = null,
   selectedVessel = null,
   onSelect,
 }: UnrolledGraftCanvasProps) {
@@ -84,13 +96,50 @@ export function UnrolledGraftCanvas({
       const x = (arcMm: number) => PADDING.left + arcMm * scale;
       const y = (depthMm: number) => PADDING.top + (depthMm - topMm) * scale;
 
+      /**
+       * Where the fabric starts at a given arc position, in mm.
+       *
+       * Zero everywhere except inside a scallop, where the edge has been cut
+       * away. Both neighbouring copies are tried so a scallop straddling the
+       * seam is still cut on the halves either side of it.
+       */
+      const edgeDepthMm = (arcMm: number) => {
+        if (!scallop) return 0;
+        let depthMm = 0;
+        for (const shift of [0, -circumferenceMm, circumferenceMm]) {
+          depthMm = Math.max(
+            depthMm,
+            scallopEdgeDepthMm(scallop, arcMm - (scallop.arcMm + shift)),
+          );
+        }
+        return depthMm;
+      };
+
+      /** Fabric from the cut edge down to a given depth, as one polygon. */
+      const fabricBelow = (bottomMm: number) => {
+        ctx.beginPath();
+        for (let step = 0; step <= EDGE_SAMPLES; step += 1) {
+          const arcMm = (step / EDGE_SAMPLES) * circumferenceMm;
+          const depthMm = Math.min(edgeDepthMm(arcMm), bottomMm);
+          if (step === 0) ctx.moveTo(x(arcMm), y(depthMm));
+          else ctx.lineTo(x(arcMm), y(depthMm));
+        }
+        ctx.lineTo(x(circumferenceMm), y(bottomMm));
+        ctx.lineTo(x(0), y(bottomMm));
+        ctx.closePath();
+      };
+
       // Fabric — the only part that can be cut.
       ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.fillRect(x(0), y(0), plotWidth, fabricLengthMm * scale);
+      fabricBelow(fabricLengthMm);
+      ctx.fill();
 
       // Seal band: fabric above the first hole that has to appose the aorta.
+      // Under a scallop it starts at the cut instead, which is what leaves the
+      // 10 mm of sealing fabric the scallop is allowed on.
       ctx.fillStyle = "rgba(15,118,110,0.10)";
-      ctx.fillRect(x(0), y(0), plotWidth, proximalDepthMm * scale);
+      fabricBelow(proximalDepthMm);
+      ctx.fill();
 
       // Wire. Segments can run past the seam because the closing wire is
       // emitted one circumference on; draw a wrapped copy so rings read as
@@ -116,12 +165,18 @@ export function UnrolledGraftCanvas({
       // fixation ring's own apices, so drawing them would put wire on the
       // template where the scan found none.
 
-      // Fabric edges, drawn over the wire so they read as boundaries.
+      // Fabric edges, drawn over the wire so they read as boundaries. The
+      // proximal one follows the scallop, because after the cut that is where
+      // the fabric edge is.
       ctx.strokeStyle = "#0f766e";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(x(0), y(0));
-      ctx.lineTo(x(circumferenceMm), y(0));
+      for (let step = 0; step <= EDGE_SAMPLES; step += 1) {
+        const arcMm = (step / EDGE_SAMPLES) * circumferenceMm;
+        const point = [x(arcMm), y(edgeDepthMm(arcMm))] as const;
+        if (step === 0) ctx.moveTo(...point);
+        else ctx.lineTo(...point);
+      }
       ctx.moveTo(x(0), y(fabricLengthMm));
       ctx.lineTo(x(circumferenceMm), y(fabricLengthMm));
       ctx.stroke();
@@ -131,6 +186,25 @@ export function UnrolledGraftCanvas({
       ctx.textAlign = "left";
       ctx.fillText("FABRIC EDGE", x(0) + 5, y(0) - 5);
       ctx.fillText("FABRIC END", x(0) + 5, y(fabricLengthMm) + 13);
+
+      // Name the cut and give its size, so it can be marked out from the same
+      // drawing as the holes rather than from the readout.
+      if (scallop) {
+        const label = `${scallop.vessel.name} SCALLOP ${(
+          scallop.semiArcMm * 2
+        ).toFixed(1)} × ${scallop.heightMm.toFixed(1)} mm`;
+        // Beside the cut, flipped inwards when it would run off the sheet.
+        const rightOfCut =
+          x(scallop.arcMm + scallop.semiArcMm) + 6 + ctx.measureText(label).width <
+          x(circumferenceMm);
+        ctx.textAlign = rightOfCut ? "left" : "right";
+        ctx.fillStyle = "#0f766e";
+        ctx.fillText(
+          label,
+          x(scallop.arcMm + (rightOfCut ? 1 : -1) * (scallop.semiArcMm + 6)),
+          y(scallop.heightMm / 2) + 3,
+        );
+      }
 
       // Only when the device actually has one. A covered device still segments
       // a fraction of a millimetre past its fabric edge, and calling that a
@@ -375,7 +449,7 @@ export function UnrolledGraftCanvas({
     const observer = new ResizeObserver(draw);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [graft, openings, proximalDepthMm, selectedVessel]);
+  }, [graft, openings, proximalDepthMm, scallop, selectedVessel]);
 
   return (
     <div ref={wrapperRef} className="w-full">
