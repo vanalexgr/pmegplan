@@ -1,6 +1,9 @@
 import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
+  MIN_SEAL_BELOW_SCALLOP_MM,
+  minProximalDepthMm,
   placeOpenings,
+  scallopSeparationMm,
   type GraftPose,
   type NormalizedAnatomy,
 } from "@/lib/planning/anatomy";
@@ -25,6 +28,8 @@ export type PoseStatus =
   | "best_compromise"
   /** No room for the seal below a preserved vessel; that vessel needs its own hole. */
   | "seal_zone_too_short"
+  /** Scalloped, but too little fabric below the scallop to seal against. */
+  | "scallop_seal_too_short"
   | "graft_too_short"
   | "no_fenestrations";
 
@@ -231,7 +236,17 @@ export function solvePose(
   }
 
   const stepMm = options.stepMm ?? DEFAULT_STEP_MM;
-  const minDepthMm = options.minProximalDepthMm ?? MIN_PROXIMAL_FENESTRATION_DEPTH_MM;
+
+  // A scallop seals on the fabric below it rather than above the first hole,
+  // so that separation is fixed by anatomy and has to be checked before any
+  // pose is considered: no push-in can create fabric the vessels do not leave.
+  const separationMm = scallopSeparationMm(anatomy);
+  if (separationMm !== null && separationMm < MIN_SEAL_BELOW_SCALLOP_MM) {
+    return emptySolution("scallop_seal_too_short");
+  }
+
+  const minDepthMm =
+    options.minProximalDepthMm ?? minProximalDepthMm(anatomy);
   const fabricBoundMm = options.fabricLengthMm - anatomy.fenestrationSpanMm;
   const maxDepthMm = Math.min(options.maxProximalDepthMm, fabricBoundMm);
 

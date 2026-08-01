@@ -9,17 +9,32 @@ import { wrapMm } from "@/lib/planning/geometry";
 export const MIN_PROXIMAL_FENESTRATION_DEPTH_MM = 10;
 
 /**
+ * Fabric required below a scallop before the next opening, in mm.
+ *
+ * A scallop cuts the fabric edge around its vessel, so nothing above the
+ * scallop's base seals in that sector — the seal has to come from the fabric
+ * *below* it instead. Every scalloped case in the reference series respects
+ * this, one of them at exactly 10.0 mm.
+ */
+export const MIN_SEAL_BELOW_SCALLOP_MM = 10;
+
+/**
  * How each vessel is handled.
  *
- * - `fenestration` — takes a closed hole and joins the rigid pattern. Scallops
- *   are not used, so the 10 mm seal rule applies uniformly to the most proximal
- *   target rather than being sidestepped by an edge cut.
- * - `preserve` — stays perfused without a hole, by keeping the fabric edge
- *   below its ostium. This is the SMA in a juxtarenal repair, and it is usually
- *   what limits how far the pattern can be pushed in.
+ * - `fenestration` — takes a closed hole and joins the rigid pattern. The
+ *   proximal seal rule applies above the most proximal one.
+ * - `scallop` — the fabric edge is cut around the vessel rather than a hole
+ *   punched through it. Nothing above the scallop's base seals in that sector,
+ *   so the seal comes from below: the next opening must sit at least
+ *   `MIN_SEAL_BELOW_SCALLOP_MM` beneath it. A scallop is what resolves anatomy
+ *   where a vessel sits too close above the next to allow a closed hole with a
+ *   seal of its own.
+ * - `preserve` — stays perfused without any cut, by keeping the whole fabric
+ *   edge below its ostium. This is the SMA in a juxtarenal repair, and it is
+ *   usually what limits how far the pattern can be pushed in.
  * - `cover` — intentionally sacrificed; constrains nothing.
  */
-export type VesselTreatment = "fenestration" | "preserve" | "cover";
+export type VesselTreatment = "fenestration" | "scallop" | "preserve" | "cover";
 
 export interface AnatomyVessel {
   name: string;
@@ -66,10 +81,16 @@ export interface AnatomyCase {
    */
   vessels: AnatomyVessel[];
   /**
-   * Names of the vessels taking a fenestration. Its length is the fenestration
-   * count. Anything left out is preserved unless listed in `cover`.
+   * Names of the vessels taking a closed fenestration. Anything left out is
+   * preserved unless listed in `scallop` or `cover`.
    */
   fenestrate: string[];
+  /**
+   * Names of vessels served by cutting the fabric edge rather than a closed
+   * hole. Only the most proximal treated vessel can be scalloped, since a
+   * scallop is an edge cut.
+   */
+  scallop?: string[];
   /** Names of vessels intentionally sacrificed, such as an accessory renal. */
   cover?: string[];
   aorta: AortaInput;
@@ -88,6 +109,8 @@ export interface NormalizedAnatomy {
   vessels: NormalizedVessel[];
   /** Vessels taking a closed fenestration, ordered proximal to distal. */
   fenestrations: NormalizedVessel[];
+  /** The scalloped vessel, if any. At most one, and the most proximal. */
+  scalloped: NormalizedVessel | null;
   /** Vessels that must stay above the fabric edge, ordered proximal to distal. */
   preserved: NormalizedVessel[];
   /** Name of the vessel the axial datum was placed at. */
@@ -134,7 +157,7 @@ function isRenal(name: string): boolean {
  * distal vessel carries the datum instead.
  */
 export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
-  const { vessels, fenestrate, cover = [] } = anatomyCase;
+  const { vessels, fenestrate, scallop = [], cover = [] } = anatomyCase;
 
   if (vessels.length === 0) {
     throw new Error("A case needs at least one vessel.");
@@ -148,18 +171,33 @@ export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
     names.add(vessel.name);
   }
 
-  for (const name of [...fenestrate, ...cover]) {
+  for (const name of [...fenestrate, ...scallop, ...cover]) {
     if (!names.has(name)) {
       throw new Error(`${name} is selected but not in the measured chain.`);
     }
   }
 
   const fenestrated = new Set(fenestrate);
+  const scalloped = new Set(scallop);
   const covered = new Set(cover);
   for (const name of fenestrated) {
     if (covered.has(name)) {
       throw new Error(`${name} cannot be both fenestrated and covered.`);
     }
+    if (scalloped.has(name)) {
+      throw new Error(`${name} cannot be both fenestrated and scalloped.`);
+    }
+  }
+  for (const name of scalloped) {
+    if (covered.has(name)) {
+      throw new Error(`${name} cannot be both scalloped and covered.`);
+    }
+  }
+
+  if (scalloped.size > 1) {
+    throw new Error(
+      "Only one vessel can be scalloped: a scallop is a cut in the fabric edge, and the edge is one place.",
+    );
   }
 
   if (fenestrated.size === 0) {
@@ -197,20 +235,41 @@ export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
         vessel.clock === undefined ? 0 : parseClockFraction(vessel.clock),
       treatment: isFenestrated
         ? "fenestration"
-        : covered.has(vessel.name)
-          ? "cover"
-          : "preserve",
+        : scalloped.has(vessel.name)
+          ? "scallop"
+          : covered.has(vessel.name)
+            ? "cover"
+            : "preserve",
     };
   });
 
   const fenestrations = normalized.filter(
     (vessel) => vessel.treatment === "fenestration",
   );
+  const scallopVessel =
+    normalized.find((vessel) => vessel.treatment === "scallop") ?? null;
+
+  // A scallop cuts the fabric edge, so nothing may be treated above it.
+  if (scallopVessel) {
+    const above = normalized.filter(
+      (vessel) =>
+        vessel.zMm > scallopVessel.zMm &&
+        (vessel.treatment === "fenestration" || vessel.treatment === "preserve"),
+    );
+    if (above.length > 0) {
+      throw new Error(
+        `${scallopVessel.name} is scalloped, so the fabric edge is cut there — ${above
+          .map((vessel) => vessel.name)
+          .join(", ")} cannot be treated above it.`,
+      );
+    }
+  }
   const fenestrationZ = fenestrations.map((vessel) => vessel.zMm);
 
   return {
     vessels: normalized,
     fenestrations,
+    scalloped: scallopVessel,
     preserved: normalized.filter((vessel) => vessel.treatment === "preserve"),
     datumVesselName: datum.vessel.name,
     proximalFenestrationZMm:
@@ -220,6 +279,51 @@ export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
         ? Math.max(...fenestrationZ) - Math.min(...fenestrationZ)
         : 0,
   };
+}
+
+/**
+ * Axial separation between the scalloped vessel and the first fenestration,
+ * in mm. Null when nothing is scalloped.
+ *
+ * This is the fabric that does the sealing when the edge is cut, so the seal
+ * rule applies to it rather than to the depth of the first hole.
+ */
+export function scallopSeparationMm(
+  anatomy: NormalizedAnatomy,
+): number | null {
+  if (anatomy.scalloped === null || anatomy.proximalFenestrationZMm === null) {
+    return null;
+  }
+  return anatomy.scalloped.zMm - anatomy.proximalFenestrationZMm;
+}
+
+/**
+ * Shallowest the pattern may sit, in mm.
+ *
+ * Normally the seal rule: the first hole needs fabric above it. With a scallop
+ * the edge is already cut, so what bounds the pose instead is that the scallop
+ * base cannot sit above the fabric edge — which puts the first fenestration at
+ * least the scallop separation down.
+ */
+export function minProximalDepthMm(anatomy: NormalizedAnatomy): number {
+  const separation = scallopSeparationMm(anatomy);
+  return separation === null ? MIN_PROXIMAL_FENESTRATION_DEPTH_MM : separation;
+}
+
+/**
+ * Height of the scallop a pose implies, in mm — the fabric removed from the
+ * edge down to the scalloped vessel.
+ *
+ * Derived rather than chosen: pushing the pattern deeper cuts a taller scallop.
+ * Reproduces the height stated on all three scalloped plans in the reference
+ * series exactly.
+ */
+export function scallopHeightMm(
+  anatomy: NormalizedAnatomy,
+  pose: GraftPose,
+): number | null {
+  const separation = scallopSeparationMm(anatomy);
+  return separation === null ? null : pose.proximalDepthMm - separation;
 }
 
 /** Axial position of the proximal fabric edge implied by a pose, in mm. */

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { AnatomyCase } from "@/lib/planning/anatomy";
-import { buildGraftModel, planGraft, requiredGraftLengthMm } from "@/lib/planning/plan";
+import {
+  buildGraftModel,
+  oversizeWarning,
+  planGraft,
+  requiredGraftLengthMm,
+} from "@/lib/planning/plan";
 import { normalizeAnatomy } from "@/lib/planning/anatomy";
 
 /** Four-vessel thoracoabdominal: celiac, SMA and both renals fenestrated. */
@@ -284,9 +289,13 @@ describe("planGraft", () => {
   });
 
   it("falls back to the recommendation when the chosen device stops fitting", () => {
-    // A choice made for one seal zone must not lose the plan when the anatomy
-    // moves out from under it.
-    const plan = planGraft(taaaCase(26), { scanId: "scan1" });
+    // A choice made for one anatomy must not lose the plan when the pattern
+    // outgrows that device's fabric.
+    // A pattern needing 173 mm of fabric: past scan1's 167 mm, inside
+    // scan3's 185 mm, so one device survives and the choice must move to it.
+    const long = taaaCase(36);
+    long.vessels[2].gapFromPreviousMm = 110;
+    const plan = planGraft(long, { scanId: "scan1" });
 
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
@@ -295,6 +304,25 @@ describe("planGraft", () => {
     );
     expect(scan1?.rejection).not.toBeNull();
     expect(plan.selectedScanId).toBe(plan.recommendedScanId);
+  });
+
+  it("plans an out-of-window device rather than refusing, and flags it", () => {
+    // Oversizing is a clinical judgement, and with three devices refusing on it
+    // leaves real anatomy with no plan at all. The device is planned and
+    // flagged; the recommendation still prefers one inside the window.
+    const plan = planGraft(taaaCase(30));
+
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    const flagged = plan.considered.filter(
+      (fit) => fit.oversizeOutOfRange !== null,
+    );
+    expect(flagged.length).toBeGreaterThan(0);
+    for (const fit of flagged) {
+      expect(fit.solution).not.toBeNull();
+      expect(oversizeWarning(fit)).not.toBeNull();
+    }
   });
 
   it("keeps the turn inside the cap it was given", () => {
@@ -335,35 +363,35 @@ describe("planGraft", () => {
     expect(plan.reason).toMatch(/at least one fenestration/);
   });
 
-  it("declines the gap between the scanned sizes instead of stretching into it", () => {
-    // Sealing rings measure 29.7, 40.7 and 42.6 mm, so at 10-30% oversizing the
-    // library covers roughly 23-27 mm and 31-39 mm of aorta. A 30 mm seal zone
-    // falls between them, and the honest answer is to scan a device for it.
+  it("shows the gap between the scanned sizes rather than hiding it", () => {
+    // Nominal diameters are 32, 42 and 42, so at 10-30% oversizing the library
+    // covers roughly 25-29 mm and 32-38 mm of aorta. A 30 mm seal zone falls
+    // between them: every device is out of window, in both directions.
     const plan = planGraft(taaaCase(30));
 
-    expect(plan.ok).toBe(false);
-    if (plan.ok) return;
-    // Too small below the gap, too large above it.
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
     expect(
-      plan.considered.some((fit) =>
-        /undersized|only \d+% oversizing/.test(fit.rejection ?? ""),
-      ),
+      plan.considered.every((fit) => fit.oversizeOutOfRange !== null),
     ).toBe(true);
     expect(
-      plan.considered.some((fit) => /infolding/.test(fit.rejection ?? "")),
+      plan.considered.some((fit) => fit.oversizeOutOfRange === "under"),
+    ).toBe(true);
+    expect(
+      plan.considered.some((fit) => fit.oversizeOutOfRange === "over"),
     ).toBe(true);
   });
 
-  it("declines an aorta no scanned device covers rather than scaling one up", () => {
+  it("flags every device as undersized for an aorta none of them covers", () => {
     const plan = planGraft(taaaCase(120));
 
-    expect(plan.ok).toBe(false);
-    if (plan.ok) return;
-    expect(plan.anatomy).not.toBeNull();
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
     expect(plan.considered).toHaveLength(3);
-    // Every device was set aside for being far too small, and says so.
     for (const fit of plan.considered) {
-      expect(fit.rejection).toMatch(/undersized/);
+      expect(fit.oversizeFraction).toBeLessThan(0);
+      expect(oversizeWarning(fit)).toMatch(/undersized/);
     }
   });
 

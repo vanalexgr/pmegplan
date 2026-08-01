@@ -23,10 +23,20 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { MIN_PROXIMAL_FENESTRATION_DEPTH_MM } from "@/lib/planning/anatomy";
+import {
+  MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
+  MIN_SEAL_BELOW_SCALLOP_MM,
+  scallopHeightMm,
+  scallopSeparationMm,
+} from "@/lib/planning/anatomy";
 import type { AnatomyCase, AnatomyVessel } from "@/lib/planning/anatomy";
 import type { CtScanId } from "@/lib/ctDeviceCatalog";
-import { planGraft, type GraftModel, type PlanResult } from "@/lib/planning/plan";
+import {
+  oversizeWarning,
+  planGraft,
+  type GraftModel,
+  type PlanResult,
+} from "@/lib/planning/plan";
 import {
   measureHole,
   type HoleGap,
@@ -52,15 +62,15 @@ interface VesselEntry {
   gapFromPreviousMm: string;
   clock: string;
   ostiumDiameterMm: string;
-  fenestrate: boolean;
+  treatment: "fenestrate" | "scallop" | "preserve";
 }
 
 function initialEntries(): VesselEntry[] {
   return [
-    { ...blank(CHAIN[0]), gapFromPreviousMm: "0", clock: "12:00", fenestrate: true },
-    { ...blank(CHAIN[1]), gapFromPreviousMm: "18", clock: "12:30", fenestrate: true },
-    { ...blank(CHAIN[2]), gapFromPreviousMm: "24", clock: "9:00", fenestrate: true },
-    { ...blank(CHAIN[3]), gapFromPreviousMm: "5", clock: "3:30", fenestrate: true },
+    { ...blank(CHAIN[0]), gapFromPreviousMm: "0", clock: "12:00", treatment: "fenestrate" as const },
+    { ...blank(CHAIN[1]), gapFromPreviousMm: "18", clock: "12:30", treatment: "fenestrate" as const },
+    { ...blank(CHAIN[2]), gapFromPreviousMm: "24", clock: "9:00", treatment: "fenestrate" as const },
+    { ...blank(CHAIN[3]), gapFromPreviousMm: "5", clock: "3:30", treatment: "fenestrate" as const },
   ];
 }
 
@@ -71,7 +81,7 @@ function blank(vessel: (typeof CHAIN)[number]): VesselEntry {
     gapFromPreviousMm: "",
     clock: "12:00",
     ostiumDiameterMm: String(vessel.defaultOstiumMm),
-    fenestrate: false,
+    treatment: "preserve" as const,
   };
 }
 
@@ -100,7 +110,7 @@ function buildCase(
     vessels.push({
       name: entry.name,
       gapFromPreviousMm: gap,
-      clock: entry.fenestrate ? entry.clock : undefined,
+      clock: entry.treatment === "preserve" ? undefined : entry.clock,
       ostiumDiameterMm: ostium,
     });
   }
@@ -118,7 +128,12 @@ function buildCase(
   return {
     clockConvention: "axial_ct",
     vessels,
-    fenestrate: entries.filter((entry) => entry.fenestrate).map((entry) => entry.name),
+    fenestrate: entries
+      .filter((entry) => entry.treatment === "fenestrate")
+      .map((entry) => entry.name),
+    scallop: entries
+      .filter((entry) => entry.treatment === "scallop")
+      .map((entry) => entry.name),
     aorta: {
       sealZoneDiameterMm: diameter,
       proximalLandingLengthMm: landing,
@@ -186,6 +201,27 @@ function StatusBanner({ plan }: { plan: PlanResult }) {
               planner can lay out yet.
             </p>
           ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (solution.status === "scallop_seal_too_short") {
+    const scalloped = plan.anatomy.scalloped;
+    return (
+      <div className="flex items-start gap-3 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <div>
+          <p className="font-semibold">
+            Too little fabric below the {scalloped?.name} scallop to seal.
+          </p>
+          <p className="mt-1 leading-5">
+            A scallop cuts the fabric edge, so the seal comes from the fabric
+            beneath it — and this anatomy leaves only{" "}
+            {scallopSeparationMm(plan.anatomy)?.toFixed(1)} mm before the next
+            opening, against the {MIN_SEAL_BELOW_SCALLOP_MM} mm needed. No
+            push-in can create fabric the vessels do not leave.
+          </p>
         </div>
       </div>
     );
@@ -299,6 +335,7 @@ function LimitNotice({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
 function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
   const { solution, graft, anatomy, oversizeFraction } = plan;
   const { scan } = graft;
+  const scallopHeight = scallopHeightMm(anatomy, solution.pose);
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -327,7 +364,19 @@ function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
         detail={`${graft.naming.size} · ${(oversizeFraction * 100).toFixed(
           0,
         )}% oversize · ${scan.reference.id.toUpperCase()}`}
+        warning={oversizeWarning(
+          plan.considered.find(
+            (fit) => fit.model.scan.reference.id === plan.selectedScanId,
+          )!,
+        )}
       />
+      {scallopHeight !== null ? (
+        <Metric
+          label={`${anatomy.scalloped?.name} scallop`}
+          value={`${scallopHeight.toFixed(1)} mm`}
+          detail={`cut from the fabric edge · ${scallopSeparationMm(anatomy)?.toFixed(1)} mm sealing below it`}
+        />
+      ) : null}
       <Metric
         label="Worst clearance"
         value={`${solution.marginMm.toFixed(2)} mm`}
@@ -342,14 +391,23 @@ function Metric({
   label,
   value,
   detail,
+  warning,
 }: {
   icon?: React.ReactNode;
   label: string;
   value: string;
   detail: string;
+  warning?: string | null;
 }) {
   return (
-    <div className="rounded-2xl border border-[color:var(--border)] bg-white/70 p-4">
+    <div
+      className={cn(
+        "rounded-2xl border bg-white/70 p-4",
+        warning
+          ? "border-amber-300 bg-amber-50/70"
+          : "border-[color:var(--border)]",
+      )}
+    >
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted-foreground)]">
         {icon}
         {label}
@@ -358,6 +416,11 @@ function Metric({
       <p className="mt-1 text-[11px] leading-4 text-[color:var(--muted-foreground)]">
         {detail}
       </p>
+      {warning ? (
+        <p className="mt-1.5 text-[11px] font-semibold leading-4 text-amber-800">
+          {warning}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -395,7 +458,12 @@ export function PmegPlanner() {
     [built, preferredScanId],
   );
 
-  const fenestrationCount = entries.filter((entry) => entry.fenestrate).length;
+  const fenestrationCount = entries.filter(
+    (entry) => entry.treatment === "fenestrate",
+  ).length;
+  const scallopCount = entries.filter(
+    (entry) => entry.treatment === "scallop",
+  ).length;
 
   const solved = plan?.ok && plan.openings.length > 0 ? plan : null;
 
@@ -479,23 +547,31 @@ export function PmegPlanner() {
                     key={entry.name}
                     className={cn(
                       "grid grid-cols-[1fr_72px_72px_66px] items-center gap-2 rounded-2xl border p-2 transition-colors",
-                      entry.fenestrate
+                      entry.treatment === "fenestrate"
                         ? "border-[color:var(--brand)]/35 bg-[color:var(--brand)]/[0.05]"
-                        : "border-[color:var(--border)] bg-white/50",
+                        : entry.treatment === "scallop"
+                          ? "border-amber-300 bg-amber-50/60"
+                          : "border-[color:var(--border)] bg-white/50",
                     )}
                   >
-                    <label className="flex items-center gap-2 pl-1 text-sm font-medium">
-                      <input
-                        type="checkbox"
-                        className="size-4 accent-[color:var(--brand)]"
-                        checked={entry.fenestrate}
-                        aria-label={`Fenestrate ${entry.label}`}
+                    <div className="flex flex-col gap-1 pl-1">
+                      <span className="text-sm font-medium">{entry.label}</span>
+                      <select
+                        className="h-7 rounded-lg border border-[color:var(--border)] bg-white px-1 text-[11px] outline-none"
+                        value={entry.treatment}
+                        aria-label={`How to treat ${entry.label}`}
                         onChange={(event) =>
-                          patch(index, { fenestrate: event.target.checked })
+                          patch(index, {
+                            treatment: event.target
+                              .value as VesselEntry["treatment"],
+                          })
                         }
-                      />
-                      {entry.label}
-                    </label>
+                      >
+                        <option value="fenestrate">fenestrate</option>
+                        <option value="scallop">scallop</option>
+                        <option value="preserve">preserve</option>
+                      </select>
+                    </div>
                     <Input
                       type="number"
                       min={0}
@@ -522,7 +598,7 @@ export function PmegPlanner() {
                     <Input
                       className="h-9 rounded-xl px-2 font-mono text-xs"
                       value={entry.clock}
-                      disabled={!entry.fenestrate}
+                      disabled={entry.treatment === "preserve"}
                       aria-label={`${entry.label} clock position`}
                       onChange={(event) => patch(index, { clock: event.target.value })}
                     />
@@ -543,6 +619,11 @@ export function PmegPlanner() {
                 </span>
                 <span className="font-mono text-lg font-semibold">
                   {fenestrationCount}
+                  {scallopCount > 0 ? (
+                    <span className="ml-2 text-xs font-medium text-amber-800">
+                      + {scallopCount} scallop
+                    </span>
+                  ) : null}
                 </span>
               </div>
 
@@ -1041,7 +1122,15 @@ function DeviceLibrary({
                       : "text-[color:var(--muted-foreground)]",
                   )}
                 >
-                  {(fit.oversizeFraction * 100).toFixed(0)}% oversize
+                  <span
+                    className={cn(
+                      fit.oversizeOutOfRange !== null &&
+                        "font-semibold text-amber-800",
+                    )}
+                  >
+                    {(fit.oversizeFraction * 100).toFixed(0)}% oversize
+                    {fit.oversizeOutOfRange !== null ? " ⚠" : ""}
+                  </span>
                   {solution && solution.map !== null ? (
                     <>
                       {" · "}

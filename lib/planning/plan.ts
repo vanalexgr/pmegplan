@@ -64,8 +64,6 @@ export interface PlanOptions {
   distalAllowanceMm?: number;
   /** Scan resolution in mm. Coarser trades accuracy for responsiveness. */
   stepMm?: number;
-  /** Accept a device outside the usual oversizing window. */
-  allowAnyOversize?: boolean;
 }
 
 /** Everything one scanned device contributes to a plan. */
@@ -162,7 +160,15 @@ export interface WireProvenance {
 export interface DeviceFit {
   model: GraftModel;
   oversizeFraction: number;
-  /** Null when the device fits; otherwise why it was set aside. */
+  /**
+   * Set when oversizing falls outside the usual window. The device is still
+   * planned and selectable — with a three-device library, refusing on
+   * oversizing alone leaves real anatomy with no plan at all, and how much
+   * oversizing to accept is a clinical judgement rather than the planner's.
+   * It is flagged everywhere it appears instead.
+   */
+  oversizeOutOfRange: "under" | "over" | null;
+  /** Null when the device is usable; otherwise why it was set aside. */
   rejection: string | null;
   /** Pose solved on this device; null when it never got that far. */
   solution: PoseSolution | null;
@@ -353,31 +359,46 @@ function assessFit(
   model: GraftModel,
   sealZoneDiameterMm: number,
   requiredLengthMm: number,
-  allowAnyOversize: boolean,
 ): DeviceFit {
   const oversizeFraction =
     (model.proximalDiameterMm - sealZoneDiameterMm) / sealZoneDiameterMm;
 
-  let rejection: string | null = null;
-  if (model.fabricLengthMm < requiredLengthMm) {
-    rejection = `${model.fabricLengthMm.toFixed(0)} mm of fabric, ${requiredLengthMm.toFixed(0)} mm needed`;
-  } else if (!allowAnyOversize && oversizeFraction < MIN_OVERSIZE) {
-    rejection =
-      oversizeFraction < 0
-        ? `undersized: ${model.proximalDiameterMm.toFixed(1)} mm graft in a ${sealZoneDiameterMm.toFixed(0)} mm aorta`
-        : `only ${(oversizeFraction * 100).toFixed(0)}% oversizing`;
-  } else if (!allowAnyOversize && oversizeFraction > MAX_OVERSIZE) {
-    rejection = `${(oversizeFraction * 100).toFixed(0)}% oversizing risks infolding`;
-  }
+  // Fabric length is the only hard rejection: a device that cannot physically
+  // carry the pattern has nothing to plan. Oversizing outside the window is
+  // flagged and left selectable — see `DeviceFit.oversizeOutOfRange`.
+  const rejection =
+    model.fabricLengthMm < requiredLengthMm
+      ? `${model.fabricLengthMm.toFixed(0)} mm of fabric, ${requiredLengthMm.toFixed(0)} mm needed`
+      : null;
+
+  const oversizeOutOfRange =
+    oversizeFraction < MIN_OVERSIZE
+      ? ("under" as const)
+      : oversizeFraction > MAX_OVERSIZE
+        ? ("over" as const)
+        : null;
 
   return {
     model,
     oversizeFraction,
+    oversizeOutOfRange,
     rejection,
     solution: null,
     openings: [],
     depthLimit: { maxDepthMm: 0, limitingVesselName: null },
   };
+}
+
+/** Plain-language note on oversizing, for anywhere a device is shown. */
+export function oversizeWarning(fit: DeviceFit): string | null {
+  if (fit.oversizeOutOfRange === null) return null;
+  const percent = (fit.oversizeFraction * 100).toFixed(0);
+  if (fit.oversizeFraction < 0) {
+    return `undersized — ${fit.model.proximalDiameterMm} mm graft in a larger aorta; it will not appose`;
+  }
+  return fit.oversizeOutOfRange === "under"
+    ? `only ${percent}% oversizing, below the usual ${MIN_OVERSIZE * 100}% — seal at risk`
+    : `${percent}% oversizing, above the usual ${MAX_OVERSIZE * 100}% — risks infolding`;
 }
 
 /** Solve the pose this device would give, and record it on the fit. */
@@ -418,7 +439,12 @@ function solveFit(
  * surgeon's, and the alternatives are kept so it can be made on their poses.
  */
 function recommend(solved: DeviceFit[]): DeviceFit {
-  return solved.reduce((best, candidate) => {
+  // A device inside the oversizing window is preferred over one outside it,
+  // whatever the clearance: a hole that clears wire on a graft that will not
+  // seal is not a better plan.
+  const inWindow = solved.filter((fit) => fit.oversizeOutOfRange === null);
+  const pool = inWindow.length > 0 ? inWindow : solved;
+  return pool.reduce((best, candidate) => {
     const bestSolution = best.solution as PoseSolution;
     const candidateSolution = candidate.solution as PoseSolution;
     const bestClears = bestSolution.marginMm > 0;
@@ -478,7 +504,6 @@ export function planGraft(
       cachedGraftModel(reference.id, modelCache),
       anatomyCase.aorta.sealZoneDiameterMm,
       requiredLengthMm,
-      options.allowAnyOversize ?? false,
     ),
   ).map((fit) =>
     fit.rejection === null
