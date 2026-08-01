@@ -175,9 +175,17 @@ function StatusBanner({ plan }: { plan: PlanResult }) {
           </p>
           <p className="mt-1 leading-5">
             {depthLimit.limitingVesselName
-              ? `The ${depthLimit.limitingVesselName} sits only ${depthLimit.maxDepthMm.toFixed(1)} mm above the first fenestration. Preserving it leaves too little fabric to seal — it needs a fenestration of its own.`
+              ? `The ${depthLimit.limitingVesselName} sits only ${depthLimit.maxDepthMm.toFixed(1)} mm above the first fenestration, so keeping it perfused leaves too little fabric above to seal.`
               : `Only ${depthLimit.maxDepthMm.toFixed(1)} mm of landing is available above the first fenestration.`}
           </p>
+          {depthLimit.limitingVesselName ? (
+            <p className="mt-2 leading-5">
+              A closed fenestration is what will not fit here. Scalloping the{" "}
+              {depthLimit.limitingVesselName}, or landing the graft below it,
+              are the configurations this anatomy leaves — neither of which this
+              planner can lay out yet.
+            </p>
+          ) : null}
         </div>
       </div>
     );
@@ -188,8 +196,9 @@ function StatusBanner({ plan }: { plan: PlanResult }) {
       <div className="flex items-start gap-3 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
         <AlertTriangle className="mt-0.5 size-4 shrink-0" />
         <p>
-          No catalog length carries a {plan.anatomy.fenestrationSpanMm.toFixed(0)} mm
-          pattern with a {MIN_PROXIMAL_FENESTRATION_DEPTH_MM} mm seal above it.
+          No scanned device has enough fabric for a{" "}
+          {plan.anatomy.fenestrationSpanMm.toFixed(0)} mm pattern with a{" "}
+          {MIN_PROXIMAL_FENESTRATION_DEPTH_MM} mm seal above it.
         </p>
       </div>
     );
