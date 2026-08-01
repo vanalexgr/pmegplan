@@ -229,6 +229,74 @@ describe("planGraft", () => {
     expect(plan.depthLimit.maxDepthMm).toBeLessThan(10);
   });
 
+  it("solves every usable device, not only the one it picks", () => {
+    const plan = planGraft(taaaCase(36));
+
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    const usable = plan.considered.filter((fit) => fit.rejection === null);
+    expect(usable.length).toBeGreaterThan(1);
+    // Each carries its own pose, so the choice between them can be compared.
+    for (const fit of usable) {
+      expect(fit.solution).not.toBeNull();
+      expect(fit.openings.length).toBe(plan.anatomy.fenestrations.length);
+    }
+    // A device set aside on sizing was never solved.
+    for (const fit of plan.considered.filter((f) => f.rejection !== null)) {
+      expect(fit.solution).toBeNull();
+    }
+  });
+
+  it("uses the device asked for instead of the recommendation", () => {
+    const auto = planGraft(taaaCase(36));
+    expect(auto.ok).toBe(true);
+    if (!auto.ok) return;
+
+    const other = auto.considered.find(
+      (fit) =>
+        fit.rejection === null &&
+        fit.model.scan.reference.id !== auto.recommendedScanId,
+    );
+    if (!other) throw new Error("Expected a second usable device");
+
+    const forced = planGraft(taaaCase(36), {
+      scanId: other.model.scan.reference.id,
+    });
+    expect(forced.ok).toBe(true);
+    if (!forced.ok) return;
+
+    expect(forced.selectedScanId).toBe(other.model.scan.reference.id);
+    expect(forced.recommendedScanId).toBe(auto.recommendedScanId);
+    expect(forced.overridden).toBe(true);
+    expect(forced.graft.scan.reference.id).toBe(other.model.scan.reference.id);
+    // The pose is the one that device gives, not the recommendation's.
+    expect(forced.solution.pose).toEqual(other.solution?.pose);
+  });
+
+  it("marks the unprompted choice as not overridden", () => {
+    const plan = planGraft(taaaCase(36));
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    expect(plan.overridden).toBe(false);
+    expect(plan.selectedScanId).toBe(plan.recommendedScanId);
+  });
+
+  it("falls back to the recommendation when the chosen device stops fitting", () => {
+    // A choice made for one seal zone must not lose the plan when the anatomy
+    // moves out from under it.
+    const plan = planGraft(taaaCase(26), { scanId: "scan1" });
+
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const scan1 = plan.considered.find(
+      (fit) => fit.model.scan.reference.id === "scan1",
+    );
+    expect(scan1?.rejection).not.toBeNull();
+    expect(plan.selectedScanId).toBe(plan.recommendedScanId);
+  });
+
   it("keeps the turn inside the cap it was given", () => {
     const plan = planGraft(taaaCase(36), { maxRotationDeg: 30 });
 

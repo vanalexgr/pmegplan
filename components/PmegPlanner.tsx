@@ -25,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { MIN_PROXIMAL_FENESTRATION_DEPTH_MM } from "@/lib/planning/anatomy";
 import type { AnatomyCase, AnatomyVessel } from "@/lib/planning/anatomy";
+import type { CtScanId } from "@/lib/ctDeviceCatalog";
 import { planGraft, type GraftModel, type PlanResult } from "@/lib/planning/plan";
 import {
   measureHole,
@@ -359,6 +360,8 @@ export function PmegPlanner() {
   const [view, setView] = useState<"flat" | "model">("model");
   const [selectedVessel, setSelectedVessel] = useState<string | null>(null);
   const [showPunchCard, setShowPunchCard] = useState(false);
+  // Null means take the planner's recommendation.
+  const [preferredScanId, setPreferredScanId] = useState<CtScanId | null>(null);
 
   const patch = (index: number, next: Partial<VesselEntry>) => {
     setEntries((current) =>
@@ -376,8 +379,11 @@ export function PmegPlanner() {
   // planGraft caches clearance fields by scanned device internally, so editing
   // anatomy re-solves without rebuilding the measured lattice.
   const plan = useMemo<PlanResult | null>(
-    () => ("error" in built ? null : planGraft(built)),
-    [built],
+    () =>
+      "error" in built
+        ? null
+        : planGraft(built, { scanId: preferredScanId ?? undefined }),
+    [built, preferredScanId],
   );
 
   const fenestrationCount = entries.filter((entry) => entry.fenestrate).length;
@@ -537,6 +543,7 @@ export function PmegPlanner() {
                   setEntries(initialEntries());
                   setSealZoneDiameterMm("36");
                   setProximalLandingLengthMm("25");
+                  setPreferredScanId(null);
                 }}
               >
                 Reset to example case
@@ -736,7 +743,11 @@ export function PmegPlanner() {
                 </>
               ) : null}
 
-              <DeviceLibrary plan={plan} />
+              <DeviceLibrary
+                plan={plan}
+                onSelect={setPreferredScanId}
+                onClearSelection={() => setPreferredScanId(null)}
+              />
             </>
           ) : null}
         </div>
@@ -922,42 +933,78 @@ function WireProvenanceWarning({ graft }: { graft: GraftModel }) {
 }
 
 /**
- * The scanned library and how each device measured up.
+ * The scanned library, what each device would give, and which one is in use.
+ *
+ * Every device that suits the seal zone is solved, so where more than one fits
+ * the choice between them is the surgeon's to make on their poses rather than
+ * the planner's to make on a tiebreak. The recommendation is only a default.
  *
  * Shown whether or not a plan was found: when nothing fits, the reason is the
  * point, and it is what tells you which endograft is worth scanning next.
  */
-function DeviceLibrary({ plan }: { plan: PlanResult }) {
+function DeviceLibrary({
+  plan,
+  onSelect,
+  onClearSelection,
+}: {
+  plan: PlanResult;
+  onSelect: (scanId: CtScanId) => void;
+  onClearSelection: () => void;
+}) {
   if (plan.considered.length === 0) return null;
-  const chosen = plan.ok ? plan.graft.scan.reference.id : null;
+  const usableCount = plan.considered.filter(
+    (fit) => fit.rejection === null,
+  ).length;
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Scanned device library</CardTitle>
+      <CardHeader className="gap-2 pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="text-base">Scanned device library</CardTitle>
+          {plan.ok && plan.overridden ? (
+            <Button variant="outline" size="sm" onClick={onClearSelection}>
+              Use recommended
+            </Button>
+          ) : null}
+        </div>
         <CardDescription>
-          Every endograft that has been through the bench CT, measured in the
-          free state. Adding a device to the library means scanning it, not
-          entering its specification.
+          {usableCount > 1
+            ? `${usableCount} of these suit this anatomy. Each is solved on its own measured lattice — pick whichever you would rather implant.`
+            : "Every endograft that has been through the bench CT, measured in the free state. Adding a device to the library means scanning it, not entering its specification."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 pt-2">
         {plan.considered.map((fit) => {
           const { scan } = fit.model;
-          const isChosen = scan.reference.id === chosen;
+          const scanId = scan.reference.id;
+          const selectable = fit.rejection === null;
+          const isChosen = plan.ok && scanId === plan.selectedScanId;
+          const isRecommended = plan.ok && scanId === plan.recommendedScanId;
+          const solution = fit.solution;
+
+          const Row = selectable ? "button" : "div";
           return (
-            <div
-              key={scan.reference.id}
+            <Row
+              key={scanId}
+              {...(selectable
+                ? {
+                    type: "button" as const,
+                    onClick: () => onSelect(scanId),
+                    "aria-pressed": isChosen,
+                  }
+                : {})}
               className={cn(
-                "flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-2xl border p-3 text-sm",
+                "flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-2xl border p-3 text-left text-sm transition-colors",
                 isChosen
-                  ? "border-[color:var(--brand)]/40 bg-[color:var(--brand)]/[0.06]"
+                  ? "border-[color:var(--brand)]/50 bg-[color:var(--brand)]/[0.08]"
                   : "border-[color:var(--border)] bg-white/50",
+                selectable && !isChosen && "hover:bg-white",
+                selectable && "cursor-pointer",
               )}
             >
-              <div className="flex items-baseline gap-2">
+              <div className="flex flex-wrap items-baseline gap-2">
                 <span className="font-mono text-xs font-semibold">
-                  {scan.reference.id.toUpperCase()}
+                  {scanId.toUpperCase()}
                 </span>
                 <span className="font-medium">
                   {fit.model.naming.code ?? scan.platform.shortLabel}
@@ -965,24 +1012,46 @@ function DeviceLibrary({ plan }: { plan: PlanResult }) {
                 <span className="font-mono text-xs text-[color:var(--muted-foreground)]">
                   {fit.model.naming.size}
                 </span>
+                {isRecommended && usableCount > 1 ? (
+                  <span className="rounded-full bg-[color:var(--surface-strong)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--muted-foreground)]">
+                    recommended
+                  </span>
+                ) : null}
               </div>
-              <span
-                className={cn(
-                  "text-xs",
-                  fit.rejection
-                    ? "text-[color:var(--muted-foreground)]"
-                    : isChosen
+
+              {fit.rejection ? (
+                <span className="text-xs text-[color:var(--muted-foreground)]">
+                  set aside — {fit.rejection}
+                </span>
+              ) : (
+                <span
+                  className={cn(
+                    "font-mono text-xs",
+                    isChosen
                       ? "font-semibold text-[color:var(--brand-strong)]"
                       : "text-[color:var(--muted-foreground)]",
-                )}
-              >
-                {fit.rejection
-                  ? `set aside — ${fit.rejection}`
-                  : `${(fit.oversizeFraction * 100).toFixed(0)}% oversize${
-                      isChosen ? " · selected" : ""
-                    }`}
-              </span>
-            </div>
+                  )}
+                >
+                  {(fit.oversizeFraction * 100).toFixed(0)}% oversize
+                  {solution && solution.map !== null ? (
+                    <>
+                      {" · "}
+                      <span
+                        className={cn(
+                          solution.marginMm <= 0 && "text-rose-700",
+                        )}
+                      >
+                        {solution.marginMm.toFixed(2)} mm clear
+                      </span>
+                      {" · "}
+                      {solution.pose.proximalDepthMm.toFixed(1)} mm in ·{" "}
+                      {Math.abs(solution.pose.rotationDeg).toFixed(0)}°
+                    </>
+                  ) : null}
+                  {isChosen ? " · in use" : ""}
+                </span>
+              )}
+            </Row>
           );
         })}
       </CardContent>

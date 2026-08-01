@@ -152,12 +152,22 @@ export interface WireProvenance {
   apexAgreementMm: number | null;
 }
 
-/** How one scanned device measures up against the seal zone. */
+/**
+ * How one scanned device measures up, and what it would give if used.
+ *
+ * Every device that suits the seal zone is solved, not just the one that wins,
+ * so the choice between them can be made on their actual poses rather than on
+ * oversizing alone. A device set aside on sizing carries no solution.
+ */
 export interface DeviceFit {
   model: GraftModel;
   oversizeFraction: number;
   /** Null when the device fits; otherwise why it was set aside. */
   rejection: string | null;
+  /** Pose solved on this device; null when it never got that far. */
+  solution: PoseSolution | null;
+  openings: PlacedOpening[];
+  depthLimit: ProximalDepthLimit;
 }
 
 export interface GraftPlan {
@@ -173,6 +183,12 @@ export interface GraftPlan {
   requiredLengthMm: number;
   /** Every scanned device considered, including the ones set aside. */
   considered: DeviceFit[];
+  /** The scan this plan is for. */
+  selectedScanId: CtScanId;
+  /** What the planner would have chosen unprompted. */
+  recommendedScanId: CtScanId;
+  /** True when the caller asked for a device other than the recommendation. */
+  overridden: boolean;
 }
 
 export interface PlanFailure {
@@ -354,17 +370,23 @@ function assessFit(
     rejection = `${(oversizeFraction * 100).toFixed(0)}% oversizing risks infolding`;
   }
 
-  return { model, oversizeFraction, rejection };
+  return {
+    model,
+    oversizeFraction,
+    rejection,
+    solution: null,
+    openings: [],
+    depthLimit: { maxDepthMm: 0, limitingVesselName: null },
+  };
 }
 
-function planWithModel(
+/** Solve the pose this device would give, and record it on the fit. */
+function solveFit(
   anatomy: NormalizedAnatomy,
   fit: DeviceFit,
-  requiredLengthMm: number,
   proximalLandingLengthMm: number | undefined,
-  considered: DeviceFit[],
   options: PlanOptions,
-): GraftPlan {
+): DeviceFit {
   const { model } = fit;
   const depthLimit = proximalDepthLimit(anatomy, proximalLandingLengthMm);
   const solution = solvePose(anatomy, model.circumferenceMm, model.field, {
@@ -377,19 +399,44 @@ function planWithModel(
   });
 
   return {
-    ok: true,
-    anatomy,
-    graft: model,
-    oversizeFraction: fit.oversizeFraction,
+    ...fit,
     depthLimit,
     solution,
     openings:
       solution.map === null
         ? []
         : placeOpenings(anatomy, solution.pose, model.circumferenceMm),
-    requiredLengthMm,
-    considered,
   };
+}
+
+/**
+ * Which solved device the planner would pick unprompted.
+ *
+ * Prefer one that actually clears; among those the shallowest, since every
+ * extra millimetre of push-in is aorta covered for nothing. This is only a
+ * default — where several devices clear, the choice between them is the
+ * surgeon's, and the alternatives are kept so it can be made on their poses.
+ */
+function recommend(solved: DeviceFit[]): DeviceFit {
+  return solved.reduce((best, candidate) => {
+    const bestSolution = best.solution as PoseSolution;
+    const candidateSolution = candidate.solution as PoseSolution;
+    const bestClears = bestSolution.marginMm > 0;
+    const candidateClears = candidateSolution.marginMm > 0;
+    if (bestClears !== candidateClears) return candidateClears ? candidate : best;
+    if (!candidateClears) {
+      return candidateSolution.marginMm > bestSolution.marginMm ? candidate : best;
+    }
+    if (
+      bestSolution.meetsTargetClearance !== candidateSolution.meetsTargetClearance
+    ) {
+      return candidateSolution.meetsTargetClearance ? candidate : best;
+    }
+    return candidateSolution.pose.proximalDepthMm <
+      bestSolution.pose.proximalDepthMm
+      ? candidate
+      : best;
+  });
 }
 
 /**
@@ -422,21 +469,30 @@ export function planGraft(
     anatomy,
     options.distalAllowanceMm,
   );
-  const scanIds = options.scanId
-    ? [options.scanId]
-    : CT_SCAN_REFERENCES.map((reference) => reference.id);
-
-  const considered = scanIds.map((scanId) =>
+  // Every scanned device is assessed and every usable one is solved, whichever
+  // is asked for. `scanId` picks between the results rather than narrowing the
+  // search, so the alternatives stay visible and a choice can be compared
+  // against what it gives up.
+  const considered = CT_SCAN_REFERENCES.map((reference) =>
     assessFit(
-      cachedGraftModel(scanId, modelCache),
+      cachedGraftModel(reference.id, modelCache),
       anatomyCase.aorta.sealZoneDiameterMm,
       requiredLengthMm,
       options.allowAnyOversize ?? false,
     ),
+  ).map((fit) =>
+    fit.rejection === null
+      ? solveFit(
+          anatomy,
+          fit,
+          anatomyCase.aorta.proximalLandingLengthMm,
+          options,
+        )
+      : fit,
   );
 
-  const usable = considered.filter((fit) => fit.rejection === null);
-  if (usable.length === 0) {
+  const solved = considered.filter((fit) => fit.solution !== null);
+  if (solved.length === 0) {
     return {
       ok: false,
       anatomy,
@@ -445,37 +501,28 @@ export function planGraft(
     };
   }
 
-  const plans = usable.map((fit) =>
-    planWithModel(
-      anatomy,
-      fit,
-      requiredLengthMm,
-      anatomyCase.aorta.proximalLandingLengthMm,
-      considered,
-      options,
-    ),
-  );
+  const recommended = recommend(solved);
+  const requested =
+    options.scanId === undefined
+      ? undefined
+      : solved.find((fit) => fit.model.scan.reference.id === options.scanId);
+  // A device that was asked for but is not usable falls back to the
+  // recommendation rather than failing: the anatomy changed under a choice made
+  // earlier, and losing the plan would be a worse answer than replacing it.
+  const chosen = requested ?? recommended;
 
-  // Prefer a plan that actually clears; among those the shallowest, since every
-  // extra millimetre of push-in is aorta covered for nothing.
-  return plans.reduce((best, candidate) => {
-    const bestClears = best.solution.marginMm > 0;
-    const candidateClears = candidate.solution.marginMm > 0;
-    if (bestClears !== candidateClears) return candidateClears ? candidate : best;
-    if (!candidateClears) {
-      return candidate.solution.marginMm > best.solution.marginMm
-        ? candidate
-        : best;
-    }
-    if (
-      best.solution.meetsTargetClearance !==
-      candidate.solution.meetsTargetClearance
-    ) {
-      return candidate.solution.meetsTargetClearance ? candidate : best;
-    }
-    return candidate.solution.pose.proximalDepthMm <
-      best.solution.pose.proximalDepthMm
-      ? candidate
-      : best;
-  });
+  return {
+    ok: true,
+    anatomy,
+    graft: chosen.model,
+    oversizeFraction: chosen.oversizeFraction,
+    depthLimit: chosen.depthLimit,
+    solution: chosen.solution as PoseSolution,
+    openings: chosen.openings,
+    requiredLengthMm,
+    considered,
+    selectedScanId: chosen.model.scan.reference.id,
+    recommendedScanId: recommended.model.scan.reference.id,
+    overridden: chosen !== recommended,
+  };
 }
