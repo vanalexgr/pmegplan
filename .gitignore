@@ -50,6 +50,12 @@ next-env.d.ts
 # python virtualenv for the CT geometry extractor
 /venv
 
+# Patient-derived anatomy. This repository is PUBLIC. Graft plans carry names,
+# hospital numbers and E numbers; even de-identified, a small series from a
+# named institution can be re-identifiable. The schema and loader are tracked,
+# the data never is.
+/studies/data/
+
 # Raw bench-CT source data and the extractor scratch area. This repository is
 # public and the DICOM series run to hundreds of megabytes; only the derived
 # geometry descriptors under lib/geometry belong in version control.
