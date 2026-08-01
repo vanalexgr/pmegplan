@@ -42,6 +42,11 @@ import {
   type HoleGap,
   type StrutLandmark,
 } from "@/lib/planning/holeMeasurements";
+import {
+  analyseSensitivity,
+  isKnifeEdge,
+  type InputSensitivity,
+} from "@/lib/planning/sensitivity";
 import { cn } from "@/lib/utils";
 
 /**
@@ -184,6 +189,52 @@ function Field({
   );
 }
 
+/**
+ * What would have to be measured differently for the verdict to change.
+ *
+ * A verdict that only flips on an implausible remeasurement deserves more trust
+ * than one that flips on a fraction of a millimetre, and the two are
+ * indistinguishable from the headline alone. This says which of the two it is.
+ */
+function SensitivityNote({ sensitivity }: { sensitivity: InputSensitivity }) {
+  const { vesselName, gapMm, ostiumMm, gapChangeMm, ostiumWouldNeedMm } =
+    sensitivity;
+
+  if (sensitivity.binding === "clearance") {
+    if (!vesselName) return null;
+    return (
+      <p className="mt-2 leading-5 opacity-80">
+        {isKnifeEdge(sensitivity)
+          ? `The ${vesselName} is the tightest, and at ${sensitivity.positionToleranceMm.toFixed(2)} mm this pose sits on the edge — a vessel measured half a millimetre out could put it into wire. Worth re-measuring before cutting.`
+          : `The ${vesselName} is the tightest opening, so it is the measurement this plan is most sensitive to. Any one vessel can be out by ${sensitivity.positionToleranceMm.toFixed(2)} mm before an opening touches wire.`}
+      </p>
+    );
+  }
+
+  if (gapChangeMm === null || !vesselName) return null;
+
+  // No real ostium is small enough to recover the seal, so calling the verdict
+  // marginal on that account would be false comfort.
+  const ostiumCanFlip = ostiumWouldNeedMm !== null && ostiumWouldNeedMm > 1;
+
+  return (
+    <p className="mt-2 leading-5 opacity-80">
+      <span className="font-semibold">What would change this:</span> the{" "}
+      {vesselName} would have to sit {gapChangeMm.toFixed(1)} mm further away
+      {gapMm !== null ? ` (${(gapMm + gapChangeMm).toFixed(1)} mm rather than the ${gapMm.toFixed(1)} mm entered)` : ""}
+      {ostiumCanFlip
+        ? `, or its ostium measure ${ostiumWouldNeedMm.toFixed(1)} mm rather than ${ostiumMm?.toFixed(1)} mm`
+        : ""}
+      .{" "}
+      {isKnifeEdge(sensitivity)
+        ? "That is inside ordinary measurement error — check these two numbers on the CT before accepting the verdict."
+        : ostiumCanFlip
+          ? "Both are larger than a re-measurement would plausibly move, so the verdict does not hinge on how the ostium was estimated."
+          : "No ostium diameter recovers the seal, so this is anatomy rather than a measurement artefact."}
+    </p>
+  );
+}
+
 function StatusBanner({ plan }: { plan: PlanResult }) {
   if (!plan.ok) {
     return (
@@ -198,6 +249,7 @@ function StatusBanner({ plan }: { plan: PlanResult }) {
   }
 
   const { solution, depthLimit } = plan;
+  const sensitivity = analyseSensitivity(plan.anatomy, solution, depthLimit);
 
   if (solution.status === "seal_zone_too_short") {
     return (
@@ -214,12 +266,12 @@ function StatusBanner({ plan }: { plan: PlanResult }) {
           </p>
           {depthLimit.limitingVesselName ? (
             <p className="mt-2 leading-5">
-              A closed fenestration is what will not fit here. Scalloping the{" "}
-              {depthLimit.limitingVesselName}, or landing the graft below it,
-              are the configurations this anatomy leaves — neither of which this
-              planner can lay out yet.
+              A closed fenestration is what will not fit here. Set the{" "}
+              {depthLimit.limitingVesselName} to a scallop, or land the graft
+              below it — those are the configurations this anatomy leaves.
             </p>
           ) : null}
+          <SensitivityNote sensitivity={sensitivity} />
         </div>
       </div>
     );
@@ -241,6 +293,7 @@ function StatusBanner({ plan }: { plan: PlanResult }) {
             opening, against the {MIN_SEAL_BELOW_SCALLOP_MM} mm needed. No
             push-in can create fabric the vessels do not leave.
           </p>
+          <SensitivityNote sensitivity={sensitivity} />
         </div>
       </div>
     );
@@ -308,6 +361,7 @@ function StatusBanner({ plan }: { plan: PlanResult }) {
             was rejected as too large a rotation to deploy reliably.
           </p>
         ) : null}
+        <SensitivityNote sensitivity={sensitivity} />
       </div>
     </div>
   );
