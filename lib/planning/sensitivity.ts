@@ -1,6 +1,6 @@
 import {
-  MIN_SEAL_BELOW_SCALLOP_MM,
   minProximalDepthMm,
+  openingHalfSize,
   scallopSeparationMm,
   type NormalizedAnatomy,
 } from "@/lib/planning/anatomy";
@@ -11,8 +11,8 @@ import type { ProximalDepthLimit } from "@/lib/planning/poseSolver";
 export type BindingConstraint =
   /** A preserved vessel left too little fabric above the first hole to seal. */
   | "push_in_ceiling"
-  /** A scallop with too little fabric beneath it. */
-  | "scallop_seal"
+  /** A scallop that would run into the opening below it. */
+  | "scallop_meets_opening"
   /** The plan stands or falls on how close an opening sits to wire. */
   | "clearance";
 
@@ -57,6 +57,17 @@ export interface InputSensitivity {
   positionToleranceMm: number;
 }
 
+/**
+ * Axial separation at which the cut would just touch the first opening, in mm.
+ *
+ * Approximate — it takes the openings as aligned with the cut, which is the
+ * worst case and the one the refusal is made on.
+ */
+function openingReachMm(anatomy: NormalizedAnatomy): number {
+  const first = anatomy.fenestrations[0];
+  return first === undefined ? 0 : openingHalfSize(first).semiDepthMm;
+}
+
 export function analyseSensitivity(
   anatomy: NormalizedAnatomy,
   solution: PoseSolution,
@@ -66,17 +77,19 @@ export function analyseSensitivity(
     ? solution.marginMm
     : 0;
 
-  if (solution.status === "scallop_seal_too_short") {
+  if (solution.status === "scallop_meets_opening") {
     const separationMm = scallopSeparationMm(anatomy) ?? 0;
+    // The cut is as wide as it is because that is what the series cuts, so what
+    // has to move is the vessels. The ostium does not enter it: a scallop is
+    // sized to the edge relief, not to the vessel.
+    const neededMm = openingReachMm(anatomy);
     return {
-      binding: "scallop_seal",
-      slackMm: separationMm - MIN_SEAL_BELOW_SCALLOP_MM,
+      binding: "scallop_meets_opening",
+      slackMm: separationMm - neededMm,
       vesselName: anatomy.scalloped?.name ?? null,
       gapMm: separationMm,
       ostiumMm: anatomy.scalloped?.ostiumDiameterMm ?? null,
-      // Only moving the vessel helps: a scallop seals on fabric the vessels
-      // leave between them, and the ostium does not enter that.
-      gapChangeMm: MIN_SEAL_BELOW_SCALLOP_MM - separationMm,
+      gapChangeMm: neededMm - separationMm,
       ostiumWouldNeedMm: null,
       positionToleranceMm,
     };

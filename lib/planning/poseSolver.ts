@@ -1,9 +1,11 @@
 import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
-  MIN_SEAL_BELOW_SCALLOP_MM,
+  SCALLOP_WIDTH_MM,
+  measureScallopBridge,
   minProximalDepthMm,
   openingHalfSize,
   placeOpenings,
+  placeScallop,
   scallopSeparationMm,
   type GraftPose,
   type NormalizedAnatomy,
@@ -30,8 +32,8 @@ export type PoseStatus =
   | "best_compromise"
   /** No room for the seal below a preserved vessel; that vessel needs its own hole. */
   | "seal_zone_too_short"
-  /** Scalloped, but too little fabric below the scallop to seal against. */
-  | "scallop_seal_too_short"
+  /** Scalloped, and the cut would run into the opening below it. */
+  | "scallop_meets_opening"
   | "graft_too_short"
   | "no_fenestrations";
 
@@ -246,12 +248,32 @@ export function solvePose(
 
   const stepMm = options.stepMm ?? DEFAULT_STEP_MM;
 
-  // A scallop seals on the fabric below it rather than above the first hole,
-  // so that separation is fixed by anatomy and has to be checked before any
-  // pose is considered: no push-in can create fabric the vessels do not leave.
+  // The pattern is rigid, so the fabric between a scallop and the openings
+  // below it is fixed by anatomy: no push-in can create fabric the vessels do
+  // not leave, and none can take it away either. What is refused here is only
+  // the geometric impossibility — a cut that runs into the opening, leaving one
+  // merged aperture rather than a scallop and a hole. How much bridge is enough
+  // is not decided here, because there is no universal answer to decide it by;
+  // the plan reports both measures and leaves the judgement where it belongs.
   const separationMm = scallopSeparationMm(anatomy);
-  if (separationMm !== null && separationMm < MIN_SEAL_BELOW_SCALLOP_MM) {
-    return emptySolution("scallop_seal_too_short");
+  if (separationMm !== null) {
+    // Measured at a pose deep enough to cut the full U, which is where the
+    // relationship is tightest; below that the cut is clipped and shallower.
+    const referencePose: GraftPose = {
+      proximalDepthMm: separationMm + SCALLOP_WIDTH_MM / 2,
+      rotationDeg: 0,
+    };
+    const scallop = placeScallop(anatomy, referencePose, circumferenceMm);
+    const bridge =
+      scallop &&
+      measureScallopBridge(
+        scallop,
+        placeOpenings(anatomy, referencePose, circumferenceMm),
+        circumferenceMm,
+      );
+    if (bridge && bridge.edgeToEdgeMm <= 0) {
+      return emptySolution("scallop_meets_opening");
+    }
   }
 
   const minDepthMm =

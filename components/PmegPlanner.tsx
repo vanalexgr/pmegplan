@@ -25,7 +25,8 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
-  MIN_SEAL_BELOW_SCALLOP_MM,
+  NARROWEST_SERIES_BRIDGE_MM,
+  SCALLOP_WIDTH_MM,
   scallopHeightMm,
   scallopSeparationMm,
 } from "@/lib/planning/anatomy";
@@ -277,21 +278,21 @@ function StatusBanner({ plan }: { plan: PlanResult }) {
     );
   }
 
-  if (solution.status === "scallop_seal_too_short") {
+  if (solution.status === "scallop_meets_opening") {
     const scalloped = plan.anatomy.scalloped;
     return (
       <div className="flex items-start gap-3 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
         <AlertTriangle className="mt-0.5 size-4 shrink-0" />
         <div>
           <p className="font-semibold">
-            Too little fabric below the {scalloped?.name} scallop to seal.
+            The {scalloped?.name} scallop runs into the opening below it.
           </p>
           <p className="mt-1 leading-5">
-            A scallop cuts the fabric edge, so the seal comes from the fabric
-            beneath it — and this anatomy leaves only{" "}
-            {scallopSeparationMm(plan.anatomy)?.toFixed(1)} mm before the next
-            opening, against the {MIN_SEAL_BELOW_SCALLOP_MM} mm needed. No
-            push-in can create fabric the vessels do not leave.
+            Only {scallopSeparationMm(plan.anatomy)?.toFixed(1)} mm separates the{" "}
+            {scalloped?.name} from the next vessel, so the cut and the hole merge
+            into one aperture rather than leaving a scallop and a fenestration.
+            No push-in changes that: the pattern is rigid, so the fabric between
+            them is whatever the vessels leave.
           </p>
           <SensitivityNote sensitivity={sensitivity} />
         </div>
@@ -405,6 +406,73 @@ function LimitNotice({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
   );
 }
 
+/**
+ * What a scallop leaves, stated as two numbers rather than one verdict.
+ *
+ * Nadir-to-centre is what a plan sheet quotes and what the reference series can
+ * be compared on. The edge-to-edge bridge is the fabric that is actually there.
+ * Neither is a pass mark: there is no universal minimum bridge, and the numbers
+ * a manufacturer accepts on a custom device do not transfer to a modification
+ * made on the back table.
+ */
+function ScallopNote({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
+  const bridge = plan.scallopBridge;
+  const scallop = plan.scallop;
+  if (!bridge || !scallop) return null;
+
+  const tight = bridge.edgeToEdgeMm < NARROWEST_SERIES_BRIDGE_MM;
+
+  return (
+    <div className="rounded-2xl border border-[color:var(--border)] bg-white/70 p-4 text-sm">
+      <p className="font-semibold">
+        The {scallop.vessel.name} scallop does not seal — it trades seal in its
+        own sector for coverage everywhere else.
+      </p>
+      <p className="mt-1.5 leading-5 text-[color:var(--muted-foreground)]">
+        What seals is the fabric apposed to healthy aorta around the cut, and the
+        full circumference below its deepest point. This cut spans{" "}
+        {(bridge.circumferenceFraction * 100).toFixed(0)}% of the circumference
+        on this device, so {(100 - bridge.circumferenceFraction * 100).toFixed(0)}%
+        of the fabric edge still apposes.
+      </p>
+      <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted-foreground)]">
+            Nadir to {bridge.vesselName} centre
+          </dt>
+          <dd className="mt-1 font-mono text-lg">
+            {bridge.toCentreMm.toFixed(1)} mm
+          </dd>
+          <dd className="text-[11px] leading-4 text-[color:var(--muted-foreground)]">
+            what a plan sheet quotes
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--muted-foreground)]">
+            Fabric bridge, edge to edge
+          </dt>
+          <dd
+            className={cn(
+              "mt-1 font-mono text-lg",
+              tight && "text-amber-700",
+            )}
+          >
+            {bridge.edgeToEdgeMm.toFixed(1)} mm
+          </dd>
+          <dd className="text-[11px] leading-4 text-[color:var(--muted-foreground)]">
+            measured on the unrolled graft, cut rim to hole rim
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-3 leading-5 text-[color:var(--muted-foreground)]">
+        {tight
+          ? `Narrower than the tightest bridge in the reference series (${NARROWEST_SERIES_BRIDGE_MM} mm). That is not a limit — there is no universal minimum — but nothing here has been accepted that close, and a custom device's tolerances are not a modification's.`
+          : "There is no universal minimum bridge; what is enough is platform-, anatomy- and manufacturer-specific. The number is not the seal assessment — the question is whether the remaining circumferential fabric and healthy aortic length are a durable barrier for this pathology."}
+      </p>
+    </div>
+  );
+}
+
 function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
   const { solution, graft, anatomy, oversizeFraction } = plan;
   const { scan } = graft;
@@ -446,8 +514,12 @@ function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
       {scallopHeight !== null ? (
         <Metric
           label={`${anatomy.scalloped?.name} scallop`}
-          value={`${scallopHeight.toFixed(1)} mm`}
-          detail={`cut from the fabric edge · ${scallopSeparationMm(anatomy)?.toFixed(1)} mm sealing below it`}
+          value={`${SCALLOP_WIDTH_MM} × ${scallopHeight.toFixed(1)} mm`}
+          detail={
+            plan.scallopBridge
+              ? `cut from the fabric edge · ${plan.scallopBridge.edgeToEdgeMm.toFixed(1)} mm of fabric to the ${plan.scallopBridge.vesselName}`
+              : "cut from the fabric edge"
+          }
         />
       ) : null}
       <Metric
@@ -743,6 +815,7 @@ export function PmegPlanner() {
                 <>
                   <LimitNotice plan={plan} />
                   <Readout plan={plan} />
+                  <ScallopNote plan={plan} />
 
                   <Card>
                     <CardHeader className="gap-2 pb-2">

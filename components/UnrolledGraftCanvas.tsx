@@ -135,8 +135,9 @@ export function UnrolledGraftCanvas({
       ctx.fill();
 
       // Seal band: fabric above the first hole that has to appose the aorta.
-      // Under a scallop it starts at the cut instead, which is what leaves the
-      // 10 mm of sealing fabric the scallop is allowed on.
+      // Under a scallop it starts at the cut instead — the cut seals nothing,
+      // so the band shows what is left to appose rather than a length the
+      // scallop has earned.
       ctx.fillStyle = "rgba(15,118,110,0.10)";
       fabricBelow(proximalDepthMm);
       ctx.fill();

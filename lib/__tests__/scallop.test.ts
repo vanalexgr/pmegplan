@@ -89,15 +89,47 @@ describe("scallop", () => {
     expect(scalloped.solution.pose.proximalDepthMm).toBeGreaterThanOrEqual(10);
   });
 
-  it("refuses a scallop with too little fabric under it", () => {
-    const tight = coeliacTooClose("scallop");
-    // 6 mm between the coeliac and the SMA leaves nothing to seal against.
-    tight.vessels[1].gapFromPreviousMm = 6;
+  it("refuses only when the cut would run into the opening below it", () => {
+    // 2 mm between the coeliac and the SMA puts the SMA's 9 mm hole through the
+    // bottom of the cut: one merged aperture, not a scallop and a hole.
+    const merged = coeliacTooClose("scallop");
+    merged.vessels[1].gapFromPreviousMm = 2;
+    const mergedPlan = planGraft(merged);
+    expect(mergedPlan.ok).toBe(true);
+    if (!mergedPlan.ok) return;
+    expect(mergedPlan.solution.status).toBe("scallop_meets_opening");
 
-    const plan = planGraft(tight);
+    // 6 mm of separation is tighter than the old 10 mm rule allowed, but it is
+    // buildable, so it is planned and reported rather than refused. There is no
+    // universal minimum bridge to refuse it by.
+    const tight = coeliacTooClose("scallop");
+    tight.vessels[1].gapFromPreviousMm = 6;
+    const tightPlan = planGraft(tight);
+    expect(tightPlan.ok).toBe(true);
+    if (!tightPlan.ok) return;
+    expect(tightPlan.solution.status).not.toBe("scallop_meets_opening");
+    expect(tightPlan.scallopBridge?.edgeToEdgeMm).toBeGreaterThan(0);
+  });
+
+  it("reports both the quoted separation and the real fabric bridge", () => {
+    const plan = planGraft(coeliacTooClose("scallop"));
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    expect(plan.solution.status).toBe("scallop_seal_too_short");
+
+    const bridge = plan.scallopBridge;
+    if (!bridge) throw new Error("Expected a bridge.");
+
+    // Nadir to centre is the separation: 10 mm, as a plan sheet would quote.
+    expect(bridge.vesselName).toBe("SMA");
+    expect(bridge.toCentreMm).toBeCloseTo(10, 6);
+    // Edge to edge is less, because the SMA's own 9 mm hole eats into it — and
+    // a little more than 10 - 4.5, because the two are 15 minutes apart on the
+    // clock so the shortest run between them is diagonal.
+    expect(bridge.edgeToEdgeMm).toBeGreaterThan(5.5);
+    expect(bridge.edgeToEdgeMm).toBeLessThan(10);
+    // A 20 mm cut consumes a fifth of this 32 mm device's circumference, and
+    // would consume less of a wider one — which is why it is reported.
+    expect(bridge.circumferenceFraction).toBeCloseTo(0.2, 1);
   });
 
   it("rejects a scallop with anything treated above it", () => {

@@ -1,5 +1,6 @@
 import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
+  measureScallopBridge,
   normalizeAnatomy,
   placeOpenings,
   placeScallop,
@@ -7,6 +8,7 @@ import {
   type NormalizedAnatomy,
   type PlacedOpening,
   type PlacedScallop,
+  type ScallopBridge,
 } from "@/lib/planning/anatomy";
 import {
   buildClearanceField,
@@ -177,6 +179,8 @@ export interface DeviceFit {
   openings: PlacedOpening[];
   /** The edge cut at the solved pose; null when nothing is scalloped. */
   scallop: PlacedScallop | null;
+  /** Fabric between that cut and the nearest opening; null when no scallop. */
+  scallopBridge: ScallopBridge | null;
   depthLimit: ProximalDepthLimit;
 }
 
@@ -191,6 +195,8 @@ export interface GraftPlan {
   openings: PlacedOpening[];
   /** The edge cut at the solved pose; null when nothing is scalloped. */
   scallop: PlacedScallop | null;
+  /** Fabric between that cut and the nearest opening; null when no scallop. */
+  scallopBridge: ScallopBridge | null;
   /** Length of graft the plan needs, in mm. */
   requiredLengthMm: number;
   /** Every scanned device considered, including the ones set aside. */
@@ -392,6 +398,7 @@ function assessFit(
     solution: null,
     openings: [],
     scallop: null,
+    scallopBridge: null,
     depthLimit: { maxDepthMm: 0, limitingVesselName: null },
   };
 }
@@ -426,18 +433,24 @@ function solveFit(
     stepMm: options.stepMm,
   });
 
+  const openings =
+    solution.map === null
+      ? []
+      : placeOpenings(anatomy, solution.pose, model.circumferenceMm);
+  const scallop =
+    solution.map === null
+      ? null
+      : placeScallop(anatomy, solution.pose, model.circumferenceMm);
+
   return {
     ...fit,
     depthLimit,
     solution,
-    openings:
-      solution.map === null
-        ? []
-        : placeOpenings(anatomy, solution.pose, model.circumferenceMm),
-    scallop:
-      solution.map === null
-        ? null
-        : placeScallop(anatomy, solution.pose, model.circumferenceMm),
+    openings,
+    scallop,
+    scallopBridge: scallop
+      ? measureScallopBridge(scallop, openings, model.circumferenceMm)
+      : null,
   };
 }
 
@@ -558,6 +571,7 @@ export function planGraft(
     solution: chosen.solution as PoseSolution,
     openings: chosen.openings,
     scallop: chosen.scallop,
+    scallopBridge: chosen.scallopBridge,
     requiredLengthMm,
     considered,
     selectedScanId: chosen.model.scan.reference.id,

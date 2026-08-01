@@ -81,19 +81,22 @@ describe("analyseSensitivity", () => {
     expect(sensitivity.vesselName).toBe(tightest.vesselName);
   });
 
-  it("points at the vessel gap when a scallop has too little fabric under it", () => {
-    const scalloped = juxtarenal(6);
+  it("points at the vessel gap when a scallop runs into the opening below it", () => {
+    // 2 mm between the coeliac and the SMA merges the cut into the SMA's hole.
+    const scalloped = juxtarenal(2);
     scalloped.scallop = ["CELIAC"];
     // A cut needs a clock, the same as a hole does.
     scalloped.vessels[0].clock = "12:15";
 
     const { sensitivity } = analyse(scalloped);
 
-    expect(sensitivity.binding).toBe("scallop_seal");
+    expect(sensitivity.binding).toBe("scallop_meets_opening");
     expect(sensitivity.vesselName).toBe("CELIAC");
-    expect(sensitivity.slackMm).toBeCloseTo(-4, 10);
-    expect(sensitivity.gapChangeMm).toBeCloseTo(4, 10);
-    // A scallop seals on fabric between the vessels; the ostium is not in it.
+    // 4.5 mm of SMA hole against 2 mm of separation.
+    expect(sensitivity.slackMm).toBeCloseTo(-2.5, 10);
+    expect(sensitivity.gapChangeMm).toBeCloseTo(2.5, 10);
+    // A scallop is sized to the edge relief, not to the vessel, so no ostium
+    // measurement moves this.
     expect(sensitivity.ostiumWouldNeedMm).toBeNull();
   });
 });

@@ -431,6 +431,14 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
           {arcMmToClockText(scallop.arcMm, graft.circumferenceMm)}, taken out of
           the proximal fabric edge. The hatched fabric comes away; the struts
           crossing it stay.
+          {plan.scallopBridge ? (
+            <>
+              {" "}
+              It leaves {plan.scallopBridge.edgeToEdgeMm.toFixed(1)} mm of fabric
+              to the {plan.scallopBridge.vesselName} rim (
+              {plan.scallopBridge.toCentreMm.toFixed(1)} mm nadir to centre).
+            </>
+          ) : null}
         </p>
       ) : null}
 

@@ -9,14 +9,17 @@ import { wrapMm } from "@/lib/planning/geometry";
 export const MIN_PROXIMAL_FENESTRATION_DEPTH_MM = 10;
 
 /**
- * Fabric required below a scallop before the next opening, in mm.
+ * Narrowest fabric bridge in the reference series, in mm.
  *
- * A scallop cuts the fabric edge around its vessel, so nothing above the
- * scallop's base seals in that sector — the seal has to come from the fabric
- * *below* it instead. Every scalloped case in the reference series respects
- * this, one of them at exactly 10.0 mm.
+ * Not a minimum. There is no universal one — what a bridge has to be is
+ * platform-, anatomy- and manufacturer-specific, and CMD dimensions are not
+ * transferable to a physician modification, where the reinforcement, fabric
+ * handling and controlled deployment that let a manufacturer accept a close
+ * relationship are all absent. This is only the tightest bridge a manufacturer
+ * has been seen to accept in this series, so a plan below it is worth saying is
+ * unprecedented here rather than worth refusing.
  */
-export const MIN_SEAL_BELOW_SCALLOP_MM = 10;
+export const NARROWEST_SERIES_BRIDGE_MM = 6;
 
 /**
  * Circumferential width of a scallop, in mm.
@@ -35,11 +38,12 @@ export const SCALLOP_WIDTH_MM = 20;
  * - `fenestration` — takes a closed hole and joins the rigid pattern. The
  *   proximal seal rule applies above the most proximal one.
  * - `scallop` — the fabric edge is cut around the vessel rather than a hole
- *   punched through it. Nothing above the scallop's base seals in that sector,
- *   so the seal comes from below: the next opening must sit at least
- *   `MIN_SEAL_BELOW_SCALLOP_MM` beneath it. A scallop is what resolves anatomy
- *   where a vessel sits too close above the next to allow a closed hole with a
- *   seal of its own.
+ *   punched through it, keeping it perfused without a bridging stent. The cut
+ *   itself seals nothing: it trades the seal in its own sector for coverage
+ *   everywhere else, and what seals is the fabric apposed to healthy aorta
+ *   around it plus the full circumference below its deepest point. A scallop is
+ *   what resolves anatomy where a vessel sits too close above the next to allow
+ *   a closed hole with a seal of its own.
  * - `preserve` — stays perfused without any cut, by keeping the whole fabric
  *   edge below its ostium. This is the SMA in a juxtarenal repair, and it is
  *   usually what limits how far the pattern can be pushed in.
@@ -331,8 +335,8 @@ export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
  * Axial separation between the scalloped vessel and the first fenestration,
  * in mm. Null when nothing is scalloped.
  *
- * This is the fabric that does the sealing when the edge is cut, so the seal
- * rule applies to it rather than to the depth of the first hole.
+ * Fixed by anatomy and untouched by the pose, because the pattern is rigid and
+ * carries the cut with it. See `measureScallopBridge` for what it leaves.
  */
 export function scallopSeparationMm(
   anatomy: NormalizedAnatomy,
@@ -428,6 +432,143 @@ export function scallopEdgeDepthMm(
   if (Math.abs(arcOffsetMm) >= semiArcMm) return 0;
   const round = Math.sqrt(semiArcMm * semiArcMm - arcOffsetMm * arcOffsetMm);
   return Math.max(0, heightMm - semiArcMm + round);
+}
+
+/**
+ * What the fabric between a scallop and the openings below it actually is.
+ *
+ * Two numbers, because the one that is easy to quote is not the one that
+ * matters. Nadir-to-centre is what a plan sheet states and what the reference
+ * series can be compared on; it ignores the opening's own size and any
+ * difference in clock, so it overstates the fabric on every case where the two
+ * are not aligned. The edge-to-edge bridge is the fabric that is really there,
+ * measured on the unrolled graft between the cut and the opening's rim.
+ *
+ * Neither is a verdict. There is no universal minimum bridge — see
+ * `NARROWEST_SERIES_BRIDGE_MM` — and whether the remaining circumferential
+ * fabric and healthy aortic length are enough is a judgement about the
+ * pathology that no single distance answers.
+ */
+export interface ScallopBridge {
+  /** Opening the cut comes closest to. */
+  vesselName: string;
+  /** Scallop nadir to that opening's centre, axially, in mm. */
+  toCentreMm: number;
+  /**
+   * Shortest distance from the cut's boundary to that opening's rim, in mm.
+   * Negative when the two would run into each other.
+   */
+  edgeToEdgeMm: number;
+  /** Share of the circumference the cut spans, as a fraction. */
+  circumferenceFraction: number;
+}
+
+/** Points along a scallop's cut boundary: down one side, round, and up. */
+function cutBoundary(
+  scallop: PlacedScallop,
+  steps = 160,
+): Array<{ arcMm: number; depthMm: number }> {
+  const points: Array<{ arcMm: number; depthMm: number }> = [];
+  // The rounded bottom.
+  for (let step = 0; step <= steps; step += 1) {
+    const offsetMm = scallop.semiArcMm * (-1 + (2 * step) / steps);
+    points.push({
+      arcMm: scallop.arcMm + offsetMm,
+      depthMm: scallopEdgeDepthMm(scallop, offsetMm),
+    });
+  }
+  // The straight sides, which are what a fenestration offset in clock from the
+  // scallop comes nearest to.
+  const shoulderMm = Math.max(0, scallop.heightMm - scallop.semiArcMm);
+  for (let step = 1; step <= steps / 4; step += 1) {
+    const depthMm = (step / (steps / 4)) * shoulderMm;
+    for (const side of [-1, 1]) {
+      points.push({
+        arcMm: scallop.arcMm + side * scallop.semiArcMm,
+        depthMm,
+      });
+    }
+  }
+  return points;
+}
+
+export function measureScallopBridge(
+  scallop: PlacedScallop,
+  openings: PlacedOpening[],
+  circumferenceMm: number,
+): ScallopBridge | null {
+  if (openings.length === 0) return null;
+
+  const boundary = cutBoundary(scallop);
+  let nearest: ScallopBridge | null = null;
+
+  /** Shortest way round from one arc position to another, in mm. */
+  const arcGapMm = (fromMm: number, toMm: number) => {
+    const raw = Math.abs(toMm - fromMm) % circumferenceMm;
+    return raw > circumferenceMm / 2 ? circumferenceMm - raw : raw;
+  };
+
+  for (const opening of openings) {
+    let edgeToEdgeMm = Number.POSITIVE_INFINITY;
+    let overlapping = false;
+
+    // Sampled rather than solved: the cut is a U and the opening an ellipse,
+    // and the closest approach between them has no closed form worth the
+    // trouble at a tenth of a millimetre.
+    const rim: Array<{ arcMm: number; depthMm: number }> = [];
+    for (let step = 0; step < 120; step += 1) {
+      const phi = (step / 120) * Math.PI * 2;
+      rim.push({
+        arcMm: opening.arcMm + opening.semiArcMm * Math.cos(phi),
+        depthMm: opening.depthMm + opening.semiDepthMm * Math.sin(phi),
+      });
+    }
+
+    for (const point of boundary) {
+      // A cut boundary running inside the opening means the two are one
+      // aperture, not a scallop with fabric under it.
+      const dArc = arcGapMm(point.arcMm, opening.arcMm);
+      const dDepth = point.depthMm - opening.depthMm;
+      if (
+        (dArc / opening.semiArcMm) ** 2 + (dDepth / opening.semiDepthMm) ** 2 <
+        1
+      ) {
+        overlapping = true;
+      }
+      for (const rimPoint of rim) {
+        const distanceMm = Math.hypot(
+          arcGapMm(rimPoint.arcMm, point.arcMm),
+          rimPoint.depthMm - point.depthMm,
+        );
+        if (distanceMm < edgeToEdgeMm) edgeToEdgeMm = distanceMm;
+      }
+    }
+
+    // The other way round: an opening wholly inside the cut has no boundary
+    // point of the cut within it, but is just as merged.
+    for (const rimPoint of rim) {
+      const offsetMm = rimPoint.arcMm - scallop.arcMm;
+      if (
+        Math.abs(offsetMm) < scallop.semiArcMm &&
+        rimPoint.depthMm < scallopEdgeDepthMm(scallop, offsetMm)
+      ) {
+        overlapping = true;
+      }
+    }
+
+    if (overlapping) edgeToEdgeMm = -edgeToEdgeMm;
+
+    if (nearest === null || edgeToEdgeMm < nearest.edgeToEdgeMm) {
+      nearest = {
+        vesselName: opening.vessel.name,
+        toCentreMm: opening.depthMm - scallop.heightMm,
+        edgeToEdgeMm,
+        circumferenceFraction: (scallop.semiArcMm * 2) / circumferenceMm,
+      };
+    }
+  }
+
+  return nearest;
 }
 
 /** Axial position of the proximal fabric edge implied by a pose, in mm. */

@@ -241,8 +241,8 @@ export function GraftModel3D({
         );
 
       // Seal band, on the near side only, so it reads as a band on the surface.
-      // Under a scallop it starts at the cut, which is what leaves the sealing
-      // fabric the scallop is allowed on.
+      // Under a scallop it starts at the cut, since nothing above the cut is
+      // there to appose — the cut itself seals nothing.
       const drawSealBand = () => {
         if (proximalDepthMm <= 0) return;
         drawBand(true, () => proximalDepthMm, "rgba(15,118,110,0.16)");
