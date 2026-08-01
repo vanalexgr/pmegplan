@@ -188,10 +188,12 @@ export function UnrolledGraftCanvas({
           });
 
           ctx.beginPath();
-          ctx.arc(
+          ctx.ellipse(
             x(centreArc),
             y(opening.depthMm),
-            opening.radiusMm * scale,
+            opening.semiArcMm * scale,
+            opening.semiDepthMm * scale,
+            0,
             0,
             Math.PI * 2,
           );
@@ -217,7 +219,7 @@ export function UnrolledGraftCanvas({
           const clock = arcMmToClockText(opening.arcMm, circumferenceMm);
           ctx.fillText(
             `${opening.vessel.name} ${clock}`,
-            x(centreArc) + opening.radiusMm * scale + 4,
+            x(centreArc) + opening.semiArcMm * scale + 4,
             y(opening.depthMm) + 3,
           );
         }

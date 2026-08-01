@@ -2,6 +2,7 @@ import { arcMmToClockText } from "@/lib/planning/clock";
 import type { PlacedOpening } from "@/lib/planning/anatomy";
 import type { GraftModel } from "@/lib/planning/plan";
 import { wrapMm } from "@/lib/planning/geometry";
+import { ellipseReachMm } from "@/lib/planning/openingClearance";
 
 /**
  * Signed circumferential difference, shortest way round.
@@ -51,7 +52,10 @@ export interface HoleGaps {
 
 export interface HoleMeasurement {
   vesselName: string;
+  /** Circumferential width, in mm. Equals `heightMm` on a circular opening. */
   diameterMm: number;
+  widthMm: number;
+  heightMm: number;
   depthMm: number;
   arcMm: number;
   clock: string;
@@ -85,10 +89,13 @@ export function measureHole(
   clearanceMm: number,
 ): HoleMeasurement {
   const { segments, circumferenceMm } = graft;
-  const holeRadiusMm = opening.radiusMm;
+  // Semi-axes of the opening, and of the same opening grown by the wire radius.
   // Gaps are measured to the wire's surface rather than its axis, so they read
   // on the same basis as the clearance figure and as a ruler laid on the graft.
-  const radiusMm = holeRadiusMm + graft.wireRadiusMm;
+  const holeArcMm = opening.semiArcMm;
+  const holeDepthMm = opening.semiDepthMm;
+  const semiArcMm = holeArcMm + graft.wireRadiusMm;
+  const semiDepthMm = holeDepthMm + graft.wireRadiusMm;
   const centreArc = opening.arcMm;
   const centreDepth = opening.depthMm;
 
@@ -113,8 +120,12 @@ export function measureHole(
     // and the rim is only `radius` away straight up. Offset sideways by
     // `lateral`, the rim is nearer by the chord half-width, so that is what
     // gets subtracted rather than the full radius.
-    if (lateralMm < radiusMm) {
-      const halfChordMm = Math.sqrt(radiusMm * radiusMm - lateralMm * lateralMm);
+    if (lateralMm < semiArcMm) {
+      // Half-height of the rim at this sideways offset. On a circle this is
+      // the usual chord; on an ellipse the semi-axes differ, so the rim is
+      // nearer or further than a circle of either dimension would suggest.
+      const halfChordMm =
+        semiDepthMm * Math.sqrt(1 - (lateralMm / semiArcMm) ** 2);
       if (bottom <= centreDepth - halfChordMm) {
         const distanceMm = centreDepth - bottom - halfChordMm;
         if (above === null || distanceMm < above.distanceMm) {
@@ -139,9 +150,9 @@ export function measureHole(
             Math.abs(centreDepth - top),
             Math.abs(centreDepth - bottom),
           );
-    if (verticalMm < radiusMm) {
+    if (verticalMm < semiDepthMm) {
       const halfChordMm =
-        Math.sqrt(radiusMm * radiusMm - verticalMm * verticalMm);
+        semiArcMm * Math.sqrt(1 - (verticalMm / semiDepthMm) ** 2);
       if (lateralMm >= halfChordMm) {
         const distanceMm = lateralMm - halfChordMm;
         // The depth the ruler would sit at: the stroke's nearest point.
@@ -161,12 +172,15 @@ export function measureHole(
     // Wire running through the opening itself, judged on the bare hole rather
     // than the clearance-inflated one: this is metal in the hole, not metal
     // close to it.
-    if (
-      lateralMm <= holeRadiusMm &&
-      bottom > centreDepth - holeRadiusMm &&
-      top < centreDepth + holeRadiusMm
-    ) {
-      insideRingBand = true;
+    if (lateralMm <= holeArcMm) {
+      const halfChordMm =
+        holeDepthMm * Math.sqrt(1 - (lateralMm / holeArcMm) ** 2);
+      if (
+        bottom > centreDepth - halfChordMm &&
+        top < centreDepth + halfChordMm
+      ) {
+        insideRingBand = true;
+      }
     }
 
     // Landmarks. An apex is the shallowest point of a stroke, a valley the
@@ -174,13 +188,15 @@ export function measureHole(
     if (Math.abs(dArc) <= LATERAL_WINDOW_MM) {
       const apexDepth = top;
       if (
-        apexDepth < centreDepth - radiusMm &&
+        apexDepth < centreDepth - semiDepthMm &&
         centreDepth - apexDepth < AXIAL_WINDOW_MM
       ) {
-        const distanceMm = Math.hypot(
-          dArc,
-          centreDepth - apexDepth,
-        ) - radiusMm;
+        const distanceMm =
+          Math.hypot(dArc, centreDepth - apexDepth) -
+          ellipseReachMm(
+            { semiArcMm, semiDepthMm },
+            Math.atan2(centreDepth - apexDepth, dArc),
+          );
         if (apexAbove === null || distanceMm < apexAbove.distanceMm) {
           apexAbove = {
             kind: "apex",
@@ -194,13 +210,15 @@ export function measureHole(
 
       const valleyDepth = bottom;
       if (
-        valleyDepth > centreDepth + radiusMm &&
+        valleyDepth > centreDepth + semiDepthMm &&
         valleyDepth - centreDepth < AXIAL_WINDOW_MM
       ) {
-        const distanceMm = Math.hypot(
-          dArc,
-          valleyDepth - centreDepth,
-        ) - radiusMm;
+        const distanceMm =
+          Math.hypot(dArc, valleyDepth - centreDepth) -
+          ellipseReachMm(
+            { semiArcMm, semiDepthMm },
+            Math.atan2(valleyDepth - centreDepth, dArc),
+          );
         if (valleyBelow === null || distanceMm < valleyBelow.distanceMm) {
           valleyBelow = {
             kind: "valley",
@@ -216,7 +234,9 @@ export function measureHole(
 
   return {
     vesselName: opening.vessel.name,
-    diameterMm: holeRadiusMm * 2,
+    diameterMm: holeArcMm * 2,
+    widthMm: holeArcMm * 2,
+    heightMm: holeDepthMm * 2,
     depthMm: centreDepth,
     arcMm: centreArc,
     clock: arcMmToClockText(centreArc, circumferenceMm),

@@ -201,23 +201,27 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
           ctx.strokeStyle = "#000000";
           ctx.lineWidth = 0.4;
           ctx.beginPath();
-          ctx.arc(
+          ctx.ellipse(
             x(centre),
             y(opening.depthMm),
-            opening.radiusMm,
+            opening.semiArcMm,
+            opening.semiDepthMm,
+            0,
             0,
             Math.PI * 2,
           );
           ctx.stroke();
 
           // Punch cross, drawn past the rim so it stays visible once cut.
-          const arm = opening.radiusMm + 2.5;
+          // Cross arms clear each semi-axis, so they stay visible once cut.
+          const armArc = opening.semiArcMm + 2.5;
+          const armDepth = opening.semiDepthMm + 2.5;
           ctx.lineWidth = 0.3;
           ctx.beginPath();
-          ctx.moveTo(x(centre) - arm, y(opening.depthMm));
-          ctx.lineTo(x(centre) + arm, y(opening.depthMm));
-          ctx.moveTo(x(centre), y(opening.depthMm) - arm);
-          ctx.lineTo(x(centre), y(opening.depthMm) + arm);
+          ctx.moveTo(x(centre) - armArc, y(opening.depthMm));
+          ctx.lineTo(x(centre) + armArc, y(opening.depthMm));
+          ctx.moveTo(x(centre), y(opening.depthMm) - armDepth);
+          ctx.lineTo(x(centre), y(opening.depthMm) + armDepth);
           ctx.stroke();
         }
       }
@@ -229,8 +233,11 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
     for (const opening of openings) {
       const centre = opening.arcMm;
       const clock = arcMmToClockText(centre, circumferenceMm);
-      const arm = opening.radiusMm + 2.5;
-      const nameLabel = `${opening.vessel.name} Ø${(opening.radiusMm * 2).toFixed(1)}`;
+      const arm = opening.semiArcMm + 2.5;
+      const oval = opening.semiArcMm !== opening.semiDepthMm;
+      const nameLabel = oval
+        ? `${opening.vessel.name} ${(opening.semiArcMm * 2).toFixed(1)}x${(opening.semiDepthMm * 2).toFixed(1)}`
+        : `${opening.vessel.name} Ø${(opening.semiArcMm * 2).toFixed(1)}`;
       const detailLabel = `${clock} · ${opening.depthMm.toFixed(1)} mm`;
 
       ctx.font = font(700, 2.9);
@@ -327,7 +334,11 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
                 <td className="py-1 pr-3">{measurement.clock}</td>
                 <td className="py-1 pr-3">{opening.arcMm.toFixed(1)} mm</td>
                 <td className="py-1 pr-3">
-                  {(opening.radiusMm * 2).toFixed(1)} mm
+                  {opening.semiArcMm === opening.semiDepthMm
+                    ? `Ø${(opening.semiArcMm * 2).toFixed(1)} mm`
+                    : `${(opening.semiArcMm * 2).toFixed(1)} × ${(
+                        opening.semiDepthMm * 2
+                      ).toFixed(1)} mm`}
                 </td>
                 <td className="py-1 pr-3">{clearance.toFixed(2)} mm</td>
                 <td className="py-1">

@@ -52,9 +52,19 @@ export interface AnatomyVessel {
   ostiumDiameterMm: number;
   /**
    * Diameter of the opening to cut, in mm. Defaults to the ostium diameter;
-   * set it explicitly to carry a reinforcement allowance.
+   * set it explicitly to carry a reinforcement allowance. Ignored when
+   * `openingHeightMm` is given.
    */
   openingDiameterMm?: number;
+  /**
+   * Circumferential width of the opening, in mm. With `openingHeightMm` this
+   * describes an egg-shaped opening — taller than it is wide — which some
+   * prefer for the easier cannulation a longer axial opening gives. Both must
+   * be set together; otherwise the opening is circular.
+   */
+  openingWidthMm?: number;
+  /** Axial height of the opening, in mm. See `openingWidthMm`. */
+  openingHeightMm?: number;
 }
 
 export interface AortaInput {
@@ -138,12 +148,30 @@ export interface PlacedOpening {
   depthMm: number;
   /** Circumferential position on the unrolled graft after rotation, in mm. */
   arcMm: number;
+  /** Half the opening's circumferential width, in mm. */
+  semiArcMm: number;
+  /** Half the opening's axial height, in mm. */
+  semiDepthMm: number;
   /**
-   * Radius that must stay clear of wire, in mm: half the opening's largest
-   * dimension. The wire radius is added by the clearance test, matching
-   * `getSafeThreshold`.
+   * Half the largest dimension, in mm. The circumscribed circle — kept for
+   * drawing and for the coarse checks that do not need the ellipse.
    */
   radiusMm: number;
+}
+
+/** Half-dimensions of the opening a vessel calls for, in mm. */
+export function openingHalfSize(vessel: AnatomyVessel): {
+  semiArcMm: number;
+  semiDepthMm: number;
+} {
+  if (vessel.openingWidthMm !== undefined && vessel.openingHeightMm !== undefined) {
+    return {
+      semiArcMm: vessel.openingWidthMm / 2,
+      semiDepthMm: vessel.openingHeightMm / 2,
+    };
+  }
+  const diameter = vessel.openingDiameterMm ?? vessel.ostiumDiameterMm;
+  return { semiArcMm: diameter / 2, semiDepthMm: diameter / 2 };
 }
 
 function isRenal(name: string): boolean {
@@ -346,13 +374,17 @@ export function placeOpenings(
   const edgeZMm = fabricEdgeZMm(anatomy, pose);
   const rotationFraction = pose.rotationDeg / 360;
 
-  return anatomy.fenestrations.map((vessel) => ({
-    vessel,
-    depthMm: edgeZMm - vessel.zMm,
-    arcMm: wrapMm(
-      (vessel.clockFraction - rotationFraction) * circumferenceMm,
-      circumferenceMm,
-    ),
-    radiusMm: (vessel.openingDiameterMm ?? vessel.ostiumDiameterMm) / 2,
-  }));
+  return anatomy.fenestrations.map((vessel) => {
+    const size = openingHalfSize(vessel);
+    return {
+      vessel,
+      depthMm: edgeZMm - vessel.zMm,
+      arcMm: wrapMm(
+        (vessel.clockFraction - rotationFraction) * circumferenceMm,
+        circumferenceMm,
+      ),
+      ...size,
+      radiusMm: Math.max(size.semiArcMm, size.semiDepthMm),
+    };
+  });
 }

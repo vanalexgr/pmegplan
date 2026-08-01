@@ -49,6 +49,9 @@ import { cn } from "@/lib/utils";
  * along this chain rather than choosing which vessels exist, because a chain
  * with a vessel silently missing changes every downstream distance.
  */
+/** Extra axial height an egg-shaped opening carries over a round one, in mm. */
+const EGG_EXTRA_HEIGHT_MM = 2;
+
 const CHAIN: Array<{ name: string; label: string; defaultOstiumMm: number }> = [
   { name: "CELIAC", label: "Coeliac", defaultOstiumMm: 8 },
   { name: "SMA", label: "SMA", defaultOstiumMm: 9 },
@@ -63,14 +66,21 @@ interface VesselEntry {
   clock: string;
   ostiumDiameterMm: string;
   treatment: "fenestrate" | "scallop" | "preserve";
+  /**
+   * Egg-shaped openings are taller than they are wide, which some prefer for
+   * the easier cannulation the longer axial opening gives. Offered per vessel
+   * because whether it fits is a question the solver answers, not a preference
+   * that can be applied blindly.
+   */
+  shape: "round" | "egg";
 }
 
 function initialEntries(): VesselEntry[] {
   return [
-    { ...blank(CHAIN[0]), gapFromPreviousMm: "0", clock: "12:00", treatment: "fenestrate" as const },
-    { ...blank(CHAIN[1]), gapFromPreviousMm: "18", clock: "12:30", treatment: "fenestrate" as const },
-    { ...blank(CHAIN[2]), gapFromPreviousMm: "24", clock: "9:00", treatment: "fenestrate" as const },
-    { ...blank(CHAIN[3]), gapFromPreviousMm: "5", clock: "3:30", treatment: "fenestrate" as const },
+    { ...blank(CHAIN[0]), gapFromPreviousMm: "0", clock: "12:00", treatment: "fenestrate" as const, shape: "round" as const },
+    { ...blank(CHAIN[1]), gapFromPreviousMm: "18", clock: "12:30", treatment: "fenestrate" as const, shape: "round" as const },
+    { ...blank(CHAIN[2]), gapFromPreviousMm: "24", clock: "9:00", treatment: "fenestrate" as const, shape: "round" as const },
+    { ...blank(CHAIN[3]), gapFromPreviousMm: "5", clock: "3:30", treatment: "fenestrate" as const, shape: "round" as const },
   ];
 }
 
@@ -82,6 +92,7 @@ function blank(vessel: (typeof CHAIN)[number]): VesselEntry {
     clock: "12:00",
     ostiumDiameterMm: String(vessel.defaultOstiumMm),
     treatment: "preserve" as const,
+    shape: "round" as const,
   };
 }
 
@@ -112,6 +123,14 @@ function buildCase(
       gapFromPreviousMm: gap,
       clock: entry.treatment === "preserve" ? undefined : entry.clock,
       ostiumDiameterMm: ostium,
+      ...(entry.shape === "egg"
+        ? {
+            // The reference plans cut 6 x 8 mm renal fenestrations: the same
+            // width as the ostium, 2 mm longer axially.
+            openingWidthMm: ostium,
+            openingHeightMm: ostium + EGG_EXTRA_HEIGHT_MM,
+          }
+        : {}),
     });
   }
 
@@ -535,18 +554,19 @@ export function PmegPlanner() {
               </div>
 
               <div className="flex flex-col gap-3">
-                <div className="grid grid-cols-[1fr_72px_72px_66px] gap-2 px-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-[color:var(--muted-foreground)]">
+                <div className="grid grid-cols-[1fr_64px_64px_58px_62px] gap-2 px-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-[color:var(--muted-foreground)]">
                   <span>Vessel</span>
                   <span>Gap ↑</span>
                   <span>Ostium</span>
                   <span>Clock</span>
+                  <span>Shape</span>
                 </div>
 
                 {entries.map((entry, index) => (
                   <div
                     key={entry.name}
                     className={cn(
-                      "grid grid-cols-[1fr_72px_72px_66px] items-center gap-2 rounded-2xl border p-2 transition-colors",
+                      "grid grid-cols-[1fr_64px_64px_58px_62px] items-center gap-2 rounded-2xl border p-2 transition-colors",
                       entry.treatment === "fenestrate"
                         ? "border-[color:var(--brand)]/35 bg-[color:var(--brand)]/[0.05]"
                         : entry.treatment === "scallop"
@@ -602,6 +622,20 @@ export function PmegPlanner() {
                       aria-label={`${entry.label} clock position`}
                       onChange={(event) => patch(index, { clock: event.target.value })}
                     />
+                    <select
+                      className="h-9 rounded-xl border border-[color:var(--border)] bg-white px-1 text-[11px] outline-none disabled:opacity-40"
+                      value={entry.shape}
+                      disabled={entry.treatment !== "fenestrate"}
+                      aria-label={`${entry.label} opening shape`}
+                      onChange={(event) =>
+                        patch(index, {
+                          shape: event.target.value as VesselEntry["shape"],
+                        })
+                      }
+                    >
+                      <option value="round">round</option>
+                      <option value="egg">egg</option>
+                    </select>
                   </div>
                 ))}
 
@@ -808,7 +842,13 @@ export function PmegPlanner() {
                                     {opening.arcMm.toFixed(1)} mm
                                   </td>
                                   <td className="py-2.5 pr-4">
-                                    {(opening.radiusMm * 2).toFixed(1)} mm
+                                    {opening.semiArcMm === opening.semiDepthMm
+                                      ? `Ø${(opening.semiArcMm * 2).toFixed(1)} mm`
+                                      : `${(opening.semiArcMm * 2).toFixed(
+                                          1,
+                                        )} × ${(opening.semiDepthMm * 2).toFixed(
+                                          1,
+                                        )} mm`}
                                   </td>
                                   <td
                                     className={cn(

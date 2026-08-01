@@ -327,8 +327,8 @@ export function GraftModel3D({
           ctx.beginPath();
           for (let sample = 0; sample <= HOLE_SAMPLES; sample += 1) {
             const phi = (sample / HOLE_SAMPLES) * Math.PI * 2;
-            const theta = theta0 + (opening.radiusMm * Math.cos(phi)) / radiusMm;
-            const zMm = opening.depthMm + opening.radiusMm * Math.sin(phi);
+            const theta = theta0 + (opening.semiArcMm * Math.cos(phi)) / radiusMm;
+            const zMm = opening.depthMm + opening.semiDepthMm * Math.sin(phi);
             const point = project(theta, zMm, radiusAt(zMm));
             if (sample === 0) ctx.moveTo(point.sx, point.sy);
             else ctx.lineTo(point.sx, point.sy);

@@ -77,6 +77,8 @@ describe("measureHole", () => {
       arcMm: 50,
       depthMm: 40,
       radiusMm: 3,
+      semiArcMm: 3,
+      semiDepthMm: 3,
     } as unknown as Parameters<typeof measureHole>[1];
 
     const measurement = measureHole(graft, opening, 5);
@@ -102,6 +104,8 @@ describe("measureHole", () => {
       arcMm: 50,
       depthMm: 40,
       radiusMm: 5,
+      semiArcMm: 5,
+      semiDepthMm: 5,
     } as unknown as Parameters<typeof measureHole>[1];
 
     const measurement = measureHole(graft, opening, 1);
@@ -123,6 +127,8 @@ describe("measureHole", () => {
       arcMm: 50,
       depthMm: 40,
       radiusMm: 3,
+      semiArcMm: 3,
+      semiDepthMm: 3,
     } as unknown as Parameters<typeof measureHole>[1];
 
     expect(measureHole(graft, opening, -1).insideRingBand).toBe(true);

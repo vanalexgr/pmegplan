@@ -2,11 +2,13 @@ import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
   MIN_SEAL_BELOW_SCALLOP_MM,
   minProximalDepthMm,
+  openingHalfSize,
   placeOpenings,
   scallopSeparationMm,
   type GraftPose,
   type NormalizedAnatomy,
 } from "@/lib/planning/anatomy";
+import { ellipseClearanceMm } from "@/lib/planning/openingClearance";
 import type { ClearanceField } from "@/lib/planning/clearanceField";
 import { wrapMm } from "@/lib/planning/geometry";
 
@@ -264,10 +266,16 @@ export function solvePose(
     /** Depth below the most proximal fenestration, so depth = proximalDepth + this. */
     depthOffsetMm: proximalZMm - vessel.zMm,
     baseArcMm: vessel.clockFraction * circumferenceMm,
-    thresholdMm:
-      (vessel.openingDiameterMm ?? vessel.ostiumDiameterMm) / 2 +
-      options.wireRadiusMm,
+    size: openingHalfSize(vessel),
   }));
+
+  // A circular opening reaches the same distance whichever way the wire lies,
+  // so it needs one lookup. An egg-shaped one does not, and the ellipse test
+  // costs two more — worth paying only where the shape is actually elliptical.
+  const anyElliptical = offsets.some(
+    (opening) =>
+      Math.abs(opening.size.semiArcMm - opening.size.semiDepthMm) > 1e-9,
+  );
 
   const rotationPeriodDeg = Math.min(options.rotationPeriodDeg ?? 360, 360);
   const rotationArcMm = (circumferenceMm * rotationPeriodDeg) / 360;
@@ -316,8 +324,16 @@ export function solvePose(
       for (const opening of offsets) {
         const arcMm = wrapMm(opening.baseArcMm - travelMm, circumferenceMm);
         const depthMm = proximalDepthMm + opening.depthOffsetMm;
-        const clearance =
-          field.distanceAt(arcMm, depthMm) - opening.thresholdMm;
+        const clearance = anyElliptical
+          ? ellipseClearanceMm(
+              field,
+              arcMm,
+              depthMm,
+              opening.size,
+              options.wireRadiusMm,
+            )
+          : field.distanceAt(arcMm, depthMm) -
+            (opening.size.semiArcMm + options.wireRadiusMm);
         if (clearance < worst) worst = clearance;
       }
 
@@ -390,10 +406,15 @@ export function solvePose(
       vesselName: opening.vessel.name,
       depthMm: opening.depthMm,
       arcMm: opening.arcMm,
-      clearanceMm:
-        field.distanceAt(opening.arcMm, opening.depthMm) -
-        opening.radiusMm -
+      // Same test the pose was chosen by, so the per-hole figures and the
+      // margin cannot disagree about the same opening.
+      clearanceMm: ellipseClearanceMm(
+        field,
+        opening.arcMm,
+        opening.depthMm,
+        opening,
         options.wireRadiusMm,
+      ),
     }),
   );
 
