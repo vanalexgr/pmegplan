@@ -243,6 +243,15 @@ export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
     );
   }
 
+  for (const name of scalloped) {
+    // A renal takes a fenestration and a bridging stent. Scalloping one would
+    // put the cut below the whole visceral segment and leave the vessel without
+    // the sealed junction it is the point of treating.
+    if (isRenal(name)) {
+      throw new Error(`${name} is a renal artery and takes a fenestration, not a scallop.`);
+    }
+  }
+
   if (fenestrated.size === 0) {
     throw new Error("A case needs at least one fenestration.");
   }
@@ -299,18 +308,21 @@ export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
   const scallopVessel =
     normalized.find((vessel) => vessel.treatment === "scallop") ?? null;
 
-  // A scallop cuts the fabric edge, so nothing may be treated above it.
+  // A scallop is a cut in the fabric edge, so it has to be the proximal-most
+  // thing cut. A vessel *preserved* above it is a different matter and a common
+  // one: keeping the coeliac clear of the fabric altogether still leaves the
+  // edge free to be scalloped for the SMA below it. All a preserved vessel does
+  // is cap the push-in, which `proximalDepthLimit` already handles.
   if (scallopVessel) {
-    const above = normalized.filter(
+    const cutAbove = normalized.filter(
       (vessel) =>
-        vessel.zMm > scallopVessel.zMm &&
-        (vessel.treatment === "fenestration" || vessel.treatment === "preserve"),
+        vessel.zMm > scallopVessel.zMm && vessel.treatment === "fenestration",
     );
-    if (above.length > 0) {
+    if (cutAbove.length > 0) {
       throw new Error(
-        `${scallopVessel.name} is scalloped, so the fabric edge is cut there — ${above
+        `${scallopVessel.name} is scalloped, so the fabric edge is cut there — ${cutAbove
           .map((vessel) => vessel.name)
-          .join(", ")} cannot be treated above it.`,
+          .join(", ")} cannot be fenestrated above it.`,
       );
     }
   }
@@ -393,7 +405,23 @@ export interface PlacedScallop {
   heightMm: number;
 }
 
-/** Place the scalloped vessel's cut on the unrolled graft. Null when none. */
+/**
+ * Height below which the pose has cut nothing, in mm.
+ *
+ * A pose that puts the fabric edge level with the scalloped vessel leaves no
+ * scallop — and leaves that vessel worse off than either alternative, since the
+ * edge crosses its ostium with no cut to relieve it. That is a device that
+ * cannot carry the plan, not a scallop of no height, so nothing is placed.
+ */
+const MIN_CUT_MM = 0.5;
+
+/**
+ * Place the scalloped vessel's cut on the unrolled graft.
+ *
+ * Null when nothing is scalloped, and also when the pose leaves no cut to make
+ * — see `MIN_CUT_MM`. Callers that need to tell those apart can ask the anatomy
+ * whether a scallop was wanted.
+ */
 export function placeScallop(
   anatomy: NormalizedAnatomy,
   pose: GraftPose,
@@ -401,7 +429,7 @@ export function placeScallop(
 ): PlacedScallop | null {
   const vessel = anatomy.scalloped;
   const heightMm = scallopHeightMm(anatomy, pose);
-  if (vessel === null || heightMm === null) return null;
+  if (vessel === null || heightMm === null || heightMm < MIN_CUT_MM) return null;
 
   const rotationFraction = pose.rotationDeg / 360;
   return {
@@ -419,19 +447,27 @@ export function placeScallop(
  * Depth of the cut edge at an offset from the scallop's centre, in mm. Zero
  * outside the cut, where the fabric edge is still the fabric edge.
  *
- * The profile is a U — straight sides running down from the edge, closed by a
- * semicircle of the cut's own half-width — so the vessel sits in a round bottom
- * rather than in square corners, which is both how a scallop is cut and where
- * the fabric would otherwise tear.
+ * Deeper than it is half-wide, the profile is a U: straight sides running down
+ * from the edge, closed by a semicircle of the cut's own half-width, so the
+ * vessel sits in a round bottom rather than in square corners — which is both
+ * how a scallop is cut and where the fabric would otherwise tear.
+ *
+ * Shallower than that, the same semicircle would pinch the cut in at the edge
+ * and leave a lens narrower than the scallop is specified to be. So the bottom
+ * flattens into an ellipse of the full half-width instead, keeping the cut the
+ * width it was cut to and only making it shallower. The two agree where they
+ * meet, at a height of exactly one half-width.
  */
 export function scallopEdgeDepthMm(
   scallop: PlacedScallop,
   arcOffsetMm: number,
 ): number {
   const { semiArcMm, heightMm } = scallop;
-  if (Math.abs(arcOffsetMm) >= semiArcMm) return 0;
-  const round = Math.sqrt(semiArcMm * semiArcMm - arcOffsetMm * arcOffsetMm);
-  return Math.max(0, heightMm - semiArcMm + round);
+  if (Math.abs(arcOffsetMm) >= semiArcMm || heightMm <= 0) return 0;
+  const across = Math.sqrt(1 - (arcOffsetMm / semiArcMm) ** 2);
+  return heightMm > semiArcMm
+    ? heightMm - semiArcMm + semiArcMm * across
+    : heightMm * across;
 }
 
 /**

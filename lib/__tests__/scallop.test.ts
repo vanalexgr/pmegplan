@@ -132,12 +132,73 @@ describe("scallop", () => {
     expect(bridge.circumferenceFraction).toBeCloseTo(0.2, 1);
   });
 
-  it("rejects a scallop with anything treated above it", () => {
+  it("rejects a scallop with a fenestration above it", () => {
     const broken = coeliacTooClose("scallop");
     broken.scallop = ["SMA"];
     broken.fenestrate = ["CELIAC", "LRA", "RRA"];
 
-    expect(() => normalizeAnatomy(broken)).toThrow(/cannot be treated above it/);
+    expect(() => normalizeAnatomy(broken)).toThrow(
+      /cannot be fenestrated above it/,
+    );
+  });
+
+  it("allows a scallop below a vessel that is only preserved", () => {
+    // Keeping the coeliac clear of the fabric altogether does not stop the edge
+    // being scalloped for the SMA: all a preserved vessel does is cap push-in.
+    const smaScallop = coeliacTooClose("preserve");
+    smaScallop.vessels[1].gapFromPreviousMm = 20;
+    smaScallop.scallop = ["SMA"];
+    smaScallop.fenestrate = ["LRA", "RRA"];
+    smaScallop.aorta.proximalLandingLengthMm = 25;
+
+    const anatomy = normalizeAnatomy(smaScallop);
+    expect(anatomy.scalloped?.name).toBe("SMA");
+    expect(anatomy.preserved.map((vessel) => vessel.name)).toEqual(["CELIAC"]);
+
+    const plan = planGraft(smaScallop);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    // The coeliac still caps the push-in, 4 mm clear of its own ostium.
+    expect(plan.depthLimit.limitingVesselName).toBe("CELIAC");
+  });
+
+  it("refuses to scallop a renal", () => {
+    const broken = coeliacTooClose("scallop");
+    broken.scallop = ["LRA"];
+    broken.fenestrate = ["CELIAC", "SMA", "RRA"];
+
+    expect(() => normalizeAnatomy(broken)).toThrow(
+      /renal artery and takes a fenestration/,
+    );
+  });
+
+  it("keeps a shallow cut the width it was cut to", () => {
+    // Below one half-width the bottom flattens rather than pinching the cut in,
+    // so an 8 mm deep scallop is still a 20 mm wide scoop and not a lens.
+    const shallow = placeScallop(
+      normalizeAnatomy(coeliacTooClose("scallop")),
+      { proximalDepthMm: 18, rotationDeg: 0 },
+      120,
+    );
+    if (!shallow) throw new Error("Expected a scallop.");
+    expect(shallow.heightMm).toBe(8);
+
+    expect(scallopEdgeDepthMm(shallow, 0)).toBeCloseTo(8, 10);
+    // Still open at 9 mm out, where the old semicircular bottom had closed.
+    expect(scallopEdgeDepthMm(shallow, 9)).toBeGreaterThan(3);
+    expect(scallopEdgeDepthMm(shallow, 10)).toBe(0);
+  });
+
+  it("places no cut at all when the pose leaves none to make", () => {
+    // The fabric edge level with the vessel is not a scallop of no height; it
+    // is a device that cannot carry the plan, so nothing is placed.
+    expect(
+      placeScallop(
+        normalizeAnatomy(coeliacTooClose("scallop")),
+        { proximalDepthMm: 10, rotationDeg: 0 },
+        120,
+      ),
+    ).toBeNull();
   });
 
   it("rejects more than one scallop", () => {

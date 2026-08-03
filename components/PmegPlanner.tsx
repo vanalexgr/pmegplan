@@ -102,6 +102,25 @@ function blank(vessel: (typeof CHAIN)[number]): VesselEntry {
   };
 }
 
+/**
+ * Whether this vessel could take the edge cut.
+ *
+ * Two things rule it out. A renal takes a fenestration and a bridging stent —
+ * scalloping one would put the cut below the whole visceral segment. And the
+ * cut has to be the proximal-most thing cut, so anything fenestrated above it
+ * rules it out too. A vessel merely *preserved* above does not: keeping the
+ * coeliac clear of the fabric entirely still leaves the edge free to be
+ * scalloped for the SMA.
+ */
+function canScallop(entries: VesselEntry[], index: number): boolean {
+  if (RENAL_NAMES.has(entries[index].name)) return false;
+  return entries
+    .slice(0, index)
+    .every((above) => above.treatment === "preserve");
+}
+
+const RENAL_NAMES = new Set(["RRA", "LRA"]);
+
 function toNumber(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : Number.NaN;
@@ -418,6 +437,30 @@ function LimitNotice({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
 function ScallopNote({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
   const bridge = plan.scallopBridge;
   const scallop = plan.scallop;
+  const wanted = plan.anatomy.scalloped;
+
+  // Asked for a scallop, and this device's pose leaves none to cut.
+  if (wanted && !scallop) {
+    return (
+      <div className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <div>
+          <p className="font-semibold">
+            This device cuts no {wanted.name} scallop.
+          </p>
+          <p className="mt-1 leading-5">
+            The deepest it can sit without an opening touching wire is{" "}
+            {plan.solution.pose.proximalDepthMm.toFixed(1)} mm, which puts the
+            fabric edge level with the {wanted.name} — nothing above it to cut
+            away. That leaves the {wanted.name} crossed by the fabric edge with
+            no relief, which is worse than either scalloping it or landing below
+            it. Another device in the library may sit deeper on this anatomy.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!bridge || !scallop) return null;
 
   const tight = bridge.edgeToEdgeMm < NARROWEST_SERIES_BRIDGE_MM;
@@ -430,7 +473,11 @@ function ScallopNote({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
       </p>
       <p className="mt-1.5 leading-5 text-[color:var(--muted-foreground)]">
         What seals is the fabric apposed to healthy aorta around the cut, and the
-        full circumference below its deepest point. This cut spans{" "}
+        full circumference below its deepest point. It is{" "}
+        {scallop.heightMm.toFixed(1)} mm deep because that is how far above the{" "}
+        {scallop.vessel.name} this device can put the fabric edge — shorten the
+        healthy aorta above the top vessel and the cut shortens with it. This cut
+        spans{" "}
         {(bridge.circumferenceFraction * 100).toFixed(0)}% of the circumference
         on this device, so {(100 - bridge.circumferenceFraction * 100).toFixed(0)}%
         of the fabric edge still apposes.
@@ -581,11 +628,19 @@ export function PmegPlanner() {
   const [preferredScanId, setPreferredScanId] = useState<CtScanId | null>(null);
 
   const patch = (index: number, next: Partial<VesselEntry>) => {
-    setEntries((current) =>
-      current.map((entry, position) =>
+    setEntries((current) => {
+      const patched = current.map((entry, position) =>
         position === index ? { ...entry, ...next } : entry,
-      ),
-    );
+      );
+      // Fenestrating something above a scallop takes the cut away, and leaving
+      // the old selection in place would plan a scallop the form no longer
+      // offers. Preserve is the nearest thing to "not cut here".
+      return patched.map((entry, position) =>
+        entry.treatment === "scallop" && !canScallop(patched, position)
+          ? { ...entry, treatment: "preserve" as const }
+          : entry,
+      );
+    });
   };
 
   const built = useMemo(
@@ -714,7 +769,9 @@ export function PmegPlanner() {
                         }
                       >
                         <option value="fenestrate">fenestrate</option>
-                        <option value="scallop">scallop</option>
+                        {canScallop(entries, index) ? (
+                          <option value="scallop">scallop</option>
+                        ) : null}
                         <option value="preserve">preserve</option>
                       </select>
                     </div>

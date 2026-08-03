@@ -464,7 +464,7 @@ function solveFit(
  * between them is the surgeon's, and the alternatives are kept so it can be
  * made on their poses.
  */
-function recommend(solved: DeviceFit[], preferDeepest: boolean): DeviceFit {
+function recommend(solved: DeviceFit[], wantsScallop: boolean): DeviceFit {
   // A device inside the oversizing window is preferred over one outside it,
   // whatever the clearance: a hole that clears wire on a graft that will not
   // seal is not a better plan.
@@ -473,6 +473,12 @@ function recommend(solved: DeviceFit[], preferDeepest: boolean): DeviceFit {
   return pool.reduce((best, candidate) => {
     const bestSolution = best.solution as PoseSolution;
     const candidateSolution = candidate.solution as PoseSolution;
+    // A device whose pose leaves no cut cannot carry a plan that asked for one,
+    // however well it clears: the scalloped vessel ends up crossed by the
+    // fabric edge with nothing relieving it.
+    if (wantsScallop && (best.scallop === null) !== (candidate.scallop === null)) {
+      return candidate.scallop !== null ? candidate : best;
+    }
     const bestClears = bestSolution.marginMm > 0;
     const candidateClears = candidateSolution.marginMm > 0;
     if (bestClears !== candidateClears) return candidateClears ? candidate : best;
@@ -487,7 +493,7 @@ function recommend(solved: DeviceFit[], preferDeepest: boolean): DeviceFit {
     const deeper =
       candidateSolution.pose.proximalDepthMm >
       bestSolution.pose.proximalDepthMm;
-    return deeper === preferDeepest ? candidate : best;
+    return deeper === wantsScallop ? candidate : best;
   });
 }
 
