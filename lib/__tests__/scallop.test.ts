@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  SCALLOP_WIDTH_MM,
   minProximalDepthMm,
   normalizeAnatomy,
   placeScallop,
@@ -176,9 +177,11 @@ describe("scallop", () => {
     );
   });
 
-  it("keeps a shallow cut the width it was cut to", () => {
-    // Below one half-width the bottom flattens rather than pinching the cut in,
-    // so an 8 mm deep scallop is still a 20 mm wide scoop and not a lens.
+  it("narrows a shallow cut rather than flattening it into a saucer", () => {
+    // A scallop is a U everywhere it is manufactured — 10 mm wide by 6 to 12 on
+    // the off-the-shelf fenestrated device, 30 by 20 on a custom arch one — so
+    // the height is never less than half the width. A pose that cannot give the
+    // full 20 mm that depth gets the widest semicircle that fits instead.
     const shallow = placeScallop(
       normalizeAnatomy(coeliacTooClose("scallop")),
       { proximalDepthMm: 18, rotationDeg: 0 },
@@ -186,11 +189,29 @@ describe("scallop", () => {
     );
     if (!shallow) throw new Error("Expected a scallop.");
     expect(shallow.heightMm).toBe(8);
+    expect(shallow.semiArcMm).toBe(8);
 
+    // A bare semicircle: deepest in the middle, closed at its own half-width.
     expect(scallopEdgeDepthMm(shallow, 0)).toBeCloseTo(8, 10);
-    // Still open at 9 mm out, where the old semicircular bottom had closed.
-    expect(scallopEdgeDepthMm(shallow, 9)).toBeGreaterThan(3);
-    expect(scallopEdgeDepthMm(shallow, 10)).toBe(0);
+    expect(scallopEdgeDepthMm(shallow, 8)).toBe(0);
+    // On the circle the whole way, rather than bulging out to 10 mm.
+    expect(Math.hypot(6, scallopEdgeDepthMm(shallow, 6))).toBeCloseTo(8, 10);
+  });
+
+  it("keeps the full width once the cut is deep enough to carry it", () => {
+    const deep = placeScallop(
+      normalizeAnatomy(coeliacTooClose("scallop")),
+      { proximalDepthMm: 35, rotationDeg: 0 },
+      120,
+    );
+    if (!deep) throw new Error("Expected a scallop.");
+    expect(deep.heightMm).toBe(25);
+    expect(deep.semiArcMm).toBe(SCALLOP_WIDTH_MM / 2);
+    // Straight sides down to a shoulder at 25 − 10, then a semicircular base of
+    // the half-width centred there: every point of it is 10 mm from that centre.
+    expect(scallopEdgeDepthMm(deep, 0)).toBeCloseTo(25, 10);
+    expect(scallopEdgeDepthMm(deep, 6)).toBeCloseTo(23, 10);
+    expect(Math.hypot(6, scallopEdgeDepthMm(deep, 6) - 15)).toBeCloseTo(10, 10);
   });
 
   it("places no cut at all when the pose leaves none to make", () => {

@@ -22,13 +22,21 @@ export const MIN_PROXIMAL_FENESTRATION_DEPTH_MM = 10;
 export const NARROWEST_SERIES_BRIDGE_MM = 6;
 
 /**
- * Circumferential width of a scallop, in mm.
+ * Widest a scallop is cut, in mm.
  *
- * Not the ostium. A fenestration is cut to the vessel it serves, but all three
+ * Not the ostium. A fenestration is cut to the vessel it serves, but a scallop
+ * is a broad relief in the edge, and it is the width that lets the edge sit
+ * above the vessel without the corners of the cut fouling it. All three
  * scallops in the reference series are 20 mm wide — for an 8 mm coeliac twice
- * and for an SMA once — because a scallop is a broad relief in the edge rather
- * than a hole the vessel has to line up with, and it is the width that lets the
- * edge sit above the vessel without the corners of the cut fouling it.
+ * and for an SMA once.
+ *
+ * There is no single right width, and this is a ceiling rather than a law.
+ * Manufactured scallops run from 10 mm on the off-the-shelf Zenith Fenestrated
+ * to 30 mm on a custom arch device; what is right scales with the vessel and
+ * the aorta it sits in. What every specification does share is that the height
+ * is at least half the width, so the cut is always a well-formed U. That is the
+ * constraint `placeScallop` enforces when a device cannot sit deep enough to
+ * carry the full width.
  */
 export const SCALLOP_WIDTH_MM = 20;
 
@@ -450,7 +458,12 @@ export function placeScallop(
       (vessel.clockFraction - rotationFraction) * circumferenceMm,
       circumferenceMm,
     ),
-    semiArcMm: SCALLOP_WIDTH_MM / 2,
+    // A cut cannot be wider than twice its depth without ceasing to be a U:
+    // the semicircular base alone is a half-width deep. Where the device cannot
+    // sit deep enough for the full width, the cut narrows to the widest
+    // semicircle that fits rather than flattening into a saucer nothing is
+    // manufactured as. The width that comes back is the width to cut.
+    semiArcMm: Math.min(SCALLOP_WIDTH_MM / 2, heightMm),
     heightMm,
   };
 }
@@ -459,16 +472,15 @@ export function placeScallop(
  * Depth of the cut edge at an offset from the scallop's centre, in mm. Zero
  * outside the cut, where the fabric edge is still the fabric edge.
  *
- * Deeper than it is half-wide, the profile is a U: straight sides running down
- * from the edge, closed by a semicircle of the cut's own half-width, so the
- * vessel sits in a round bottom rather than in square corners — which is both
- * how a scallop is cut and where the fabric would otherwise tear.
+ * One profile, always: a U, with straight sides running down from the edge and
+ * closed by a semicircle of the cut's own half-width, so the vessel sits in a
+ * round bottom rather than in square corners — which is both how a scallop is
+ * cut and where the fabric would otherwise tear. A cut only half as deep as it
+ * is wide is the limiting case, a bare semicircle with no sides.
  *
- * Shallower than that, the same semicircle would pinch the cut in at the edge
- * and leave a lens narrower than the scallop is specified to be. So the bottom
- * flattens into an ellipse of the full half-width instead, keeping the cut the
- * width it was cut to and only making it shallower. The two agree where they
- * meet, at a height of exactly one half-width.
+ * It cannot be shallower than that, because `placeScallop` narrows the width
+ * before it comes to this. A cut that stayed 20 mm wide at 8 mm deep would have
+ * to bulge into a saucer, and nothing is manufactured that shape.
  */
 export function scallopEdgeDepthMm(
   scallop: PlacedScallop,
@@ -477,9 +489,7 @@ export function scallopEdgeDepthMm(
   const { semiArcMm, heightMm } = scallop;
   if (Math.abs(arcOffsetMm) >= semiArcMm || heightMm <= 0) return 0;
   const across = Math.sqrt(1 - (arcOffsetMm / semiArcMm) ** 2);
-  return heightMm > semiArcMm
-    ? heightMm - semiArcMm + semiArcMm * across
-    : heightMm * across;
+  return Math.max(0, heightMm - semiArcMm) + semiArcMm * across;
 }
 
 /**

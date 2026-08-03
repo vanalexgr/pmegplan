@@ -26,7 +26,6 @@ import { Input } from "@/components/ui/input";
 import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
   NARROWEST_SERIES_BRIDGE_MM,
-  SCALLOP_WIDTH_MM,
   scallopHeightMm,
   scallopSeparationMm,
 } from "@/lib/planning/anatomy";
@@ -567,7 +566,7 @@ function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
           // as no scallop. `ScallopNote` says what that means.
           value={
             plan.scallop
-              ? `${SCALLOP_WIDTH_MM} × ${plan.scallop.heightMm.toFixed(1)} mm`
+              ? `${(plan.scallop.semiArcMm * 2).toFixed(0)} × ${plan.scallop.heightMm.toFixed(1)} mm`
               : "none"
           }
           detail={
