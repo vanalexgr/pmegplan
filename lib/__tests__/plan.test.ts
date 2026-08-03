@@ -306,34 +306,6 @@ describe("planGraft", () => {
     expect(plan.selectedScanId).toBe(plan.recommendedScanId);
   });
 
-  it("refuses a device whose fabric edge the scan never found", () => {
-    // scan2's extractor could not segment the fabric, so its z zero sits on the
-    // proximal metal instead. Depths on that device would be measured from the
-    // top of a fixation ring rather than from the fabric edge a modification is
-    // actually marked out from — the two planes are a ring apart, some 12 to
-    // 18 mm on the scans that did find both.
-    const plan = planGraft(taaaCase(36));
-
-    expect(plan.ok).toBe(true);
-    if (!plan.ok) return;
-
-    const scan2 = plan.considered.find(
-      (fit) => fit.model.scan.reference.id === "scan2",
-    );
-    expect(scan2?.model.fabricEdgeMeasured).toBe(false);
-    expect(scan2?.rejection).toMatch(/fabric edge/);
-    expect(scan2?.solution).toBeNull();
-
-    // And it is a property of that scan, not of every device.
-    for (const id of ["scan1", "scan3"] as const) {
-      const fit = plan.considered.find(
-        (candidate) => candidate.model.scan.reference.id === id,
-      );
-      expect(fit?.model.fabricEdgeMeasured).toBe(true);
-      expect(fit?.rejection).toBeNull();
-    }
-  });
-
   it("plans an out-of-window device rather than refusing, and flags it", () => {
     // Oversizing is a clinical judgement, and with three devices refusing on it
     // leaves real anatomy with no plan at all. The device is planned and

@@ -362,14 +362,26 @@ export function scallopSeparationMm(
 /**
  * Shallowest the pattern may sit, in mm.
  *
- * Normally the seal rule: the first hole needs fabric above it. With a scallop
- * the edge is already cut, so what bounds the pose instead is that the scallop
- * base cannot sit above the fabric edge — which puts the first fenestration at
- * least the scallop separation down.
+ * Normally the seal rule: the first hole needs fabric above it.
+ *
+ * With a scallop the edge is already cut, and what bounds the pose instead is
+ * that the cut has to clear the vessel it was made for. The nadir tracks the
+ * scalloped ostium's centre — push the pattern in a millimetre and the cut
+ * deepens by the same millimetre — so at the separation exactly, the cut has no
+ * height and the fabric edge lies straight across the ostium. Requiring the
+ * ostium's own radius on top puts the edge at or above its cranial rim, which
+ * is the shallowest pose that leaves the vessel relieved rather than crossed.
+ *
+ * It matters because the depth search stops at this floor and a device that
+ * cannot go deeper would otherwise be handed back a scallop of no height, which
+ * is not a shallower scallop but a covered vessel.
  */
 export function minProximalDepthMm(anatomy: NormalizedAnatomy): number {
   const separation = scallopSeparationMm(anatomy);
-  return separation === null ? MIN_PROXIMAL_FENESTRATION_DEPTH_MM : separation;
+  if (separation === null || anatomy.scalloped === null) {
+    return MIN_PROXIMAL_FENESTRATION_DEPTH_MM;
+  }
+  return separation + anatomy.scalloped.ostiumDiameterMm / 2;
 }
 
 /**

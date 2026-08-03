@@ -49,7 +49,11 @@ describe("scallop", () => {
 
     // The coeliac-to-SMA gap is what seals, not the depth of the SMA hole.
     expect(scallopSeparationMm(anatomy)).toBe(10);
-    expect(minProximalDepthMm(anatomy)).toBe(10);
+    // The floor sits a coeliac radius deeper than the separation. At the
+    // separation exactly the cut has no height and the fabric edge crosses the
+    // coeliac; a radius more puts the edge level with its cranial rim, which is
+    // the shallowest pose that actually relieves the vessel.
+    expect(minProximalDepthMm(anatomy)).toBe(14);
 
     const plain = normalizeAnatomy(coeliacTooClose("preserve"));
     expect(scallopSeparationMm(plain)).toBeNull();
