@@ -32,7 +32,10 @@ import {
   buildBenchCtRenderModel,
   type BenchCtRenderModel,
 } from "@/lib/geometry/benchCtRenderModel";
-import type { BenchCtDeviceDescriptor } from "@/lib/geometry/benchCtDeviceLibrary";
+import {
+  fabricEdgeIsMeasured,
+  type BenchCtDeviceDescriptor,
+} from "@/lib/geometry/benchCtDeviceLibrary";
 import { buildBenchCtStrutSegments } from "@/lib/stentGeometry";
 import type { StrutSegment } from "@/lib/types";
 
@@ -86,6 +89,14 @@ export interface GraftModel {
   sealingRing: SealingRing;
   circumferenceMm: number;
   fabricLengthMm: number;
+  /**
+   * Whether the scan found the proximal fabric edge, or only assumed it.
+   *
+   * False makes the device unplannable rather than merely uncertain: the fabric
+   * edge is the datum every depth is measured from, so an assumed one moves
+   * every hole on the graft together. See `fabricEdgeIsMeasured`.
+   */
+  fabricEdgeMeasured: boolean;
   wireRadiusMm: number;
   /**
    * Measured wire on the unrolled graft, in (arc mm, depth-below-fabric-edge mm).
@@ -334,6 +345,7 @@ export function buildGraftModel(scanId: CtScanId): GraftModel {
     },
     circumferenceMm,
     fabricLengthMm: renderModel.fabricLengthMm,
+    fabricEdgeMeasured: fabricEdgeIsMeasured(descriptor),
     wireRadiusMm: scan.device.wireRadius,
     segments,
     field: buildClearanceField(segments, circumferenceMm),
@@ -375,11 +387,15 @@ function assessFit(
   const oversizeFraction =
     (model.proximalDiameterMm - sealZoneDiameterMm) / sealZoneDiameterMm;
 
-  // Fabric length is the only hard rejection: a device that cannot physically
-  // carry the pattern has nothing to plan. Oversizing outside the window is
-  // flagged and left selectable — see `DeviceFit.oversizeOutOfRange`.
-  const rejection =
-    model.fabricLengthMm < requiredLengthMm
+  // Two hard rejections, and only two. A device that cannot physically carry
+  // the pattern has nothing to plan; a device whose fabric edge the scan never
+  // found has nothing to measure from, since every depth on the plan and every
+  // ruler mark on the back table starts at that edge. Oversizing outside the
+  // window is a clinical judgement on a sound number and is flagged and left
+  // selectable instead — see `DeviceFit.oversizeOutOfRange`.
+  const rejection = !model.fabricEdgeMeasured
+    ? "the scan did not find this device's proximal fabric edge, so there is no datum to measure depths from"
+    : model.fabricLengthMm < requiredLengthMm
       ? `${model.fabricLengthMm.toFixed(0)} mm of fabric, ${requiredLengthMm.toFixed(0)} mm needed`
       : null;
 

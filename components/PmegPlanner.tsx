@@ -561,11 +561,21 @@ function Readout({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
       {scallopHeight !== null ? (
         <Metric
           label={`${anatomy.scalloped?.name} scallop`}
-          value={`${SCALLOP_WIDTH_MM} × ${scallopHeight.toFixed(1)} mm`}
+          // Driven by the cut that was placed, not by the height the pose
+          // implies. Where the device cannot sit deep enough there is no cut,
+          // and "20 × 0.0 mm" would read as a scallop of no depth rather than
+          // as no scallop. `ScallopNote` says what that means.
+          value={
+            plan.scallop
+              ? `${SCALLOP_WIDTH_MM} × ${plan.scallop.heightMm.toFixed(1)} mm`
+              : "none"
+          }
           detail={
-            plan.scallopBridge
-              ? `cut from the fabric edge · ${plan.scallopBridge.edgeToEdgeMm.toFixed(1)} mm of fabric to the ${plan.scallopBridge.vesselName}`
-              : "cut from the fabric edge"
+            plan.scallop === null
+              ? "this device cannot sit deep enough to cut one"
+              : plan.scallopBridge
+                ? `cut from the fabric edge · ${plan.scallopBridge.edgeToEdgeMm.toFixed(1)} mm of fabric to the ${plan.scallopBridge.vesselName}`
+                : "cut from the fabric edge"
           }
         />
       ) : null}

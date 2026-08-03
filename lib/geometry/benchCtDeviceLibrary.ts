@@ -47,6 +47,26 @@ export interface BenchCtDeviceDescriptor {
     z: number;
     d: number;
   }>;
+  /**
+   * Where this descriptor's z zero was put, and which way z runs.
+   *
+   * `fabric` means zero sits on the proximal fabric edge — the datum every
+   * depth in a modification is measured from. `metal` means it sits on the
+   * proximal-most metal instead, which is a different plane by the length of
+   * the bare fixation ring. See `fabricEdgeIsMeasured`.
+   */
+  datum?: {
+    z_zero: "fabric" | "metal";
+    z_direction: string;
+    theta_zero_deg_in_scan_frame?: number;
+    theta_zero_source?: string;
+  };
+  /**
+   * Length of segmented fabric, in mm. Null when the extractor could not
+   * segment the fabric at all — in which case nothing in `rendering` that
+   * refers to a fabric edge was measured.
+   */
+  covered_length_mm?: number | null;
   /** Device-topology annotations; not inferred from CT metal segmentation. */
   rendering?: {
     fabric_proximal_edge_z_mm: number;
@@ -135,6 +155,30 @@ const descriptors = [
 
 /** Read-only in-repository library of validated bench-CT descriptor files. */
 export const BENCH_CT_DEVICE_LIBRARY: readonly BenchCtDeviceDescriptor[] = descriptors;
+
+/**
+ * Whether this scan established where the proximal fabric edge is.
+ *
+ * It is the one landmark a physician modification cannot do without: every
+ * depth on a plan — push-in, hole depth, scallop height, the punch card's whole
+ * vertical axis — is measured down from the fabric edge, and a graft is marked
+ * out by measuring from that edge with a ruler. A scan that never found the
+ * fabric has a `rendering.fabric_proximal_edge_z_mm` that was assumed rather
+ * than measured, and depths taken from it are wrong by however far the real
+ * edge lies from the proximal metal — a bare fixation ring's length, some 12 to
+ * 18 mm on the two scans that do have one.
+ *
+ * Kept as a predicate over the descriptor rather than a list of scan ids, so a
+ * rescan that segments the fabric fixes it by changing the data.
+ */
+export function fabricEdgeIsMeasured(
+  descriptor: BenchCtDeviceDescriptor,
+): boolean {
+  return (
+    descriptor.datum?.z_zero === "fabric" &&
+    typeof descriptor.covered_length_mm === "number"
+  );
+}
 
 export function getBenchCtDeviceDescriptor(
   device: string,
