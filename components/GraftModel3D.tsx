@@ -114,19 +114,7 @@ export function GraftModel3D({
 
     const draw = () => {
       const cssWidth = wrapper.clientWidth;
-      const cssHeight = Math.max(380, Math.min(680, cssWidth * 0.95));
       if (cssWidth <= 0) return;
-
-      const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.round(cssWidth * ratio);
-      canvas.height = Math.round(cssHeight * ratio);
-      canvas.style.width = `${cssWidth}px`;
-      canvas.style.height = `${cssHeight}px`;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-      ctx.clearRect(0, 0, cssWidth, cssHeight);
 
       const topMm = Math.min(0, renderModel.minimumZMm);
       // Crop to the part being planned. A thoracic device is four times longer
@@ -142,6 +130,32 @@ export function GraftModel3D({
       );
       const spanMm = bottomMm - topMm;
       const maxRadiusMm = graft.proximalDiameterMm / 2;
+
+      // Frame the canvas to the device rather than to a fixed aspect ratio.
+      // A thoracic working zone runs 110 mm down a 42 mm tube, and fitting that
+      // into a near-square canvas fits it by shrinking it — the graft ends up a
+      // quarter of the width with the rest of the frame empty, which is no use
+      // for reading a scallop. Ask for the height the model needs at the width
+      // it can have, and cap it where a panel stops being scrollable.
+      const widthLimitedScale = cssWidth / (maxRadiusMm * 2.4);
+      const wantedHeight =
+        (spanMm * Math.cos(DEFAULT_ELEVATION) + maxRadiusMm * 1.6) *
+        widthLimitedScale;
+      const cssHeight = Math.max(
+        380,
+        Math.min(cssWidth * 1.6, Math.round(wantedHeight)),
+      );
+
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.round(cssWidth * ratio);
+      canvas.height = Math.round(cssHeight * ratio);
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
 
       const scale =
         0.9 *
@@ -282,6 +296,32 @@ export function GraftModel3D({
       };
 
       /**
+       * Text on its own patch of background.
+       *
+       * Every label here lands on top of the lattice, and the lattice is dark
+       * and busy enough to break a 10 px glyph in half. The plate is what makes
+       * the difference between a scallop that is named and one that is nearly
+       * named.
+       */
+      const plate = (
+        text: string,
+        x: number,
+        y: number,
+        colour: string,
+        weight = 600,
+      ) => {
+        ctx.font = `${weight} 10px "IBM Plex Mono", ui-monospace, monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const width = ctx.measureText(text).width + 6;
+        ctx.fillStyle = "rgba(255,255,255,0.92)";
+        ctx.fillRect(x - width / 2, y - 7, width, 14);
+        ctx.fillStyle = colour;
+        ctx.fillText(text, x, y);
+        ctx.textBaseline = "alphabetic";
+      };
+
+      /**
        * Clock positions read off the graft itself.
        *
        * Hour lines run down the near surface and the label sits on the fabric
@@ -309,12 +349,23 @@ export function GraftModel3D({
           }
           ctx.stroke();
           ctx.setLineDash([]);
+        }
+      };
 
+      /** The hour numerals, kept for the final pass so nothing overprints them. */
+      const drawClockLabels = () => {
+        for (let hour = 0; hour < 12; hour += 1) {
+          const theta = (hour / 12) * Math.PI * 2;
+          if (!facesViewer(theta)) continue;
+          const anterior = hour === 0;
           const label = project(theta, 0, radiusAt(0));
-          ctx.fillStyle = anterior ? "#0f766e" : "rgba(77,101,97,0.85)";
-          ctx.font = `${anterior ? 700 : 500} 10px "IBM Plex Mono", ui-monospace, monospace`;
-          ctx.textAlign = "center";
-          ctx.fillText(`${hour === 0 ? 12 : hour}`, label.sx, label.sy - 6);
+          plate(
+            `${hour === 0 ? 12 : hour}`,
+            label.sx,
+            label.sy - 8,
+            anterior ? "#0f766e" : "rgba(77,101,97,0.85)",
+            anterior ? 700 : 500,
+          );
         }
       };
 
@@ -339,12 +390,13 @@ export function GraftModel3D({
           ctx.stroke();
         }
         ctx.setLineDash([]);
+      };
 
+      const drawEdgeLabels = () => {
+        // Clear of the hour numerals rather than sharing their line, which on a
+        // near-square frame put "FABRIC EDGE" straight through the digits.
         const edge = project(Math.PI, 0, radiusAt(0));
-        ctx.fillStyle = "#0f766e";
-        ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
-        ctx.textAlign = "center";
-        ctx.fillText("FABRIC EDGE", edge.sx, edge.sy - 10);
+        plate("FABRIC EDGE", edge.sx, edge.sy - 24, "#0f766e");
 
         // Name the cut where it faces the viewer, so turning the graft to the
         // scallop tells you it is one rather than a gap in the render.
@@ -352,13 +404,11 @@ export function GraftModel3D({
           const theta = (scallop.arcMm / circumferenceMm) * Math.PI * 2;
           if (facesViewer(theta)) {
             const point = project(theta, scallop.heightMm / 2, radiusAt(0));
-            ctx.fillStyle = "#0f766e";
-            ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
-            ctx.textAlign = "center";
-            ctx.fillText(
+            plate(
               `${scallop.vessel.name} SCALLOP ${scallop.heightMm.toFixed(1)} mm`,
               point.sx,
               point.sy,
+              "#0f766e",
             );
           }
         }
@@ -530,7 +580,8 @@ export function GraftModel3D({
         }
       };
 
-      // Far side first, then the surface, then the near side over it.
+      // Far side first, then the surface, then the near side over it. Every
+      // label goes last, so the lattice never lands on top of a word.
       drawWire(false);
       drawSurface(false);
       drawSurface(true);
@@ -539,6 +590,8 @@ export function GraftModel3D({
       drawFabricEdges();
       drawWire(true);
       drawOpenings();
+      drawClockLabels();
+      drawEdgeLabels();
       drawMeasurements();
     };
 
