@@ -136,6 +136,48 @@ phase, and diameter (twice the 90th-percentile radius of that ring's metal).
 Quoted apex localisation uncertainty: **0.41 mm (scan1), 0.37 mm (scan2),
 0.48 mm (scan3)**.
 
+### 3.5 Width along the device
+
+Each descriptor also carries a `diameter_profile`: one diameter per axial slice,
+straight from the segmenter. **It is not used**, and the reason is worth
+recording because the failure is quiet.
+
+The profile drops out wherever segmentation lost the device — scan3 reads
+**25.7 mm at z = 119** on a 32 mm graft, and has similar dropouts at z = 51, 77,
+94, 114, 178 and 180 — and between rings it measures fabric with no metal behind
+it. Interpolating through that gave the two *cylindrical* Zenith Alphas a taper
+they do not have (scan1 swinging 128 to 134 mm of circumference, scan3 92 to
+106) and put steps and reversals in the TX2's real one.
+
+The width at a depth is therefore taken from the **ring diameters** — one fitted
+number per ring, at the ring's centre — with straight lines between them. This
+reproduces scan2's 42-to-32 taper monotonically and removes the invented one
+from the other two. A test asserts the monotonicity, because the raw profile
+could not hold it.
+
+**Bare fixation rings are excluded from this profile**, because it is the width
+of the *fabric*. A bare ring sits above the fabric edge with nothing holding it
+in, so it splays: 43.4 mm against a 40.7 mm first covered ring on scan1, and
+36.1 against 29.7 on scan3. Including it put the circumference at the fabric
+edge 13% wide on scan3 — and that circumference is the frame the clearance
+raster wraps in and the punch card is drawn at. Apices are drawn at **their own
+ring's** diameter rather than off this profile, so the flare is still rendered
+where the scan found it.
+
+The remaining consequence is that the circumference at the fabric edge is
+*narrower* than the label on both Alphas — 40.7 and 29.7 against 42 and 32 —
+because the proximal ring relaxes inward on the bench. That is the free state,
+not an error, and it is deliberately not corrected: rescaling would move every
+strut relative to every hole. Oversizing is judged against the label instead
+(9.2). Measured from the fabric edge, both Alphas therefore widen slightly
+toward the body, which is the opposite sign from a design taper — the matrix
+test asserts the sign rather than a magnitude, since a magnitude bound would
+only have hidden the bare-ring contamination.
+
+This matters more than a rendering detail: since section 6.4 every
+circumferential millimetre the surgeon measures is converted at the local
+circumference, so this curve determines the marking template.
+
 ---
 
 ## 4. The wire map
@@ -273,10 +315,17 @@ The surgeon enters:
 1. **The full splanchnic chain** — coeliac, SMA, both renals — as centreline
    gaps between consecutive vessels, ostium diameters, and clock positions on
    axial CT (12:00 anterior, 3:00 patient's left).
-2. **Which vessels take a fenestration.** Anything unticked is *preserved*, not
-   covered.
+2. **How each vessel is treated** — fenestrated, scalloped, covered, or
+   preserved. Preserved is the default: anything not named is kept perfused and
+   constrains the plan accordingly.
 3. **Aortic diameter at the seal zone** and **healthy aorta above the top
    vessel**.
+
+A vessel that lies *between* two fenestrated vessels cannot be preserved — the
+fabric runs over it at every pose. That anatomy is refused at input with a
+reason rather than solved. It used to produce a negative push-in ceiling and so
+a silent refusal of every device, on configurations as ordinary as fenestrating
+the coeliac, SMA and left renal while leaving the right renal.
 
 The whole chain is required even when only the renals are fenestrated, because
 an unfenestrated vessel still constrains the plan (6.3).
@@ -288,8 +337,8 @@ present).
 ### 6.2 Constraints
 
 - **Seal:** the most proximal fenestration sits at least **10 mm** below the
-  proximal fabric edge. Scallops are not used in this workflow, so this applies
-  uniformly and cannot be sidestepped by an edge cut.
+  proximal fabric edge. A scallop does not sidestep this: the cut seals nothing,
+  so the rule is applied below the cut rather than below the nominal edge.
 - **Rotation:** capped at **±45°**, accepting a deeper pose rather than a larger
   turn.
 - **Oversizing:** **10–30%** at the proximal seal, judged against the **labelled**
@@ -310,6 +359,80 @@ renal. It yields a device-independent preoperative triage threshold —
 
 — below which a two-fenestration juxtarenal PMEG cannot seal, and the SMA needs
 a fenestration of its own. The application reports the limiting vessel by name.
+
+### 6.4 Angle is the coordinate, millimetres are derived
+
+An opening's circumferential position is carried as a **fraction of a turn**,
+and converted to millimetres at **that opening's own depth**, using the local
+circumference from section 3.5.
+
+The alternative — one circumference for the whole device, the proximal one — was
+what the planner did originally, and it is wrong on a tapered graft in a way
+that hides well. Both hole arcs and wire arcs were computed as `angle × C₀/2π`,
+so their *angular* relation was preserved and strut-conflict detection was
+sound. What was wrong was every circumferential millimetre below the taper.
+On scan2, measured against its own ring profile:
+
+| depth below fabric edge | true circumference | overstated by |
+|---|---|---|
+| 0 mm | 133.8 mm | — |
+| 50 mm (renals, typical case) | 126.9 mm | 5.4% |
+| 80 mm | 111.7 mm | 19.8% |
+| 100 mm | 104.3 mm | 28.3% |
+
+(scan2 carries no bare fixation ring — the TX2 proximal component is covered to
+its edge with internal barbs — so its fabric edge and its metal top are the same
+plane, and the figures above need no adjustment for 3.5's exclusion.)
+
+scan1 and scan3 are cylindrical, so this reads as "the arithmetic is different
+for different devices" — it is, and scan2 is the odd one out. It affected
+reported clearances, hole-to-hole spacing, the scallop's edge-to-edge bridge,
+the clock a hole is labelled with, and most seriously the punch card, which is
+the thing that gets measured against.
+
+Two frames therefore coexist and are named in the code:
+
+- the **reference frame** at the proximal circumference, which is where the
+  strut map and the clearance raster live, and the only frame in which holes and
+  struts line up;
+- each opening's **local frame** at its own depth, which is what a tape laid
+  round the graft there would read.
+
+Angles are preserved between them; millimetres are not. A distance read off the
+raster is scaled by `C(depth)/C₀` to bring it back onto the graft.
+
+### 6.5 Scallops
+
+A scallop is a **specification, not a by-product**. The alternative — deriving
+the cut from whatever depth each device happened to be solved at — gave one
+anatomy three different scallops, which is what first exposed section 6.4.
+
+- **Shape.** Always a U: parallel sides running down from the fabric edge,
+  closed by a semicircle of the cut's own half-width. Every manufactured spec
+  found has height ≥ half the width, so the U is always well-formed. Where a
+  device cannot sit deep enough to carry the requested width, the cut *narrows*
+  to the widest semicircle that fits rather than flattening into a saucer
+  nothing is made as.
+- **Size.** Default width 20 mm, as a ceiling. Reference points: Cook ZFEN
+  scallops are 10 mm wide and 6–12 mm high; a Cook custom arch device runs
+  30 × 20 mm.
+- **Depth.** The nadir sits at the scalloped ostium's **caudal rim**, not its
+  centre, so no fabric crosses the vessel. Both figures are reported: the cut
+  depth, and the nadir-to-centre distance a Cook plan sheet quotes.
+- **Consequence for the search.** A specified scallop fixes the push-in, leaving
+  the solver rotation alone. Devices that cannot clear at that pose are flagged
+  with the smallest change in cut that would clear, so the trade between seal and
+  clearance is visible rather than silently taken.
+
+The fabric bridge between the cut and the nearest opening is measured **edge to
+edge on the unrolled graft**, over the seam where that is the shorter way round.
+Note that edge-to-edge does not bound nadir-to-centre and vice versa: the first
+is a shortest path, the second a purely axial run, so where the two are far
+apart on the clock the real fabric between them is the longer of the two. What
+must hold — and is asserted — is that a positive bridge and a merged aperture
+cannot coexist.
+
+The application states no minimum bridge, because there is no universal one.
 
 ---
 
@@ -337,6 +460,22 @@ finite**. Using `Infinity` makes the transform compute `Infinity − Infinity =
 NaN`, the parabola comparison always fails, and the sweep index decrements
 without bound.
 
+**Taper.** The raster has a single wrap period and so must be built in the
+reference frame (6.4). On a tapered device that frame is stretched
+circumferentially wherever the graft is narrower, so a distance read off it is
+longer than the fabric it crosses; the query scales by `C(depth)/C₀` on the way
+out. This is exact where the nearest wire lies beside the point — which on a
+lattice of near-circumferential struts is the usual case — and where it lies
+above or below, the axial component is shrunk too and the answer comes out
+short. Short is the safe direction for a field whose contract is to be a lower
+bound.
+
+A second note, this one about cost: the scale factor must be **tabulated per
+grid row**, not evaluated per query. Reading the diameter profile inside
+`distanceAt` — called millions of times in one sweep — took the test suite from
+4 seconds to over three minutes. One value per 0.25 mm row is finer than the
+profile itself.
+
 ### 7.2 Pose search
 
 Because the pattern is rigid, `d₁` and `θ` are scanned **together** on a 2-D
@@ -349,6 +488,11 @@ that meets the clearance target (default 1 mm); among those, the *smallest*
 turn. Maximising clearance outright would push the fabric edge as far cranially
 as constraints allow, buying fractions of a millimetre at the cost of real
 aortic coverage.
+
+When a scallop is specified (6.5) the depth is **pinned** rather than searched,
+and only rotation is free. The pinned pose is still evaluated against the field,
+so a device that cannot take the cut is reported as such together with the cut
+it could take.
 
 Where the cap rejects a better pose, the application reports what was given up
 rather than silently returning the degraded answer.
@@ -386,13 +530,21 @@ map, so they cannot disagree.
 
 **Flat view** — the graft unrolled to one scale in both axes. Measured wire, the
 region *above* the fabric edge (where the Alphas' fixation ring sits, ~12 mm
-proximal), the seal band, hourly clock grid, and openings at true diameter.
+proximal), the seal band, hourly clock grid, openings at true diameter, and the
+scallop cut into the proximal edge so the edge the view draws is the edge after
+modification. This view is deliberately drawn in the **reference frame**: it
+exists to show which window a hole falls in, and that relationship only holds in
+the one frame where holes and struts share a ruler. Openings are therefore drawn
+at `turn × C₀` and their widths stretched by `C₀/C(depth)`.
 
 **3-D view** — the device reconstructed by azimuth/elevation rigid-body
-projection, drawn from the scan's own diameter profile so a tapered device
-tapers because it was measured to. Near/far surface sorting, drag to rotate and
-tilt, zoom, and hour lines down the near surface. Selecting a hole turns the
-graft to face it.
+projection, drawn from the scan's own ring profile so a tapered device tapers
+because it was measured to. Near/far surface sorting, drag to rotate and tilt,
+zoom, and hour lines down the near surface. Selecting a hole turns the graft to
+face it. Everything here is placed by **angle**, which is the frame a cylinder
+is naturally drawn in; a hole's width in angle is its arc over the local
+circumference, so the same physical hole subtends more of a narrow device than a
+wide one — as it does on the bench.
 
 **Hole measurements** — selecting an opening reports the free fabric above,
 below and to each side, plus the nearest apex above and valley below with clock
@@ -408,6 +560,15 @@ per millimetre: measured wire, seal line, hourly clock grid labelled top and
 bottom, depth scale, and each opening at true diameter with a punch cross
 extending past the rim. A 50 mm calibration rule is drawn on it; printing hides
 all other page content, since a browser will otherwise scale the sheet to fit.
+
+The sheet is drawn in the reference frame, for the same reason as the flat view.
+**On a tapered device that makes it a guide to which window a hole falls in and
+not a wrapper**, and it says so: where the taper exceeds 2 mm over the sheet it
+carries the true circumference at the fabric edge and at the deepest hole
+(134 mm and 116 mm on scan2 for the four-vessel case). The cut list beside it
+gives each hole's arc from 12:00 **measured at that hole's own depth**, which is
+the number to mark by. A full conical development of the sheet is not
+implemented; this is the honest interim.
 
 *A canvas pitfall worth recording:* `ctx.font` is parsed by the CSS font
 shorthand grammar, which **rejects `var()` and leaves the previous value in
@@ -453,6 +614,11 @@ device look acceptable. Oversizing now uses the labelled diameter; the unrolled
 circumference stays on measured geometry, since rescaling it would move every
 strut relative to every hole.
 
+Those same free-state figures are what the circumference at the fabric edge now
+resolves to (3.5), so the two sections are describing one fact from two sides:
+the proximal ring is narrower than the label, oversizing must not be read from
+it, and the geometry frame must not be rescaled to it.
+
 ### 9.3 Apex rows remain idealised
 
 Section 4.1's oscillation counts and section 4.3's p95 tails are the same
@@ -460,13 +626,30 @@ defect. Conflict detection no longer depends on the apex rows, but they still
 drive ring-level display, the sealing-ring geometry, and the apex/valley
 landmarks offered as marking references.
 
-### 9.4 Free state only
+### 9.4 The taper is handled, not eliminated
+
+Three approximations remain after section 6.4, all on the one tapered device:
+
+1. **The clearance field** is rasterised in the reference frame and scaled on
+   query. Exact for circumferential separation, conservative for axial — it
+   reports less clearance than exists, never more.
+2. **The printed sheet** is a cylindrical development of a conical surface. It
+   preserves which window a hole is in, not the distance round the graft; the
+   cut list carries the latter.
+3. **The scallop's width** is treated as a constant angle over the cut's depth,
+   since it is marked from the fabric edge. On scan2 that is a 1.3% error over
+   29 mm.
+
+Each is documented at the point it is taken, and each is in the direction that
+does not make a plan look better than it is.
+
+### 9.5 Free state only
 
 Everything is measured unconstrained. As argued in section 1 this is the correct
 frame for strut conflict, but it is *not* the deployed configuration, and the
 application does not model deployment.
 
-### 9.5 Not clinically validated
+### 9.6 Not clinically validated
 
 No bench cutting, no imaging of a modified device against its plan, no clinical
 series. The clearance figures are geometric predictions from a free-state scan.
@@ -480,14 +663,26 @@ Python (SimpleITK, NumPy, SciPy).
 
 - `tools/extract_wire_map.py` — wire map extraction and datum fitting
 - `library/*.json` — per-device descriptors including the wire map
-- `lib/planning/anatomy.ts` — anatomy model, chain normalisation, opening placement
+- `lib/planning/anatomy.ts` — anatomy model, chain normalisation, opening and
+  scallop placement, the bridge measurement
 - `lib/planning/clearanceField.ts` — distance transform
 - `lib/planning/poseSolver.ts` — 2-D pose search
 - `lib/planning/plan.ts` — device selection and the planning pipeline
 - `lib/planning/holeMeasurements.ts` — per-hole marking measurements
+- `lib/geometry/benchCtRenderModel.ts` — ring profile, apex points, fabric extent
 - `lib/stentGeometry.ts` — wire map to strut segments
 - `components/` — flat view, 3-D view, punch card, planner
 
-Roughly 111 unit tests. Clearance-field accuracy, seam wrapping, datum
-agreement, and the slide-distance geometry are all covered by tests asserting
-against independently computed values rather than recorded outputs.
+209 unit tests. Clearance-field accuracy, seam wrapping, datum agreement, and
+the slide-distance geometry are all covered by tests asserting against
+independently computed values rather than recorded outputs.
+
+`lib/__tests__/geometryMatrix.test.ts` runs the configuration matrix — four
+fenestrations; three with the coeliac preserved; two renals with the SMA
+scalloped; three with the coeliac scalloped — against **all three scans**, plus
+the edge cases (single fenestration, no renals, a covered vessel, a cut
+straddling the 12:00 seam, a vessel that cannot be preserved). It asserts clock
+in equals clock out at every opening's own circumference, that the entered gaps
+survive, that the nadir lands on the caudal rim, and that the cut's **sampled
+outline** is identical on every device — a shape assertion, not just width and
+height, since the reported bug was a difference in shape.

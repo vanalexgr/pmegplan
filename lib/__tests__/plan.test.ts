@@ -80,15 +80,28 @@ describe("buildGraftModel", () => {
     // or every strut moves relative to every opening.
     const model = buildGraftModel("scan1");
 
-    // Near the 42 mm label but not equal to it: the proximal sealing ring on
-    // this scan measures 42.4, and which side of nominal a free-state device
-    // falls is not something to assert — that it came from the scan is.
-    expect(model.circumferenceMm).not.toBe(Math.PI * 42);
-    expect(model.circumferenceMm).toBeCloseTo(Math.PI * 42, -0.5);
+    // The first covered ring, which on this scan measures 40.7 against a 42.3
+    // body — the proximal ring relaxes inward in the free state because nothing
+    // holds the end open. Narrower than the 42 mm label for that reason, and
+    // deliberately not corrected to it: rescaling would move every strut
+    // relative to every hole. Oversizing is judged against the label instead.
     expect(model.circumferenceMm).toBeCloseTo(
       Math.PI * model.renderModel.diameterAt(0),
       6,
     );
+    expect(model.circumferenceMm).toBeLessThan(Math.PI * 42);
+
+    // And it is the fabric's width, not the bare fixation ring's. That ring
+    // splays clear of the fabric at 43.4 mm, and letting it into the profile
+    // put the reference frame 13% wide on scan3.
+    const bare = model.renderModel.rings.find(
+      (ring) => ring.kind === "bare_fixation",
+    );
+    expect(bare).toBeDefined();
+    const bareRadiusMm = Math.max(
+      ...(bare?.points.map((point) => point.radiusMm) ?? [0]),
+    );
+    expect(bareRadiusMm * 2).toBeGreaterThan(model.renderModel.diameterAt(0) + 2);
   });
 
   it("names the device by its catalog code and ordered size", () => {

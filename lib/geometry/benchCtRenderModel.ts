@@ -1,6 +1,7 @@
 import type {
   BenchCtApex,
   BenchCtDeviceDescriptor,
+  BenchCtRing,
 } from "@/lib/geometry/benchCtDeviceLibrary";
 
 export interface BenchCtSurfacePoint {
@@ -126,6 +127,13 @@ function ringMaximumZ(
  * A ring's `diameter_mm` is fitted to that whole ring's apices, so there is one
  * robust number per ring. Straight lines between ring centres reproduce scan2's
  * real 42-to-32 taper and leave the other two flat, which is what they are.
+ *
+ * Bare fixation rings are excluded. This profile is the width of the *fabric*,
+ * and a bare ring sits above the fabric edge with nothing holding it in, so it
+ * splays: 43.4 mm against a 40.7 mm first covered ring on scan1, and 36.1
+ * against 29.7 on scan3. Including it dragged the circumference at the fabric
+ * edge 13% wide on scan3 — and that circumference is the frame the raster wraps
+ * in and the punch card is drawn at.
  */
 function ringDiameterProfile(
   descriptor: BenchCtDeviceDescriptor,
@@ -133,8 +141,9 @@ function ringDiameterProfile(
   const cached = ringProfileCache.get(descriptor);
   if (cached) return cached;
 
+  const bare = bareRingIndices(descriptor);
   const profile = descriptor.rings
-    .filter((ring) => ring.diameter_mm > 0)
+    .filter((ring) => ring.diameter_mm > 0 && !bare.has(ring.index))
     .map((ring) => ({
       z: (ringMinimumZ(ring) + ringMaximumZ(ring)) / 2,
       d: ring.diameter_mm,
@@ -144,6 +153,15 @@ function ringDiameterProfile(
 
   ringProfileCache.set(descriptor, profile);
   return profile;
+}
+
+/** Which rings sit above the fabric rather than inside it. */
+function bareRingIndices(descriptor: BenchCtDeviceDescriptor): Set<number> {
+  const fixationRingCount = descriptor.geometry?.proximal_fixation.ring_count ?? 0;
+  return new Set(
+    descriptor.rendering?.proximal_bare_ring_indices ??
+      Array.from({ length: fixationRingCount }, (_, index) => index),
+  );
 }
 
 const ringProfileCache = new WeakMap<
@@ -177,15 +195,27 @@ function interpolateDiameter(
   return fallback;
 }
 
+/**
+ * An apex sits at its own ring's radius, not at the fabric's radius there.
+ *
+ * The two differ on a bare fixation ring, which splays clear of the fabric —
+ * and taking its apices off the fabric profile would draw it at the covered
+ * diameter, hiding the flare the scan actually found. A ring's own fitted
+ * diameter is also the more direct measurement.
+ */
 function pointFromApex(
   apex: BenchCtApex,
+  ring: BenchCtRing,
   descriptor: BenchCtDeviceDescriptor,
   fabricStartMm: number,
 ): BenchCtSurfacePoint {
   return {
     thetaRad: (apex.theta_deg / 360) * Math.PI * 2,
     zMm: apex.z_mm - fabricStartMm,
-    radiusMm: interpolateDiameter(descriptor, apex.z_mm) / 2,
+    radiusMm:
+      (ring.diameter_mm > 0
+        ? ring.diameter_mm
+        : interpolateDiameter(descriptor, apex.z_mm)) / 2,
   };
 }
 
@@ -218,7 +248,7 @@ export function buildBenchCtRenderModel(
     kind: bareRingIndices.has(ring.index) ? "bare_fixation" as const : "covered" as const,
     points: [...ring.proximal_apices, ...ring.distal_apices]
       .sort((a, b) => a.theta_deg - b.theta_deg)
-      .map((apex) => pointFromApex(apex, descriptor, fabricStartMm)),
+      .map((apex) => pointFromApex(apex, ring, descriptor, fabricStartMm)),
   }));
 
   const axialFlip = descriptor.rendering?.anatomical_proximal_z === "high";
@@ -241,9 +271,9 @@ export function buildBenchCtRenderModel(
   const barbs = barbLengthMm > 0
     ? descriptor.rings
       .filter((ring) => bareRingIndices.has(ring.index))
-      .flatMap((ring) => ring.proximal_apices)
-      .map((apex, index) => {
-        const base = pointFromApex(apex, descriptor, fabricStartMm);
+      .flatMap((ring) => ring.proximal_apices.map((apex) => ({ apex, ring })))
+      .map(({ apex, ring }, index) => {
+        const base = pointFromApex(apex, ring, descriptor, fabricStartMm);
         const side = index % 2 === 0 ? 1 : -1;
         const tip = {
           thetaRad: base.thetaRad + side * 0.045,

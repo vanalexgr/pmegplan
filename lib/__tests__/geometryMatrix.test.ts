@@ -323,12 +323,23 @@ describe("the library's taper", () => {
       return Math.abs(proximalMm - distalMm) / proximalMm;
     };
 
-    // Both Alphas are nominally cylindrical. What spread they have is the
-    // proximal sealing stent standing out from the body in the free state —
-    // scan3's flares to 33.7 against a 31.6 body — not a taper down the device.
-    expect(spread(buildGraftModel("scan1"))).toBeLessThan(0.05);
-    expect(spread(buildGraftModel("scan3"))).toBeLessThan(0.05);
-    expect(spread(buildGraftModel("scan2"))).toBeGreaterThan(0.2);
+    // Only the TX2 is a tapered device, and only it narrows distally. Both
+    // Alphas widen slightly instead: their first covered ring relaxes inward in
+    // the free state (40.7 against a 42.3 body on scan1, 29.7 against 31.6 on
+    // scan3), so measuring from the fabric edge the body is the wider end.
+    // Asserting the sign is what separates a design taper from that relaxation;
+    // asserting a small magnitude would only have hidden it.
+    for (const scanId of ["scan1", "scan3"] as const) {
+      const model = buildGraftModel(scanId);
+      expect(model.circumferenceAtDepthMm(100), scanId).toBeGreaterThan(
+        model.circumferenceMm,
+      );
+      expect(spread(model), scanId).toBeLessThan(0.12);
+    }
+
+    const tx2 = buildGraftModel("scan2");
+    expect(tx2.circumferenceAtDepthMm(100)).toBeLessThan(tx2.circumferenceMm);
+    expect(spread(tx2)).toBeGreaterThan(0.2);
   });
 
   it("runs the TX2's taper one way, without reversals", () => {
