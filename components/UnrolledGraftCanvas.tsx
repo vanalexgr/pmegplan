@@ -97,6 +97,24 @@ export function UnrolledGraftCanvas({
       const y = (depthMm: number) => PADDING.top + (depthMm - topMm) * scale;
 
       /**
+       * An opening's position and size in the frame the wire is drawn in.
+       *
+       * The wire map is laid out at the proximal circumference and an opening's
+       * arc is measured where the opening sits, so on a tapered device the two
+       * are different rulers. Bringing the opening back into the wire's frame
+       * is what keeps a hole drawn between the struts it really falls between —
+       * this view exists to show that relationship, so it is the one to
+       * preserve. Millimetre figures elsewhere stay in the graft's own scale.
+       */
+      const inWireFrame = (opening: {
+        turnFraction: number;
+        circumferenceMm: number;
+      }) => ({
+        centreArcMm: opening.turnFraction * circumferenceMm,
+        stretch: circumferenceMm / opening.circumferenceMm,
+      });
+
+      /**
        * Where the fabric starts at a given arc position, in mm.
        *
        * Zero everywhere except inside a scallop, where the edge has been cut
@@ -105,11 +123,16 @@ export function UnrolledGraftCanvas({
        */
       const edgeDepthMm = (arcMm: number) => {
         if (!scallop) return 0;
+        // Same frame conversion as the openings. The cut's own arc is measured
+        // at its centre depth, and `scallopEdgeDepthMm` wants an offset in that
+        // ruler, so the reference-frame offset this view works in is divided
+        // back out before asking.
+        const { centreArcMm, stretch } = inWireFrame(scallop);
         let depthMm = 0;
         for (const shift of [0, -circumferenceMm, circumferenceMm]) {
           depthMm = Math.max(
             depthMm,
-            scallopEdgeDepthMm(scallop, arcMm - (scallop.arcMm + shift)),
+            scallopEdgeDepthMm(scallop, (arcMm - (centreArcMm + shift)) / stretch),
           );
         }
         return depthMm;
@@ -194,15 +217,17 @@ export function UnrolledGraftCanvas({
         const label = `${scallop.vessel.name} SCALLOP ${(
           scallop.semiArcMm * 2
         ).toFixed(1)} × ${scallop.heightMm.toFixed(1)} mm`;
+        const { centreArcMm, stretch } = inWireFrame(scallop);
+        const halfWidthMm = scallop.semiArcMm * stretch;
         // Beside the cut, flipped inwards when it would run off the sheet.
         const rightOfCut =
-          x(scallop.arcMm + scallop.semiArcMm) + 6 + ctx.measureText(label).width <
+          x(centreArcMm + halfWidthMm) + 6 + ctx.measureText(label).width <
           x(circumferenceMm);
         ctx.textAlign = rightOfCut ? "left" : "right";
         ctx.fillStyle = "#0f766e";
         ctx.fillText(
           label,
-          x(scallop.arcMm + (rightOfCut ? 1 : -1) * (scallop.semiArcMm + 6)),
+          x(centreArcMm + (rightOfCut ? 1 : -1) * (halfWidthMm + 6)),
           y(scallop.heightMm / 2) + 3,
         );
       }
@@ -246,11 +271,13 @@ export function UnrolledGraftCanvas({
       hitTargets.current = [];
       for (const opening of openings) {
         const selected = opening.vessel.name === selectedVessel;
+        const { centreArcMm, stretch } = inWireFrame(opening);
+        const drawnRadiusMm = opening.radiusMm * stretch;
         for (const shift of [0, -circumferenceMm, circumferenceMm]) {
-          const centreArc = opening.arcMm + shift;
+          const centreArc = centreArcMm + shift;
           if (
-            centreArc + opening.radiusMm < 0 ||
-            centreArc - opening.radiusMm > circumferenceMm
+            centreArc + drawnRadiusMm < 0 ||
+            centreArc - drawnRadiusMm > circumferenceMm
           ) {
             continue;
           }
@@ -259,14 +286,14 @@ export function UnrolledGraftCanvas({
             vesselName: opening.vessel.name,
             x: x(centreArc),
             y: y(opening.depthMm),
-            radiusPx: Math.max(10, opening.radiusMm * scale),
+            radiusPx: Math.max(10, drawnRadiusMm * scale),
           });
 
           ctx.beginPath();
           ctx.ellipse(
             x(centreArc),
             y(opening.depthMm),
-            opening.semiArcMm * scale,
+            opening.semiArcMm * stretch * scale,
             opening.semiDepthMm * scale,
             0,
             0,
@@ -280,7 +307,7 @@ export function UnrolledGraftCanvas({
           ctx.lineWidth = selected ? 3 : 1.5;
           ctx.stroke();
 
-          const arm = Math.min(5, opening.radiusMm * scale * 0.7);
+          const arm = Math.min(5, drawnRadiusMm * scale * 0.7);
           ctx.beginPath();
           ctx.moveTo(x(centreArc) - arm, y(opening.depthMm));
           ctx.lineTo(x(centreArc) + arm, y(opening.depthMm));
@@ -291,7 +318,10 @@ export function UnrolledGraftCanvas({
           ctx.fillStyle = "#7c2d12";
           ctx.font = "600 10px \"IBM Plex Mono\", ui-monospace, monospace";
           ctx.textAlign = "left";
-          const clock = arcMmToClockText(opening.arcMm, circumferenceMm);
+          const clock = arcMmToClockText(
+            opening.arcMm,
+            opening.circumferenceMm,
+          );
           ctx.fillText(
             `${opening.vessel.name} ${clock}`,
             x(centreArc) + opening.semiArcMm * scale + 4,

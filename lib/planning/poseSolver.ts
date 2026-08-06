@@ -1,12 +1,16 @@
 import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
-  SCALLOP_WIDTH_MM,
+  defaultScallopHeightMm,
   measureScallopBridge,
   minProximalDepthMm,
   openingHalfSize,
   placeOpenings,
   placeScallop,
+  pushInForScallopMm,
+  referenceArcMm,
+  scallopHeightMm,
   scallopSeparationMm,
+  type GraftCircumference,
   type GraftPose,
   type NormalizedAnatomy,
 } from "@/lib/planning/anatomy";
@@ -118,6 +122,20 @@ export interface PoseSolution {
     marginMm: number;
     proximalDepthMm: number;
   } | null;
+  /**
+   * Where the cut would have had to sit for this device to clear it, when a
+   * specified scallop pinned the pose somewhere that does not.
+   *
+   * Null when the pose was not pinned, when it cleared, or when no depth in
+   * range would have cleared — in which case the device cannot carry the plan
+   * and naming a depth would be false comfort.
+   */
+  scallopRelief: {
+    proximalDepthMm: number;
+    /** The cut that depth would give, in mm. Shallower than the one asked for. */
+    heightMm: number;
+    marginMm: number;
+  } | null;
   clearances: OpeningClearance[];
   map: PoseMap | null;
 }
@@ -170,11 +188,17 @@ export function proximalDepthLimit(
   }
   const proximalFenestrationZMm = anatomy.proximalFenestrationZMm;
 
-  const bounds = anatomy.preserved.map((vessel) => ({
-    maxDepthMm:
-      vessel.zMm - vessel.ostiumDiameterMm / 2 - proximalFenestrationZMm,
-    limitingVesselName: vessel.name as string | null,
-  }));
+  // Only what sits above the first fenestration can cap the push-in. A vessel
+  // below it is already distal to the fabric edge however shallow the pose, so
+  // its bound would be negative and would refuse every plan — `normalizeAnatomy`
+  // rejects that case at the input instead, where it can be explained.
+  const bounds = anatomy.preserved
+    .filter((vessel) => vessel.zMm > proximalFenestrationZMm)
+    .map((vessel) => ({
+      maxDepthMm:
+        vessel.zMm - vessel.ostiumDiameterMm / 2 - proximalFenestrationZMm,
+      limitingVesselName: vessel.name as string | null,
+    }));
 
   if (proximalLandingLengthMm !== undefined) {
     const highestVesselZMm = Math.max(
@@ -210,6 +234,7 @@ function emptySolution(status: PoseStatus): PoseSolution {
     marginMm: Number.NEGATIVE_INFINITY,
     meetsTargetClearance: false,
     excludedByTurnCap: null,
+    scallopRelief: null,
     clearances: [],
     map: null,
   };
@@ -238,13 +263,18 @@ function emptySolution(status: PoseStatus): PoseSolution {
  */
 export function solvePose(
   anatomy: NormalizedAnatomy,
-  circumferenceMm: number,
+  graft: GraftCircumference,
   field: ClearanceField,
   options: PoseSolveOptions,
 ): PoseSolution {
   if (anatomy.fenestrations.length === 0) {
     return emptySolution("no_fenestrations");
   }
+
+  // The frame the strut map and the clearance raster are in. Conflict is an
+  // angular question and this frame preserves angles exactly; the millimetres
+  // the field hands back have already been brought onto the graft.
+  const circumferenceMm = graft.circumferenceMm;
 
   const stepMm = options.stepMm ?? DEFAULT_STEP_MM;
 
@@ -260,34 +290,60 @@ export function solvePose(
     // Measured at a pose deep enough to cut the full U, which is where the
     // relationship is tightest; below that the cut is clipped and shallower.
     const referencePose: GraftPose = {
-      proximalDepthMm: separationMm + SCALLOP_WIDTH_MM / 2,
+      proximalDepthMm: separationMm + anatomy.scallopWidthMm / 2,
       rotationDeg: 0,
     };
-    const scallop = placeScallop(anatomy, referencePose, circumferenceMm);
+    const scallop = placeScallop(anatomy, referencePose, graft);
     const bridge =
       scallop &&
       measureScallopBridge(
         scallop,
-        placeOpenings(anatomy, referencePose, circumferenceMm),
-        circumferenceMm,
+        placeOpenings(anatomy, referencePose, graft),
+        graft,
       );
     if (bridge && bridge.edgeToEdgeMm <= 0) {
       return emptySolution("scallop_meets_opening");
     }
   }
 
-  const minDepthMm =
-    options.minProximalDepthMm ?? minProximalDepthMm(anatomy);
+  const floorMm = options.minProximalDepthMm ?? minProximalDepthMm(anatomy);
   const fabricBoundMm = options.fabricLengthMm - anatomy.fenestrationSpanMm;
-  const maxDepthMm = Math.min(options.maxProximalDepthMm, fabricBoundMm);
+  const ceilingMm = Math.min(options.maxProximalDepthMm, fabricBoundMm);
 
-  if (maxDepthMm < minDepthMm) {
+  if (ceilingMm < floorMm) {
     return emptySolution(
-      options.maxProximalDepthMm < minDepthMm
+      options.maxProximalDepthMm < floorMm
         ? "seal_zone_too_short"
         : "graft_too_short",
     );
   }
+
+  // A scallop of a stated depth leaves the solver one degree of freedom, not
+  // two. Where the cut ends relative to its vessel fixes where the fabric edge
+  // is, and that is the push-in — so the depth search collapses to a point and
+  // only the rotation is still free. That is what makes the same cut appear on
+  // every device, with the difference between them being whether the lattice
+  // lets it through rather than how deep it came out.
+  //
+  // Held inside what the neck and the fabric allow. A cut asked for deeper than
+  // there is aorta to take it is made as deep as there is, and the placed
+  // scallop reports the depth actually cut rather than the one requested.
+  const requestedHeightMm =
+    anatomy.scalloped === null
+      ? null
+      : anatomy.scallopHeightMm ??
+        defaultScallopHeightMm(anatomy, options.maxProximalDepthMm);
+  const pinnedDepthMm =
+    requestedHeightMm === null
+      ? null
+      : pushInForScallopMm(anatomy, requestedHeightMm);
+
+  const minDepthMm = floorMm;
+  const maxDepthMm = ceilingMm;
+  const heldDepthMm =
+    pinnedDepthMm === null
+      ? null
+      : Math.min(ceilingMm, Math.max(floorMm, pinnedDepthMm));
 
   const proximalZMm = anatomy.proximalFenestrationZMm as number;
   const offsets = anatomy.fenestrations.map((vessel) => ({
@@ -332,6 +388,9 @@ export function solvePose(
   let uncappedDepthIndex = -1;
   let uncappedTurnDeg = 0;
   let uncappedValue = Number.NEGATIVE_INFINITY;
+  let heldDepthIndex = -1;
+  let heldRotationIndex = 0;
+  let heldValue = Number.NEGATIVE_INFINITY;
 
   const maxRotationDeg = options.maxRotationDeg ?? DEFAULT_MAX_ROTATION_DEG;
   const turnDegOf = (travelMm: number) => {
@@ -407,6 +466,16 @@ export function solvePose(
       clearestRotationIndex = rowBestRotationIndex;
     }
 
+    // The row the specified cut pins the pose to. Held whatever it clears, so
+    // that the cut is the one asked for; the rest of the sweep is kept only to
+    // say what a different depth would have bought.
+    if (heldDepthMm !== null && Math.abs(proximalDepthMm - heldDepthMm) <= stepMm / 2) {
+      heldDepthIndex = depthIndex;
+      heldRotationIndex =
+        rowTurnRotationIndex >= 0 ? rowTurnRotationIndex : rowBestRotationIndex;
+      heldValue = rowTurnRotationIndex >= 0 ? rowTurnValue : rowBestValue;
+    }
+
     if (
       rowTurnRotationIndex >= 0 &&
       (preferDeepest || preferredDepthIndex < 0)
@@ -426,14 +495,49 @@ export function solvePose(
     }
   }
 
-  const meetsTargetClearance = preferredDepthIndex >= 0;
-  const chosenDepthIndex = meetsTargetClearance
-    ? preferredDepthIndex
-    : clearestDepthIndex;
-  const chosenRotationIndex = meetsTargetClearance
-    ? preferredRotationIndex
-    : clearestRotationIndex;
-  const bestValue = meetsTargetClearance ? preferredValue : clearestValue;
+  // A specified cut takes the depth it implies and nothing else. Otherwise the
+  // deepest pose meeting the clearance target, falling back to the clearest.
+  const pinned = heldDepthIndex >= 0;
+  const meetsTargetClearance = pinned
+    ? heldValue >= targetClearanceMm
+    : preferredDepthIndex >= 0;
+  const chosenDepthIndex = pinned
+    ? heldDepthIndex
+    : meetsTargetClearance
+      ? preferredDepthIndex
+      : clearestDepthIndex;
+  const chosenRotationIndex = pinned
+    ? heldRotationIndex
+    : meetsTargetClearance
+      ? preferredRotationIndex
+      : clearestRotationIndex;
+  const bestValue = pinned
+    ? heldValue
+    : meetsTargetClearance
+      ? preferredValue
+      : clearestValue;
+
+  // Where the cut would have had to sit for this device to clear it. Only worth
+  // saying when the pose was pinned into a conflict and some other depth in
+  // range is conflict-free — otherwise the device cannot carry the plan at all
+  // and a depth to aim at would be false comfort. Always a shallower cut than
+  // the one asked for, which is the cost being named.
+  const reliefDepthMm =
+    pinned && bestValue < 0 && clearestValue > 0
+      ? minDepthMm + clearestDepthIndex * stepMm
+      : null;
+  const scallopRelief =
+    reliefDepthMm === null
+      ? null
+      : {
+          proximalDepthMm: reliefDepthMm,
+          heightMm:
+            scallopHeightMm(anatomy, {
+              proximalDepthMm: reliefDepthMm,
+              rotationDeg: 0,
+            }) ?? 0,
+          marginMm: clearestValue,
+        };
 
   // Report the shorter way round: 340° clockwise is 20° the other way.
   const pose: GraftPose = {
@@ -441,16 +545,18 @@ export function solvePose(
     rotationDeg: turnDegOf(chosenRotationIndex * rotationStepMm),
   };
 
-  const clearances = placeOpenings(anatomy, pose, circumferenceMm).map(
+  const clearances = placeOpenings(anatomy, pose, graft).map(
     (opening) => ({
       vesselName: opening.vessel.name,
       depthMm: opening.depthMm,
       arcMm: opening.arcMm,
       // Same test the pose was chosen by, so the per-hole figures and the
-      // margin cannot disagree about the same opening.
+      // margin cannot disagree about the same opening. Queried in the raster's
+      // frame — `opening.arcMm` is millimetres round the graft where the hole
+      // sits, which on a tapered device is a different number.
       clearanceMm: ellipseClearanceMm(
         field,
-        opening.arcMm,
+        referenceArcMm(opening.turnFraction, graft),
         opening.depthMm,
         opening,
         options.wireRadiusMm,
@@ -471,6 +577,7 @@ export function solvePose(
             proximalDepthMm: minDepthMm + uncappedDepthIndex * stepMm,
           }
         : null,
+    scallopRelief,
     clearances,
     map: {
       depthStartMm: minDepthMm,

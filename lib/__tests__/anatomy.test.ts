@@ -5,6 +5,7 @@ import {
   fabricEdgeZMm,
   normalizeAnatomy,
   placeOpenings,
+  uniformCircumference,
   type AnatomyCase,
 } from "@/lib/planning/anatomy";
 
@@ -142,7 +143,7 @@ describe("placeOpenings", () => {
       rotationDeg: 0,
     };
 
-    const placed = placeOpenings(anatomy, pose, 100);
+    const placed = placeOpenings(anatomy, pose, uniformCircumference(100));
 
     expect(placed.map((opening) => [opening.vessel.name, opening.depthMm])).toEqual([
       ["CELIAC", 10],
@@ -154,8 +155,8 @@ describe("placeOpenings", () => {
 
   it("preserves relative spacing when the pattern is pushed in", () => {
     const anatomy = normalizeAnatomy(buildCase());
-    const shallow = placeOpenings(anatomy, { proximalDepthMm: 10, rotationDeg: 0 }, 100);
-    const deep = placeOpenings(anatomy, { proximalDepthMm: 22, rotationDeg: 0 }, 100);
+    const shallow = placeOpenings(anatomy, { proximalDepthMm: 10, rotationDeg: 0 }, uniformCircumference(100));
+    const deep = placeOpenings(anatomy, { proximalDepthMm: 22, rotationDeg: 0 }, uniformCircumference(100));
 
     for (const [index, opening] of deep.entries()) {
       expect(opening.depthMm - shallow[index].depthMm).toBeCloseTo(12, 10);
@@ -164,8 +165,8 @@ describe("placeOpenings", () => {
 
   it("rotates the whole pattern together and wraps the circumference", () => {
     const anatomy = normalizeAnatomy(buildCase());
-    const unrotated = placeOpenings(anatomy, { proximalDepthMm: 10, rotationDeg: 0 }, 100);
-    const rotated = placeOpenings(anatomy, { proximalDepthMm: 10, rotationDeg: 90 }, 100);
+    const unrotated = placeOpenings(anatomy, { proximalDepthMm: 10, rotationDeg: 0 }, uniformCircumference(100));
+    const rotated = placeOpenings(anatomy, { proximalDepthMm: 10, rotationDeg: 90 }, uniformCircumference(100));
 
     expect(unrotated[0].arcMm).toBeCloseTo(0, 10);
     expect(rotated[0].arcMm).toBeCloseTo(75, 10);
@@ -181,7 +182,7 @@ describe("placeOpenings", () => {
     withAllowance.vessels[1].openingDiameterMm = 12;
     const anatomy = normalizeAnatomy(withAllowance);
 
-    const placed = placeOpenings(anatomy, { proximalDepthMm: 10, rotationDeg: 0 }, 100);
+    const placed = placeOpenings(anatomy, { proximalDepthMm: 10, rotationDeg: 0 }, uniformCircumference(100));
 
     expect(placed[0].radiusMm).toBe(4);
     expect(placed[1].radiusMm).toBe(6);

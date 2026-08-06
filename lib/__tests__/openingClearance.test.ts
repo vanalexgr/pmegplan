@@ -110,8 +110,12 @@ describe("measureHole on an egg-shaped opening", () => {
     ] as StrutSegment[],
   } as unknown as Parameters<typeof measureHole>[0];
 
+  // Untapered, so the opening's own circumference is the one the struts above
+  // are laid out on and the two rulers coincide.
   const oval = {
     vessel: { name: "TEST" },
+    turnFraction: 50 / CIRCUMFERENCE_MM,
+    circumferenceMm: CIRCUMFERENCE_MM,
     arcMm: 50,
     depthMm: 40,
     semiArcMm: 3,

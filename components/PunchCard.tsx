@@ -190,8 +190,13 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
     // so a hole straddling the seam shows only the part that is on it.
     insideTemplate(() => {
       for (const opening of openings) {
+        // Drawn where the strut map puts it, not where a tape at this depth
+        // would. The sheet is a development at the proximal circumference, so
+        // it is the one frame in which holes and struts line up; the figure to
+        // measure by is in the cut list, taken at the hole's own level.
+        const drawnArcMm = opening.turnFraction * circumferenceMm;
         for (const shift of [0, -circumferenceMm, circumferenceMm]) {
-          const centre = opening.arcMm + shift;
+          const centre = drawnArcMm + shift;
           if (
             centre + opening.radiusMm < 0 ||
             centre - opening.radiusMm > circumferenceMm
@@ -296,8 +301,8 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
     // centre on the sheet. Naming both copies of a seam-straddling hole would
     // read as two fenestrations.
     for (const opening of openings) {
-      const centre = opening.arcMm;
-      const clock = arcMmToClockText(centre, circumferenceMm);
+      const centre = opening.turnFraction * circumferenceMm;
+      const clock = arcMmToClockText(opening.arcMm, opening.circumferenceMm);
       const arm = opening.semiArcMm + 2.5;
       const oval = opening.semiArcMm !== opening.semiDepthMm;
       const nameLabel = oval
@@ -350,6 +355,16 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
 
   const { graft, openings, solution, oversizeFraction, scallop } = plan;
 
+  // How far the graft has narrowed by the deepest hole. Two millimetres of
+  // circumference is under a third of a millimetre of arc anywhere on the
+  // sheet, which is inside what a marker pen decides anyway.
+  const sheetDepthMm = openings.reduce(
+    (deepest, opening) => Math.max(deepest, opening.depthMm),
+    solution.pose.proximalDepthMm,
+  );
+  const tapersMm =
+    graft.circumferenceMm - graft.circumferenceAtDepthMm(sheetDepthMm);
+
   return (
     <div className="punch-card">
       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-[11px]">
@@ -380,7 +395,7 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
             <th className="pb-1 pr-3">Vessel</th>
             <th className="pb-1 pr-3">Depth</th>
             <th className="pb-1 pr-3">Clock</th>
-            <th className="pb-1 pr-3">Arc from 12:00</th>
+            <th className="pb-1 pr-3">Arc from 12:00, at depth</th>
             <th className="pb-1 pr-3">Ø</th>
             <th className="pb-1 pr-3">Clearance</th>
             <th className="pb-1">Nearest apex / valley</th>
@@ -439,6 +454,18 @@ export function PunchCard({ plan, caseLabel }: PunchCardProps) {
               {plan.scallopBridge.toCentreMm.toFixed(1)} mm nadir to centre).
             </>
           ) : null}
+        </p>
+      ) : null}
+
+      {tapersMm > 2 ? (
+        <p className="mt-3 text-[10px] leading-4 text-amber-900">
+          This device tapers: {graft.circumferenceMm.toFixed(0)} mm round at the
+          fabric edge, {graft.circumferenceAtDepthMm(sheetDepthMm).toFixed(0)} mm
+          at the deepest hole. The sheet is drawn at the proximal circumference,
+          which is the one frame where the holes and the struts line up, so it
+          is a guide to <em>which window</em> a hole falls in and not a wrapper.
+          Mark each hole by the arc in the list above, measured round the graft
+          at that hole&apos;s own depth.
         </p>
       ) : null}
 

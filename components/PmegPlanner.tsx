@@ -460,6 +460,36 @@ function ScallopNote({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
     );
   }
 
+  // The cut is the same on every device, so what differs is whether the lattice
+  // lets it through. Where it does not, say what a shallower cut would buy —
+  // that is the trade, and it is the surgeon's to make rather than the solver's.
+  const relief = plan.solution.scallopRelief;
+  if (scallop && plan.solution.marginMm < 0) {
+    return (
+      <div className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <div>
+          <p className="font-semibold">
+            This device cannot take the {scallop.vessel.name} scallop as drawn.
+          </p>
+          <p className="mt-1 leading-5">
+            A {(scallop.semiArcMm * 2).toFixed(0)} × {scallop.heightMm.toFixed(1)}{" "}
+            mm cut puts the fabric edge{" "}
+            {plan.solution.pose.proximalDepthMm.toFixed(1)} mm above the{" "}
+            {plan.anatomy.fenestrations[0]?.name ?? "first hole"}, and at that
+            depth an opening overlaps wire by{" "}
+            {Math.abs(plan.solution.marginMm).toFixed(2)} mm — no rotation clears
+            it.{" "}
+            {relief
+              ? `Shortening the cut to ${relief.heightMm.toFixed(1)} mm, with the edge ${relief.proximalDepthMm.toFixed(1)} mm up, clears by ${relief.marginMm.toFixed(2)} mm — at the cost of ${(scallop.heightMm - relief.heightMm).toFixed(1)} mm of seal.`
+              : "No depth this device can sit at clears, whatever the cut."}{" "}
+            Another device in the library may take it as drawn.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!bridge || !scallop) return null;
 
   const tight = bridge.edgeToEdgeMm < NARROWEST_SERIES_BRIDGE_MM;
@@ -473,10 +503,11 @@ function ScallopNote({ plan }: { plan: Extract<PlanResult, { ok: true }> }) {
       <p className="mt-1.5 leading-5 text-[color:var(--muted-foreground)]">
         What seals is the fabric apposed to healthy aorta around the cut, and the
         full circumference below its deepest point. It is{" "}
-        {scallop.heightMm.toFixed(1)} mm deep because that is how far above the{" "}
-        {scallop.vessel.name} this device can put the fabric edge — shorten the
-        healthy aorta above the top vessel and the cut shortens with it. This cut
-        spans{" "}
+        {scallop.heightMm.toFixed(1)} mm deep because that is the healthy aorta
+        available above the {scallop.vessel.name}, carried past its ostium so no
+        fabric crosses the vessel — the same cut on every device in the library,
+        with the difference between them being whether the lattice lets it
+        through. This cut spans{" "}
         {(bridge.circumferenceFraction * 100).toFixed(0)}% of the circumference
         on this device, so {(100 - bridge.circumferenceFraction * 100).toFixed(0)}%
         of the fabric edge still apposes.
@@ -1002,7 +1033,7 @@ export function PmegPlanner() {
                             <tr>
                               <th className="pb-2 pr-4">Vessel</th>
                               <th className="pb-2 pr-4">Depth from edge</th>
-                              <th className="pb-2 pr-4">Arc from 12:00</th>
+                              <th className="pb-2 pr-4">Arc from 12:00, at depth</th>
                               <th className="pb-2 pr-4">Hole Ø</th>
                               <th className="pb-2">Clearance</th>
                             </tr>

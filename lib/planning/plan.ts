@@ -1,6 +1,6 @@
 import {
-  MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
   measureScallopBridge,
+  minProximalDepthMm,
   normalizeAnatomy,
   placeOpenings,
   placeScallop,
@@ -84,13 +84,37 @@ export interface GraftModel {
    */
   proximalDiameterMm: number;
   sealingRing: SealingRing;
+  /**
+   * Measured circumference at the proximal fabric edge, in mm.
+   *
+   * The reference frame the strut map and the clearance raster are built in,
+   * not the graft's width everywhere. On a tapered device it is only right at
+   * the fabric edge — see `circumferenceAtDepthMm` for the width at a depth,
+   * which is what anything positioning or measuring an opening must use.
+   */
   circumferenceMm: number;
+  /**
+   * Measured circumference at a depth below the proximal fabric edge, in mm.
+   *
+   * A clock position is an angle, and an angle is only a distance once you know
+   * how wide the graft is where you are standing. On the two Zenith Alphas that
+   * is within 2% of the proximal figure at any depth; on the tapered TX2 it is
+   * 6% out at the renals and 28% out at the distal end, which is the difference
+   * between a hole landing at 9:00 and one landing at 9:29.
+   */
+  circumferenceAtDepthMm(depthMm: number): number;
   fabricLengthMm: number;
   wireRadiusMm: number;
   /**
    * Measured wire on the unrolled graft, in (arc mm, depth-below-fabric-edge mm).
    * Depths above the proximal fabric edge are negative: on both Zenith Alpha
    * scans the bare fixation ring sits about 12 mm proximal to the fabric.
+   *
+   * Arc is in the proximal reference frame — `circumferenceMm`, not the local
+   * width — because the raster needs one frame with a constant wrap period.
+   * Struts and openings are both placed by angle into that frame, so their
+   * angular relation is exact; it is only the millimetres that need converting
+   * back, which `ClearanceField.distanceAt` does.
    */
   segments: StrutSegment[];
   /** How the wire was obtained, and how well it matches the scan. */
@@ -310,6 +334,8 @@ export function buildGraftModel(scanId: CtScanId): GraftModel {
   // spacing and clearances remain one self-consistent frame taken from the same
   // scan. Rescaling it to nominal would move every strut relative to every hole.
   const circumferenceMm = Math.PI * renderModel.diameterAt(0);
+  const circumferenceAtDepthMm = (depthMm: number) =>
+    Math.PI * renderModel.diameterAt(depthMm);
   const segments = buildBenchCtStrutSegments(
     scan.reference.descriptor,
     circumferenceMm,
@@ -333,10 +359,13 @@ export function buildGraftModel(scanId: CtScanId): GraftModel {
         descriptor.wire_map?.datum_fit.apex_residual_p50_mm ?? null,
     },
     circumferenceMm,
+    circumferenceAtDepthMm,
     fabricLengthMm: renderModel.fabricLengthMm,
     wireRadiusMm: scan.device.wireRadius,
     segments,
-    field: buildClearanceField(segments, circumferenceMm),
+    field: buildClearanceField(segments, circumferenceMm, {
+      circumferenceAtDepthMm,
+    }),
   };
 }
 
@@ -360,10 +389,12 @@ export function requiredGraftLengthMm(
   anatomy: NormalizedAnatomy,
   distalAllowanceMm = DEFAULT_DISTAL_ALLOWANCE_MM,
 ): number {
+  // The same floor the solver starts its depth search from, so a device that
+  // passes this gate cannot then be told it has no room. With a scallop that
+  // floor is not the 10 mm seal rule but the separation to the scalloped
+  // vessel, which on a coeliac scallop above an SMA fenestration is twice that.
   return (
-    MIN_PROXIMAL_FENESTRATION_DEPTH_MM +
-    anatomy.fenestrationSpanMm +
-    distalAllowanceMm
+    minProximalDepthMm(anatomy) + anatomy.fenestrationSpanMm + distalAllowanceMm
   );
 }
 
@@ -424,7 +455,7 @@ function solveFit(
 ): DeviceFit {
   const { model } = fit;
   const depthLimit = proximalDepthLimit(anatomy, proximalLandingLengthMm);
-  const solution = solvePose(anatomy, model.circumferenceMm, model.field, {
+  const solution = solvePose(anatomy, model, model.field, {
     maxProximalDepthMm: depthLimit.maxDepthMm,
     fabricLengthMm: model.fabricLengthMm,
     wireRadiusMm: model.wireRadiusMm,
@@ -434,13 +465,9 @@ function solveFit(
   });
 
   const openings =
-    solution.map === null
-      ? []
-      : placeOpenings(anatomy, solution.pose, model.circumferenceMm);
+    solution.map === null ? [] : placeOpenings(anatomy, solution.pose, model);
   const scallop =
-    solution.map === null
-      ? null
-      : placeScallop(anatomy, solution.pose, model.circumferenceMm);
+    solution.map === null ? null : placeScallop(anatomy, solution.pose, model);
 
   return {
     ...fit,
@@ -449,7 +476,7 @@ function solveFit(
     openings,
     scallop,
     scallopBridge: scallop
-      ? measureScallopBridge(scallop, openings, model.circumferenceMm)
+      ? measureScallopBridge(scallop, openings, model)
       : null,
   };
 }

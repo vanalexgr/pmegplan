@@ -113,6 +113,44 @@ function ringMaximumZ(
   );
 }
 
+/**
+ * How the device's width runs along its length, one point per ring.
+ *
+ * `diameter_profile` is the extractor's per-slice segmentation and is not
+ * usable directly: it drops out wherever the segmenter lost the device (scan3
+ * reads 25.7 mm at z=119 on a 32 mm graft), and between rings it measures
+ * fabric with no metal behind it. Interpolating through that gave the two
+ * cylindrical devices a taper they do not have — scan1 swinging 128 to 134 mm
+ * of circumference, scan3 92 to 106 — which is noise, not geometry.
+ *
+ * A ring's `diameter_mm` is fitted to that whole ring's apices, so there is one
+ * robust number per ring. Straight lines between ring centres reproduce scan2's
+ * real 42-to-32 taper and leave the other two flat, which is what they are.
+ */
+function ringDiameterProfile(
+  descriptor: BenchCtDeviceDescriptor,
+): Array<{ z: number; d: number }> {
+  const cached = ringProfileCache.get(descriptor);
+  if (cached) return cached;
+
+  const profile = descriptor.rings
+    .filter((ring) => ring.diameter_mm > 0)
+    .map((ring) => ({
+      z: (ringMinimumZ(ring) + ringMaximumZ(ring)) / 2,
+      d: ring.diameter_mm,
+    }))
+    .filter((point) => Number.isFinite(point.z))
+    .sort((a, b) => a.z - b.z);
+
+  ringProfileCache.set(descriptor, profile);
+  return profile;
+}
+
+const ringProfileCache = new WeakMap<
+  BenchCtDeviceDescriptor,
+  Array<{ z: number; d: number }>
+>();
+
 function interpolateDiameter(
   descriptor: BenchCtDeviceDescriptor,
   rawZMm: number,
@@ -121,10 +159,9 @@ function interpolateDiameter(
     (total, ring) => total + ring.diameter_mm,
     0,
   ) / Math.max(descriptor.rings.length, 1);
-  const profile = descriptor.diameter_profile;
-  if (!profile?.length) return fallback;
-
-  const ordered = [...profile].sort((a, b) => a.z - b.z);
+  const ordered = ringDiameterProfile(descriptor);
+  if (ordered.length === 0) return fallback;
+  if (ordered.length === 1) return ordered[0].d;
   if (rawZMm <= ordered[0].z) return ordered[0].d;
   if (rawZMm >= ordered[ordered.length - 1].z) return ordered[ordered.length - 1].d;
 

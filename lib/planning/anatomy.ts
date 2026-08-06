@@ -124,6 +124,27 @@ export interface AnatomyCase {
    * scallop is an edge cut.
    */
   scallop?: string[];
+  /**
+   * Circumferential width of the scallop, in mm. Defaults to
+   * `SCALLOP_WIDTH_MM`.
+   *
+   * A design choice rather than something the anatomy dictates, which is why it
+   * is an input: manufactured scallops run from 10 mm on the off-the-shelf
+   * fenestrated device to 30 mm on a custom arch one, and what is right scales
+   * with the vessel and the aorta it sits in.
+   */
+  scallopWidthMm?: number;
+  /**
+   * Depth of the scallop cut, in mm. Defaults to what the healthy aorta above
+   * the scalloped vessel allows — see `defaultScallopHeightMm`.
+   *
+   * Specifying it is what makes a plan comparable across devices. Left to fall
+   * out of each device's own pose, the same anatomy gave cuts of 8.5, 20.3 and
+   * 25.0 mm on the three scanned grafts, which is three different operations
+   * rather than three ways of doing one. Fixed here, the cut is the same on all
+   * of them and what differs is whether a device can carry it.
+   */
+  scallopHeightMm?: number;
   /** Names of vessels intentionally sacrificed, such as an accessory renal. */
   cover?: string[];
   aorta: AortaInput;
@@ -144,6 +165,13 @@ export interface NormalizedAnatomy {
   fenestrations: NormalizedVessel[];
   /** The scalloped vessel, if any. At most one, and the most proximal. */
   scalloped: NormalizedVessel | null;
+  /** Width the scallop is to be cut, in mm. Meaningless when none is. */
+  scallopWidthMm: number;
+  /**
+   * Depth the scallop is to be cut, in mm, when one was asked for by name.
+   * Null when nothing is scalloped or when the depth is left to the default.
+   */
+  scallopHeightMm: number | null;
   /** Vessels that must stay above the fabric edge, ordered proximal to distal. */
   preserved: NormalizedVessel[];
   /** Name of the vessel the axial datum was placed at. */
@@ -165,12 +193,45 @@ export interface GraftPose {
   rotationDeg: number;
 }
 
+/**
+ * A graft's circumference, which on a tapered device depends where you measure.
+ *
+ * Placement needs both: the reference frame the strut map and clearance raster
+ * live in, and the true width at the depth an opening actually sits, which is
+ * what a tape round the graft would read and what a hole has to be marked from.
+ */
+export interface GraftCircumference {
+  /** At the proximal fabric edge, in mm. The frame the wire map is in. */
+  circumferenceMm: number;
+  /** At a depth below that edge, in mm. */
+  circumferenceAtDepthMm(depthMm: number): number;
+}
+
+/** A cylinder, for callers and tests that have no tapered device in hand. */
+export function uniformCircumference(
+  circumferenceMm: number,
+): GraftCircumference {
+  return { circumferenceMm, circumferenceAtDepthMm: () => circumferenceMm };
+}
+
 export interface PlacedOpening {
   vessel: NormalizedVessel;
   /** Depth below the proximal fabric edge, in mm. */
   depthMm: number;
-  /** Circumferential position on the unrolled graft after rotation, in mm. */
+  /**
+   * Circumferential position after rotation, in mm round the graft *at this
+   * opening's own depth*. Marking from it means running the tape at the level
+   * the hole sits, not at the fabric edge.
+   */
   arcMm: number;
+  /**
+   * The same position as a fraction of a turn, which is what the anatomy
+   * actually fixes. Millimetres are this times whatever the graft measures
+   * where they are being counted, so it is this that survives a taper.
+   */
+  turnFraction: number;
+  /** Circumference at this opening's depth, in mm. */
+  circumferenceMm: number;
   /** Half the opening's circumferential width, in mm. */
   semiArcMm: number;
   /** Half the opening's axial height, in mm. */
@@ -208,7 +269,24 @@ function isRenal(name: string): boolean {
  * distal vessel carries the datum instead.
  */
 export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
-  const { vessels, fenestrate, scallop = [], cover = [] } = anatomyCase;
+  const {
+    vessels,
+    fenestrate,
+    scallop = [],
+    scallopWidthMm = SCALLOP_WIDTH_MM,
+    scallopHeightMm: requestedScallopHeightMm,
+    cover = [],
+  } = anatomyCase;
+
+  if (!(scallopWidthMm > 0)) {
+    throw new Error("Scallop width must be greater than 0 mm.");
+  }
+  if (
+    requestedScallopHeightMm !== undefined &&
+    !(requestedScallopHeightMm > 0)
+  ) {
+    throw new Error("Scallop depth must be greater than 0 mm.");
+  }
 
   if (vessels.length === 0) {
     throw new Error("A case needs at least one vessel.");
@@ -335,15 +413,43 @@ export function normalizeAnatomy(anatomyCase: AnatomyCase): NormalizedAnatomy {
     }
   }
   const fenestrationZ = fenestrations.map((vessel) => vessel.zMm);
+  const proximalFenestrationZMm =
+    fenestrationZ.length > 0 ? Math.max(...fenestrationZ) : null;
+
+  // Preserving a vessel means keeping it clear of the fabric, and the fabric
+  // starts above the first fenestration. Anything preserved below that is under
+  // fabric whatever the pose, so leaving it preserved is not a plan but a
+  // mistake — and one that reads as a device failure rather than an input
+  // error, because it caps the push-in below the seal minimum and every device
+  // is refused.
+  if (proximalFenestrationZMm !== null) {
+    const buried = normalized.filter(
+      (vessel) =>
+        vessel.treatment === "preserve" && vessel.zMm < proximalFenestrationZMm,
+    );
+    if (buried.length > 0) {
+      throw new Error(
+        `${buried
+          .map((vessel) => vessel.name)
+          .join(", ")} would be under the fabric, below the first fenestration — ${
+          buried.length > 1 ? "they cannot" : "it cannot"
+        } be preserved there. Fenestrate or cover ${
+          buried.length > 1 ? "them" : "it"
+        }.`,
+      );
+    }
+  }
 
   return {
     vessels: normalized,
     fenestrations,
     scalloped: scallopVessel,
+    scallopWidthMm,
+    scallopHeightMm:
+      scallopVessel === null ? null : requestedScallopHeightMm ?? null,
     preserved: normalized.filter((vessel) => vessel.treatment === "preserve"),
     datumVesselName: datum.vessel.name,
-    proximalFenestrationZMm:
-      fenestrationZ.length > 0 ? Math.max(...fenestrationZ) : null,
+    proximalFenestrationZMm,
     fenestrationSpanMm:
       fenestrationZ.length > 0
         ? Math.max(...fenestrationZ) - Math.min(...fenestrationZ)
@@ -373,12 +479,11 @@ export function scallopSeparationMm(
  * Normally the seal rule: the first hole needs fabric above it.
  *
  * With a scallop the edge is already cut, and what bounds the pose instead is
- * that the cut has to clear the vessel it was made for. The nadir tracks the
- * scalloped ostium's centre — push the pattern in a millimetre and the cut
- * deepens by the same millimetre — so at the separation exactly, the cut has no
- * height and the fabric edge lies straight across the ostium. Requiring the
- * ostium's own radius on top puts the edge at or above its cranial rim, which
- * is the shallowest pose that leaves the vessel relieved rather than crossed.
+ * that the cut has to clear the vessel it was made for. Push the pattern in a
+ * millimetre and the cut deepens by the same millimetre, so at the separation
+ * exactly the fabric edge lies across the ostium's centre. Requiring the
+ * ostium's own radius on top puts the edge level with its cranial rim, which is
+ * the shallowest pose at which any of the vessel is relieved at all.
  *
  * It matters because the depth search stops at this floor and a device that
  * cannot go deeper would otherwise be handed back a scallop of no height, which
@@ -393,14 +498,68 @@ export function minProximalDepthMm(anatomy: NormalizedAnatomy): number {
 }
 
 /**
- * Height of the scallop a pose implies, in mm — the fabric removed from the
- * edge down to the scalloped vessel.
+ * Height of the scallop a pose implies, in mm — the fabric taken off the edge
+ * so that none of it crosses the scalloped vessel.
  *
- * Derived rather than chosen: pushing the pattern deeper cuts a taller scallop.
- * Reproduces the height stated on all three scalloped plans in the reference
- * series exactly.
+ * The cut runs past the ostium's centre to its caudal rim, so the whole vessel
+ * is relieved rather than half of it. That is a radius more than the figure a
+ * Cook plan sheet quotes, which is measured from the edge to the vessel centre
+ * and is what `ScallopBridge.toCentreMm` reports; both are kept, because the
+ * one to state on a plan and the one to cut to are not the same number.
  */
 export function scallopHeightMm(
+  anatomy: NormalizedAnatomy,
+  pose: GraftPose,
+): number | null {
+  const separation = scallopSeparationMm(anatomy);
+  if (separation === null || anatomy.scalloped === null) return null;
+  return (
+    pose.proximalDepthMm - separation + anatomy.scalloped.ostiumDiameterMm / 2
+  );
+}
+
+/**
+ * Push-in a scallop of a given depth implies, in mm.
+ *
+ * The inverse of `scallopHeightMm`, and the reason a specified cut leaves the
+ * solver only one degree of freedom. Fixing where the cut ends relative to the
+ * vessel fixes where the fabric edge is, and the fabric edge is the push-in.
+ */
+export function pushInForScallopMm(
+  anatomy: NormalizedAnatomy,
+  heightMm: number,
+): number | null {
+  const separation = scallopSeparationMm(anatomy);
+  if (separation === null || anatomy.scalloped === null) return null;
+  return heightMm + separation - anatomy.scalloped.ostiumDiameterMm / 2;
+}
+
+/**
+ * The cut to make when none was specified, in mm.
+ *
+ * Taken from the aorta rather than from any device: what a scallop is for is to
+ * let the fabric edge sit as high in the healthy neck as that neck allows, and
+ * how much neck there is has nothing to do with which graft is chosen. Deriving
+ * it here is what gives all three devices the same cut to be judged against.
+ */
+export function defaultScallopHeightMm(
+  anatomy: NormalizedAnatomy,
+  maxPushInMm: number,
+): number | null {
+  if (!Number.isFinite(maxPushInMm)) return null;
+  return scallopHeightMm(anatomy, {
+    proximalDepthMm: maxPushInMm,
+    rotationDeg: 0,
+  });
+}
+
+/**
+ * Depth of the scalloped vessel's centre below the fabric edge, in mm.
+ *
+ * The plan-sheet figure: nadir-to-centre, which the reference series states and
+ * which this reproduces exactly. A radius shallower than the cut itself.
+ */
+export function scallopCentreDepthMm(
   anatomy: NormalizedAnatomy,
   pose: GraftPose,
 ): number | null {
@@ -417,12 +576,32 @@ export function scallopHeightMm(
  */
 export interface PlacedScallop {
   vessel: NormalizedVessel;
-  /** Circumferential centre on the unrolled graft after rotation, in mm. */
+  /**
+   * Circumferential centre after rotation, in mm round the graft. Measured at
+   * the fabric edge, which is where the cut is marked out and where a tapered
+   * graft is at its widest anyway.
+   */
   arcMm: number;
+  /** The same centre as a fraction of a turn. See `PlacedOpening.turnFraction`. */
+  turnFraction: number;
+  /**
+   * The circumference `arcMm` and `semiArcMm` are measured against, in mm.
+   *
+   * The fabric edge's, unlike an opening's, because that is the rim the cut is
+   * marked out from. Treating the width as a constant angle over the cut's
+   * depth is then a small approximation on a tapered device — 1.3% over 29 mm
+   * on the TX2 — and the direction that keeps the marked width the cut width.
+   */
+  circumferenceMm: number;
   /** Half the cut's circumferential width, in mm. */
   semiArcMm: number;
   /** Depth of the deepest point of the cut below the fabric edge, in mm. */
   heightMm: number;
+  /**
+   * Depth of the scalloped vessel's centre below the fabric edge, in mm — the
+   * figure a Cook plan sheet quotes. A radius shallower than `heightMm`.
+   */
+  centreDepthMm: number;
 }
 
 /**
@@ -445,26 +624,35 @@ const MIN_CUT_MM = 0.5;
 export function placeScallop(
   anatomy: NormalizedAnatomy,
   pose: GraftPose,
-  circumferenceMm: number,
+  graft: GraftCircumference,
 ): PlacedScallop | null {
   const vessel = anatomy.scalloped;
   const heightMm = scallopHeightMm(anatomy, pose);
-  if (vessel === null || heightMm === null || heightMm < MIN_CUT_MM) return null;
+  const centreDepthMm = scallopCentreDepthMm(anatomy, pose);
+  if (
+    vessel === null ||
+    heightMm === null ||
+    centreDepthMm === null ||
+    heightMm < MIN_CUT_MM
+  ) {
+    return null;
+  }
 
-  const rotationFraction = pose.rotationDeg / 360;
+  const requestedWidthMm = anatomy.scallopWidthMm;
+  const turnFraction = wrapTurn(vessel.clockFraction - pose.rotationDeg / 360);
   return {
     vessel,
-    arcMm: wrapMm(
-      (vessel.clockFraction - rotationFraction) * circumferenceMm,
-      circumferenceMm,
-    ),
+    turnFraction,
+    circumferenceMm: graft.circumferenceMm,
+    arcMm: turnFraction * graft.circumferenceMm,
     // A cut cannot be wider than twice its depth without ceasing to be a U:
     // the semicircular base alone is a half-width deep. Where the device cannot
     // sit deep enough for the full width, the cut narrows to the widest
     // semicircle that fits rather than flattening into a saucer nothing is
     // manufactured as. The width that comes back is the width to cut.
-    semiArcMm: Math.min(SCALLOP_WIDTH_MM / 2, heightMm),
+    semiArcMm: Math.min(requestedWidthMm / 2, heightMm),
     heightMm,
+    centreDepthMm,
   };
 }
 
@@ -521,17 +709,41 @@ export interface ScallopBridge {
   circumferenceFraction: number;
 }
 
+/**
+ * A point on the graft: how far round, and how far down.
+ *
+ * Round is a fraction of a turn rather than millimetres, because the two things
+ * being compared here sit at different depths and, on a tapered graft, a turn
+ * is a different number of millimetres at each of them.
+ */
+interface SurfacePoint {
+  turnFraction: number;
+  depthMm: number;
+}
+
+/** Signed shortest way round between two turn fractions, in turns. */
+function turnGap(fromFraction: number, toFraction: number): number {
+  const raw = ((toFraction - fromFraction) % 1) + 1.5;
+  return (raw % 1) - 0.5;
+}
+
 /** Points along a scallop's cut boundary: down one side, round, and up. */
 function cutBoundary(
   scallop: PlacedScallop,
+  graft: GraftCircumference,
   steps = 160,
-): Array<{ arcMm: number; depthMm: number }> {
-  const points: Array<{ arcMm: number; depthMm: number }> = [];
+): SurfacePoint[] {
+  const points: SurfacePoint[] = [];
+  // The cut is marked out at the fabric edge, so its width is millimetres of
+  // the graft's widest circumference and converts to a turn by that.
+  const toTurn = (offsetMm: number) =>
+    scallop.turnFraction + offsetMm / graft.circumferenceMm;
+
   // The rounded bottom.
   for (let step = 0; step <= steps; step += 1) {
     const offsetMm = scallop.semiArcMm * (-1 + (2 * step) / steps);
     points.push({
-      arcMm: scallop.arcMm + offsetMm,
+      turnFraction: toTurn(offsetMm),
       depthMm: scallopEdgeDepthMm(scallop, offsetMm),
     });
   }
@@ -542,7 +754,7 @@ function cutBoundary(
     const depthMm = (step / (steps / 4)) * shoulderMm;
     for (const side of [-1, 1]) {
       points.push({
-        arcMm: scallop.arcMm + side * scallop.semiArcMm,
+        turnFraction: toTurn(side * scallop.semiArcMm),
         depthMm,
       });
     }
@@ -553,17 +765,31 @@ function cutBoundary(
 export function measureScallopBridge(
   scallop: PlacedScallop,
   openings: PlacedOpening[],
-  circumferenceMm: number,
+  graft: GraftCircumference,
 ): ScallopBridge | null {
   if (openings.length === 0) return null;
 
-  const boundary = cutBoundary(scallop);
+  const boundary = cutBoundary(scallop, graft);
   let nearest: ScallopBridge | null = null;
 
-  /** Shortest way round from one arc position to another, in mm. */
-  const arcGapMm = (fromMm: number, toMm: number) => {
-    const raw = Math.abs(toMm - fromMm) % circumferenceMm;
-    return raw > circumferenceMm / 2 ? circumferenceMm - raw : raw;
+  /**
+   * Distance across the fabric between two points, in mm.
+   *
+   * The circumferential part is a turn taken at the width midway between them,
+   * because a run from a cut at the fabric edge to a renal 60 mm down crosses
+   * fabric that has been narrowing the whole way. On a cylinder the mean is the
+   * width; on the tapered device it is right to first order, which at these
+   * separations is a few hundredths of a millimetre.
+   */
+  const spanMm = (from: SurfacePoint, to: SurfacePoint) => {
+    const meanCircumferenceMm =
+      (graft.circumferenceAtDepthMm(from.depthMm) +
+        graft.circumferenceAtDepthMm(to.depthMm)) /
+      2;
+    return Math.hypot(
+      turnGap(from.turnFraction, to.turnFraction) * meanCircumferenceMm,
+      to.depthMm - from.depthMm,
+    );
   };
 
   for (const opening of openings) {
@@ -573,19 +799,28 @@ export function measureScallopBridge(
     // Sampled rather than solved: the cut is a U and the opening an ellipse,
     // and the closest approach between them has no closed form worth the
     // trouble at a tenth of a millimetre.
-    const rim: Array<{ arcMm: number; depthMm: number }> = [];
+    const rim: SurfacePoint[] = [];
     for (let step = 0; step < 120; step += 1) {
       const phi = (step / 120) * Math.PI * 2;
       rim.push({
-        arcMm: opening.arcMm + opening.semiArcMm * Math.cos(phi),
+        turnFraction:
+          opening.turnFraction +
+          (opening.semiArcMm * Math.cos(phi)) / opening.circumferenceMm,
         depthMm: opening.depthMm + opening.semiDepthMm * Math.sin(phi),
       });
     }
 
+    const centre: SurfacePoint = {
+      turnFraction: opening.turnFraction,
+      depthMm: opening.depthMm,
+    };
+
     for (const point of boundary) {
       // A cut boundary running inside the opening means the two are one
       // aperture, not a scallop with fabric under it.
-      const dArc = arcGapMm(point.arcMm, opening.arcMm);
+      const dArc =
+        turnGap(point.turnFraction, opening.turnFraction) *
+        opening.circumferenceMm;
       const dDepth = point.depthMm - opening.depthMm;
       if (
         (dArc / opening.semiArcMm) ** 2 + (dDepth / opening.semiDepthMm) ** 2 <
@@ -594,18 +829,19 @@ export function measureScallopBridge(
         overlapping = true;
       }
       for (const rimPoint of rim) {
-        const distanceMm = Math.hypot(
-          arcGapMm(rimPoint.arcMm, point.arcMm),
-          rimPoint.depthMm - point.depthMm,
-        );
+        const distanceMm = spanMm(point, rimPoint);
         if (distanceMm < edgeToEdgeMm) edgeToEdgeMm = distanceMm;
       }
     }
 
     // The other way round: an opening wholly inside the cut has no boundary
-    // point of the cut within it, but is just as merged.
+    // point of the cut within it, but is just as merged. Taken the short way
+    // round, so a cut sitting on the 12:00 seam still sees an opening a few
+    // millimetres the other side of it.
     for (const rimPoint of rim) {
-      const offsetMm = rimPoint.arcMm - scallop.arcMm;
+      const offsetMm =
+        turnGap(scallop.turnFraction, rimPoint.turnFraction) *
+        graft.circumferenceMm;
       if (
         Math.abs(offsetMm) < scallop.semiArcMm &&
         rimPoint.depthMm < scallopEdgeDepthMm(scallop, offsetMm)
@@ -619,9 +855,13 @@ export function measureScallopBridge(
     if (nearest === null || edgeToEdgeMm < nearest.edgeToEdgeMm) {
       nearest = {
         vesselName: opening.vessel.name,
-        toCentreMm: opening.depthMm - scallop.heightMm,
+        // The plan-sheet run: nadir to the opening's centre. Measured from the
+        // vessel centre the cut was made for, not from the cut's own lowest
+        // point, because that is the figure the reference series states.
+        toCentreMm: centre.depthMm - scallop.centreDepthMm,
         edgeToEdgeMm,
-        circumferenceFraction: (scallop.semiArcMm * 2) / circumferenceMm,
+        circumferenceFraction:
+          (scallop.semiArcMm * 2) / graft.circumferenceMm,
       };
     }
   }
@@ -640,26 +880,55 @@ export function fabricEdgeZMm(
   return anatomy.proximalFenestrationZMm + pose.proximalDepthMm;
 }
 
-/** Project the fenestrations onto the unrolled graft for a given pose. */
+/**
+ * Project the fenestrations onto the graft for a given pose.
+ *
+ * The turn fraction is what the anatomy fixes and it is pose-invariant apart
+ * from the rotation. Millimetres come from the graft's width at each opening's
+ * own depth, so a hole on a tapered device is marked where a tape run round the
+ * graft at that level would put it.
+ */
 export function placeOpenings(
   anatomy: NormalizedAnatomy,
   pose: GraftPose,
-  circumferenceMm: number,
+  graft: GraftCircumference,
 ): PlacedOpening[] {
   const edgeZMm = fabricEdgeZMm(anatomy, pose);
   const rotationFraction = pose.rotationDeg / 360;
 
   return anatomy.fenestrations.map((vessel) => {
     const size = openingHalfSize(vessel);
+    const depthMm = edgeZMm - vessel.zMm;
+    const circumferenceMm = graft.circumferenceAtDepthMm(depthMm);
+    const turnFraction = wrapTurn(vessel.clockFraction - rotationFraction);
     return {
       vessel,
-      depthMm: edgeZMm - vessel.zMm,
-      arcMm: wrapMm(
-        (vessel.clockFraction - rotationFraction) * circumferenceMm,
-        circumferenceMm,
-      ),
+      depthMm,
+      turnFraction,
+      circumferenceMm,
+      arcMm: turnFraction * circumferenceMm,
       ...size,
       radiusMm: Math.max(size.semiArcMm, size.semiDepthMm),
     };
   });
+}
+
+/** A fraction of a turn, brought into [0, 1). */
+export function wrapTurn(fraction: number): number {
+  return ((fraction % 1) + 1) % 1;
+}
+
+/**
+ * An opening's position in the frame the strut map is in, in mm.
+ *
+ * The raster needs one frame with a constant wrap period, so conflict testing
+ * happens at the proximal circumference for every depth. Angles are preserved
+ * by that, which is what strut conflict turns on; only distances need bringing
+ * back, and `ClearanceField.distanceAt` does it.
+ */
+export function referenceArcMm(
+  turnFraction: number,
+  graft: GraftCircumference,
+): number {
+  return wrapMm(turnFraction * graft.circumferenceMm, graft.circumferenceMm);
 }

@@ -89,14 +89,22 @@ export function measureHole(
   clearanceMm: number,
 ): HoleMeasurement {
   const { segments, circumferenceMm } = graft;
+  // Everything here is measured against the strut map, which is laid out at the
+  // proximal circumference. An opening's own arc is measured where it sits, so
+  // on a tapered device the two are different rulers and the opening has to be
+  // brought into the wire's before any distance between them means anything.
+  // `toGraftMm` takes the answers back out again.
+  const stretch = circumferenceMm / opening.circumferenceMm;
+  const toGraftMm = (inFrameMm: number) => inFrameMm / stretch;
+
   // Semi-axes of the opening, and of the same opening grown by the wire radius.
   // Gaps are measured to the wire's surface rather than its axis, so they read
   // on the same basis as the clearance figure and as a ruler laid on the graft.
   const holeArcMm = opening.semiArcMm;
   const holeDepthMm = opening.semiDepthMm;
-  const semiArcMm = holeArcMm + graft.wireRadiusMm;
+  const semiArcMm = holeArcMm * stretch + graft.wireRadiusMm;
   const semiDepthMm = holeDepthMm + graft.wireRadiusMm;
-  const centreArc = opening.arcMm;
+  const centreArc = opening.turnFraction * circumferenceMm;
   const centreDepth = opening.depthMm;
 
   let above: HoleGap | null = null;
@@ -154,7 +162,8 @@ export function measureHole(
       const halfChordMm =
         semiArcMm * Math.sqrt(1 - (verticalMm / semiDepthMm) ** 2);
       if (lateralMm >= halfChordMm) {
-        const distanceMm = lateralMm - halfChordMm;
+        // Sideways, so it comes back out of the wire's frame onto the graft.
+        const distanceMm = toGraftMm(lateralMm - halfChordMm);
         // The depth the ruler would sit at: the stroke's nearest point.
         const atDepthMm =
           verticalMm === 0
@@ -172,9 +181,9 @@ export function measureHole(
     // Wire running through the opening itself, judged on the bare hole rather
     // than the clearance-inflated one: this is metal in the hole, not metal
     // close to it.
-    if (lateralMm <= holeArcMm) {
+    if (lateralMm <= holeArcMm * stretch) {
       const halfChordMm =
-        holeDepthMm * Math.sqrt(1 - (lateralMm / holeArcMm) ** 2);
+        holeDepthMm * Math.sqrt(1 - (lateralMm / (holeArcMm * stretch)) ** 2);
       if (
         bottom > centreDepth - halfChordMm &&
         top < centreDepth + halfChordMm
@@ -191,12 +200,16 @@ export function measureHole(
         apexDepth < centreDepth - semiDepthMm &&
         centreDepth - apexDepth < AXIAL_WINDOW_MM
       ) {
-        const distanceMm =
+        // Measured in the wire's frame, then brought onto the graft as one
+        // number — exact where the run is circumferential, and short rather
+        // than long where it is not, which is the safe way round.
+        const distanceMm = toGraftMm(
           Math.hypot(dArc, centreDepth - apexDepth) -
-          ellipseReachMm(
-            { semiArcMm, semiDepthMm },
-            Math.atan2(centreDepth - apexDepth, dArc),
-          );
+            ellipseReachMm(
+              { semiArcMm, semiDepthMm },
+              Math.atan2(centreDepth - apexDepth, dArc),
+            ),
+        );
         if (apexAbove === null || distanceMm < apexAbove.distanceMm) {
           apexAbove = {
             kind: "apex",
@@ -213,12 +226,13 @@ export function measureHole(
         valleyDepth > centreDepth + semiDepthMm &&
         valleyDepth - centreDepth < AXIAL_WINDOW_MM
       ) {
-        const distanceMm =
+        const distanceMm = toGraftMm(
           Math.hypot(dArc, valleyDepth - centreDepth) -
-          ellipseReachMm(
-            { semiArcMm, semiDepthMm },
-            Math.atan2(valleyDepth - centreDepth, dArc),
-          );
+            ellipseReachMm(
+              { semiArcMm, semiDepthMm },
+              Math.atan2(valleyDepth - centreDepth, dArc),
+            ),
+        );
         if (valleyBelow === null || distanceMm < valleyBelow.distanceMm) {
           valleyBelow = {
             kind: "valley",
@@ -239,7 +253,7 @@ export function measureHole(
     heightMm: holeDepthMm * 2,
     depthMm: centreDepth,
     arcMm: centreArc,
-    clock: arcMmToClockText(centreArc, circumferenceMm),
+    clock: arcMmToClockText(opening.arcMm, opening.circumferenceMm),
     clearanceMm,
     gaps: { above, below, left, right },
     apexAbove,

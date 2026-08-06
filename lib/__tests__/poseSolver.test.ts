@@ -6,6 +6,7 @@ import {
   MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
   normalizeAnatomy,
   placeOpenings,
+  uniformCircumference,
   type AnatomyCase,
 } from "@/lib/planning/anatomy";
 import { buildClearanceField } from "@/lib/planning/clearanceField";
@@ -71,7 +72,7 @@ describe("solvePose", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, baseOptions);
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, baseOptions);
 
     expect(solution.status).toBe("conflict_free");
     expect(solution.marginMm).toBeGreaterThan(1);
@@ -82,7 +83,7 @@ describe("solvePose", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, baseOptions);
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, baseOptions);
 
     expect(solution.pose.proximalDepthMm).toBeGreaterThanOrEqual(
       MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
@@ -93,7 +94,7 @@ describe("solvePose", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, baseOptions);
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, baseOptions);
     const worst = Math.min(
       ...solution.clearances.map((clearance) => clearance.clearanceMm),
     );
@@ -105,7 +106,7 @@ describe("solvePose", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, baseOptions);
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, baseOptions);
     const [sma, rra] = solution.clearances;
 
     expect(rra.depthMm - sma.depthMm).toBeCloseTo(30, 6);
@@ -115,11 +116,11 @@ describe("solvePose", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const relaxed = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const relaxed = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...baseOptions,
       targetClearanceMm: 0,
     });
-    const demanding = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const demanding = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...baseOptions,
       targetClearanceMm: 1.4,
     });
@@ -136,7 +137,7 @@ describe("solvePose", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...baseOptions,
       targetClearanceMm: 50,
     });
@@ -150,7 +151,7 @@ describe("solvePose", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...baseOptions,
       fabricLengthMm: 35,
     });
@@ -204,12 +205,12 @@ describe("rotation periodicity", () => {
       const here = placeOpenings(
         anatomy,
         { proximalDepthMm: 20, rotationDeg },
-        CIRCUMFERENCE_MM,
+        uniformCircumference(CIRCUMFERENCE_MM),
       );
       const onePeriodOn = placeOpenings(
         anatomy,
         { proximalDepthMm: 20, rotationDeg: rotationDeg + 60 },
-        CIRCUMFERENCE_MM,
+        uniformCircumference(CIRCUMFERENCE_MM),
       );
 
       for (const [index, opening] of here.entries()) {
@@ -233,7 +234,7 @@ describe("rotation periodicity", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...baseOptions,
       targetClearanceMm: 1,
     });
@@ -262,7 +263,7 @@ describe("rotation periodicity", () => {
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
     for (const maxRotationDeg of [10, 25, 45]) {
-      const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+      const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
         ...baseOptions,
         maxRotationDeg,
       });
@@ -277,11 +278,11 @@ describe("rotation periodicity", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const loose = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const loose = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...baseOptions,
       maxRotationDeg: 180,
     });
-    const tight = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const tight = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...baseOptions,
       maxRotationDeg: 10,
     });
@@ -302,7 +303,7 @@ describe("rotation periodicity", () => {
       maxProximalDepthMm: MIN_PROXIMAL_FENESTRATION_DEPTH_MM,
     };
 
-    const probe = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const probe = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...singleDepth,
       maxRotationDeg: 180,
     });
@@ -323,7 +324,7 @@ describe("rotation periodicity", () => {
     // Back off a touch: the map is Float32 while the solve compares in Float64,
     // so an exactly-equal target can round out of reach.
     const targetClearanceMm = bestValue - 0.01;
-    const capped = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const capped = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       ...singleDepth,
       targetClearanceMm,
       maxRotationDeg: Math.abs(bestTurnDeg) / 2,
@@ -343,7 +344,7 @@ describe("rotation periodicity", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, baseOptions);
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, baseOptions);
 
     expect(solution.meetsTargetClearance).toBe(true);
     expect(solution.excludedByTurnCap).toBeNull();
@@ -353,7 +354,7 @@ describe("rotation periodicity", () => {
     const anatomy = normalizeAnatomy(twoVesselCase());
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, baseOptions);
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, baseOptions);
 
     expect(Math.abs(solution.pose.rotationDeg)).toBeLessThanOrEqual(180);
   });
@@ -408,7 +409,7 @@ describe("juxtarenal anatomy", () => {
     const anatomy = normalizeAnatomy(juxtarenalCase(18));
     const field = buildClearanceField(zigzagRings(), CIRCUMFERENCE_MM);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       maxProximalDepthMm: maxProximalDepthFromAnatomy(anatomy),
       fabricLengthMm: 90,
       wireRadiusMm: 0.5,
@@ -428,7 +429,7 @@ describe("juxtarenal anatomy", () => {
     // SMA at z=18, inferior margin 13.5, first fenestration at z=5 → 8.5 mm.
     expect(maxProximalDepthFromAnatomy(anatomy)).toBeCloseTo(8.5, 10);
 
-    const solution = solvePose(anatomy, CIRCUMFERENCE_MM, field, {
+    const solution = solvePose(anatomy, uniformCircumference(CIRCUMFERENCE_MM), field, {
       maxProximalDepthMm: maxProximalDepthFromAnatomy(anatomy),
       fabricLengthMm: 90,
       wireRadiusMm: 0.5,
@@ -478,7 +479,7 @@ describe("solvePose on measured CT geometry", () => {
 
     const startedAt = performance.now();
     const field = buildClearanceField(segments, circumferenceMm);
-    const solution = solvePose(anatomy, circumferenceMm, field, {
+    const solution = solvePose(anatomy, uniformCircumference(circumferenceMm), field, {
       maxProximalDepthMm: maxProximalDepthFromAnatomy(anatomy, 30),
       fabricLengthMm: 150,
       wireRadiusMm: 0.5,

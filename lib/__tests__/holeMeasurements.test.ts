@@ -18,6 +18,30 @@ function taaaCase(sealZoneDiameterMm: number): AnatomyCase {
   };
 }
 
+/**
+ * A round opening on an untapered graft, for the exact-geometry cases below.
+ * `turnFraction` is where the hole really is; `arcMm` is that angle read off at
+ * the opening's own circumference, which on a cylinder is the same ruler the
+ * struts are laid out on.
+ */
+function cylindricalOpening(spec: {
+  arcMm: number;
+  depthMm: number;
+  radiusMm: number;
+  circumferenceMm: number;
+}): Parameters<typeof measureHole>[1] {
+  return {
+    vessel: { name: "TEST" },
+    turnFraction: spec.arcMm / spec.circumferenceMm,
+    circumferenceMm: spec.circumferenceMm,
+    arcMm: spec.arcMm,
+    depthMm: spec.depthMm,
+    radiusMm: spec.radiusMm,
+    semiArcMm: spec.radiusMm,
+    semiDepthMm: spec.radiusMm,
+  } as unknown as Parameters<typeof measureHole>[1];
+}
+
 function measuredPlan() {
   const plan = planGraft(taaaCase(36));
   if (!plan.ok) throw new Error("Expected a plan");
@@ -72,14 +96,12 @@ describe("measureHole", () => {
       ],
     } as unknown as Parameters<typeof measureHole>[0];
 
-    const opening = {
-      vessel: { name: "TEST" },
+    const opening = cylindricalOpening({
       arcMm: 50,
       depthMm: 40,
       radiusMm: 3,
-      semiArcMm: 3,
-      semiDepthMm: 3,
-    } as unknown as Parameters<typeof measureHole>[1];
+      circumferenceMm,
+    });
 
     const measurement = measureHole(graft, opening, 5);
 
@@ -99,14 +121,12 @@ describe("measureHole", () => {
       wireRadiusMm: 0,
       segments: [[58, 34, 58, 36]],
     } as unknown as Parameters<typeof measureHole>[0];
-    const opening = {
-      vessel: { name: "TEST" },
+    const opening = cylindricalOpening({
       arcMm: 50,
       depthMm: 40,
       radiusMm: 5,
-      semiArcMm: 5,
-      semiDepthMm: 5,
-    } as unknown as Parameters<typeof measureHole>[1];
+      circumferenceMm: 120,
+    });
 
     const measurement = measureHole(graft, opening, 1);
 
@@ -122,14 +142,12 @@ describe("measureHole", () => {
       wireRadiusMm: 0,
       segments: [[50, 38, 50, 42]], // a stroke straight through the hole
     } as unknown as Parameters<typeof measureHole>[0];
-    const opening = {
-      vessel: { name: "TEST" },
+    const opening = cylindricalOpening({
       arcMm: 50,
       depthMm: 40,
       radiusMm: 3,
-      semiArcMm: 3,
-      semiDepthMm: 3,
-    } as unknown as Parameters<typeof measureHole>[1];
+      circumferenceMm: 120,
+    });
 
     expect(measureHole(graft, opening, -1).insideRingBand).toBe(true);
   });
@@ -161,6 +179,7 @@ describe("measureHole", () => {
     // a neighbour a millimetre away, not a circumference away.
     const nearSeam = {
       ...plan.openings[0],
+      turnFraction: 0.5 / plan.openings[0].circumferenceMm,
       arcMm: 0.5,
     };
 

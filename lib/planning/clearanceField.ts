@@ -12,6 +12,16 @@ const UNSET = 1e20;
 export interface ClearanceFieldOptions {
   /** Grid resolution in mm. Smaller is more accurate and more memory. */
   cellMm?: number;
+  /**
+   * True circumference at a depth, in mm. Omit on a cylinder.
+   *
+   * The raster is built in one frame with a constant wrap period, which has to
+   * be the proximal circumference. On a tapered graft that frame is stretched
+   * circumferentially wherever the device is narrower, so a distance read off
+   * it is longer than the fabric it crosses. Supplying this converts the
+   * reading back to the graft.
+   */
+  circumferenceAtDepthMm?: (depthMm: number) => number;
 }
 
 export interface ClearanceField {
@@ -172,6 +182,22 @@ export function buildClearanceField(
     transform1d(grid, col, rows, tiledCols, columnScratch);
   }
 
+  // Tabulated per row, not evaluated per query. The solver asks this field for
+  // a distance millions of times in one sweep, and reading the measured
+  // diameter profile each time turned a four-second test run into three
+  // minutes. One value per 0.25 mm row is finer than the profile itself.
+  const localCircumference = options.circumferenceAtDepthMm;
+  const taperByRow = new Float64Array(rows).fill(1);
+  if (localCircumference) {
+    for (let row = 0; row < rows; row += 1) {
+      const depthMm = depthMinMm + (row + 0.5) * cellMm;
+      const localMm = localCircumference(depthMm);
+      if (localMm > 0) taperByRow[row] = localMm / circumferenceMm;
+    }
+  }
+  const taperAtRow = (row: number) =>
+    taperByRow[row < 0 ? 0 : row >= rows ? rows - 1 : row];
+
   const rasterBoundMm = (cellMm * Math.SQRT2) / 2;
   const field = new Float32Array(rows * cols);
   for (let row = 0; row < rows; row += 1) {
@@ -205,12 +231,20 @@ export function buildClearanceField(
       const bottomLeft = sample(row + 1, col);
       const bottomRight = sample(row + 1, col + 1);
 
-      return (
+      const inFrameMm =
         topLeft * (1 - tx) * (1 - ty) +
         topRight * tx * (1 - ty) +
         bottomLeft * (1 - tx) * ty +
-        bottomRight * tx * ty
-      );
+        bottomRight * tx * ty;
+
+      // Back out of the reference frame onto the graft. Exact where the nearest
+      // wire lies beside the point, which on a lattice of near-circumferential
+      // struts is the usual case; where it lies above or below, the axial part
+      // of the distance is shrunk too and the answer comes out short. Short is
+      // the safe direction for a field whose whole contract is to be a lower
+      // bound, and on the only tapered device in the library the factor runs
+      // from 1.00 at the fabric edge to 0.78 at the distal end.
+      return inFrameMm * taperAtRow(row);
     },
   };
 }

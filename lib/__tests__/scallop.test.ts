@@ -5,9 +5,11 @@ import {
   minProximalDepthMm,
   normalizeAnatomy,
   placeScallop,
+  scallopCentreDepthMm,
   scallopEdgeDepthMm,
   scallopHeightMm,
   scallopSeparationMm,
+  uniformCircumference,
   type AnatomyCase,
 } from "@/lib/planning/anatomy";
 import { planGraft } from "@/lib/planning/plan";
@@ -61,18 +63,25 @@ describe("scallop", () => {
     expect(minProximalDepthMm(plain)).toBe(10);
   });
 
-  it("derives the scallop height from the pose", () => {
-    // Reproduces all three scalloped plans in the reference series: height is
-    // the depth of the first fenestration less the scallop separation.
+  it("derives the scallop height from the pose, carried past the vessel", () => {
     const anatomy = normalizeAnatomy(coeliacTooClose("scallop"));
 
-    expect(scallopHeightMm(anatomy, { proximalDepthMm: 30, rotationDeg: 0 })).toBe(20);
-    expect(scallopHeightMm(anatomy, { proximalDepthMm: 10, rotationDeg: 0 })).toBe(0);
+    // The plan-sheet run — fabric edge to the coeliac's centre — is the push-in
+    // less the 10 mm separation, which is what all three plans in the reference
+    // series state. The cut goes a coeliac radius further, to the caudal rim,
+    // so that no fabric crosses the vessel.
+    const pose = { proximalDepthMm: 30, rotationDeg: 0 };
+    expect(scallopCentreDepthMm(anatomy, pose)).toBe(20);
+    expect(scallopHeightMm(anatomy, pose)).toBe(24);
+
+    // At the separation exactly the edge lands on the ostium's centre: nothing
+    // of the vessel is relieved, and the cut is only its own lower half.
+    const flush = { proximalDepthMm: 10, rotationDeg: 0 };
+    expect(scallopCentreDepthMm(anatomy, flush)).toBe(0);
+    expect(scallopHeightMm(anatomy, flush)).toBe(4);
+
     expect(
-      scallopHeightMm(normalizeAnatomy(coeliacTooClose("preserve")), {
-        proximalDepthMm: 30,
-        rotationDeg: 0,
-      }),
+      scallopHeightMm(normalizeAnatomy(coeliacTooClose("preserve")), pose),
     ).toBeNull();
   });
 
@@ -95,20 +104,25 @@ describe("scallop", () => {
   });
 
   it("refuses only when the cut would run into the opening below it", () => {
-    // 2 mm between the coeliac and the SMA puts the SMA's 9 mm hole through the
-    // bottom of the cut: one merged aperture, not a scallop and a hole.
+    // Where the two just touch is arithmetic, and the pose cannot change it:
+    // the cut ends at the coeliac's caudal rim, 4 mm below its centre, and the
+    // SMA's hole starts 4.5 mm above its own. So 8.5 mm of separation is the
+    // floor for this pair, whatever the graft or the push-in.
+    //
+    // 8 mm is under it, and the two are one aperture rather than a scallop with
+    // fabric beneath it.
     const merged = coeliacTooClose("scallop");
-    merged.vessels[1].gapFromPreviousMm = 2;
+    merged.vessels[1].gapFromPreviousMm = 8;
     const mergedPlan = planGraft(merged);
     expect(mergedPlan.ok).toBe(true);
     if (!mergedPlan.ok) return;
     expect(mergedPlan.solution.status).toBe("scallop_meets_opening");
 
-    // 6 mm of separation is tighter than the old 10 mm rule allowed, but it is
-    // buildable, so it is planned and reported rather than refused. There is no
-    // universal minimum bridge to refuse it by.
+    // 12 mm leaves a bridge of about 3.5 mm — under the narrowest in the
+    // reference series, but buildable, so it is planned and reported rather
+    // than refused. There is no universal minimum bridge to refuse it by.
     const tight = coeliacTooClose("scallop");
-    tight.vessels[1].gapFromPreviousMm = 6;
+    tight.vessels[1].gapFromPreviousMm = 12;
     const tightPlan = planGraft(tight);
     expect(tightPlan.ok).toBe(true);
     if (!tightPlan.ok) return;
@@ -127,11 +141,14 @@ describe("scallop", () => {
     // Nadir to centre is the separation: 10 mm, as a plan sheet would quote.
     expect(bridge.vesselName).toBe("SMA");
     expect(bridge.toCentreMm).toBeCloseTo(10, 6);
-    // Edge to edge is less, because the SMA's own 9 mm hole eats into it — and
-    // a little more than 10 - 4.5, because the two are 15 minutes apart on the
-    // clock so the shortest run between them is diagonal.
-    expect(bridge.edgeToEdgeMm).toBeGreaterThan(5.5);
-    expect(bridge.edgeToEdgeMm).toBeLessThan(10);
+    // Edge to edge is far less, and this is the gap between the two figures the
+    // readout exists to show. Both ends eat into the 10 mm: the cut runs 4 mm
+    // past the coeliac's centre to clear it, and the SMA's own 9 mm hole starts
+    // 4.5 mm above its centre. That leaves 1.5 mm, and a little more than that
+    // because the two are 15 minutes apart on the clock, so the shortest run
+    // between them is diagonal rather than straight down.
+    expect(bridge.edgeToEdgeMm).toBeGreaterThan(1.5);
+    expect(bridge.edgeToEdgeMm).toBeLessThan(2.5);
     // A 20 mm cut consumes a fifth of this 32 mm device's circumference, and
     // would consume less of a wider one — which is why it is reported.
     expect(bridge.circumferenceFraction).toBeCloseTo(0.2, 1);
@@ -182,10 +199,12 @@ describe("scallop", () => {
     // the off-the-shelf fenestrated device, 30 by 20 on a custom arch one — so
     // the height is never less than half the width. A pose that cannot give the
     // full 20 mm that depth gets the widest semicircle that fits instead.
+    // 14 mm in is the shallowest this anatomy allows: the edge lands on the
+    // coeliac's cranial rim, and the cut runs the ostium's full 8 mm.
     const shallow = placeScallop(
       normalizeAnatomy(coeliacTooClose("scallop")),
-      { proximalDepthMm: 18, rotationDeg: 0 },
-      120,
+      { proximalDepthMm: 14, rotationDeg: 0 },
+      uniformCircumference(120),
     );
     if (!shallow) throw new Error("Expected a scallop.");
     expect(shallow.heightMm).toBe(8);
@@ -202,26 +221,30 @@ describe("scallop", () => {
     const deep = placeScallop(
       normalizeAnatomy(coeliacTooClose("scallop")),
       { proximalDepthMm: 35, rotationDeg: 0 },
-      120,
+      uniformCircumference(120),
     );
     if (!deep) throw new Error("Expected a scallop.");
-    expect(deep.heightMm).toBe(25);
+    // 35 in, less the 10 mm separation, plus the coeliac's own 4 mm radius.
+    expect(deep.centreDepthMm).toBe(25);
+    expect(deep.heightMm).toBe(29);
     expect(deep.semiArcMm).toBe(SCALLOP_WIDTH_MM / 2);
-    // Straight sides down to a shoulder at 25 − 10, then a semicircular base of
+    // Straight sides down to a shoulder at 29 − 10, then a semicircular base of
     // the half-width centred there: every point of it is 10 mm from that centre.
-    expect(scallopEdgeDepthMm(deep, 0)).toBeCloseTo(25, 10);
-    expect(scallopEdgeDepthMm(deep, 6)).toBeCloseTo(23, 10);
-    expect(Math.hypot(6, scallopEdgeDepthMm(deep, 6) - 15)).toBeCloseTo(10, 10);
+    expect(scallopEdgeDepthMm(deep, 0)).toBeCloseTo(29, 10);
+    expect(scallopEdgeDepthMm(deep, 6)).toBeCloseTo(27, 10);
+    expect(Math.hypot(6, scallopEdgeDepthMm(deep, 6) - 19)).toBeCloseTo(10, 10);
   });
 
   it("places no cut at all when the pose leaves none to make", () => {
-    // The fabric edge level with the vessel is not a scallop of no height; it
-    // is a device that cannot carry the plan, so nothing is placed.
+    // The fabric edge below the coeliac's caudal rim covers the vessel outright.
+    // That is not a scallop of no height, it is a device that cannot carry the
+    // plan, so nothing is placed. Six millimetres in puts the edge 4 mm past the
+    // rim, which is well below any pose the solver would reach for.
     expect(
       placeScallop(
         normalizeAnatomy(coeliacTooClose("scallop")),
-        { proximalDepthMm: 10, rotationDeg: 0 },
-        120,
+        { proximalDepthMm: 6, rotationDeg: 0 },
+        uniformCircumference(120),
       ),
     ).toBeNull();
   });
@@ -242,18 +265,19 @@ describe("scallop", () => {
     const straight = placeScallop(
       anatomy,
       { proximalDepthMm: 22, rotationDeg: 0 },
-      circumferenceMm,
+      uniformCircumference(circumferenceMm),
     );
     expect(straight?.arcMm).toBeCloseTo(circumferenceMm / 48, 10);
     expect(straight?.semiArcMm).toBe(10);
-    expect(straight?.heightMm).toBe(12);
+    // 22 in, less the 10 mm separation, plus the coeliac's own 4 mm radius.
+    expect(straight?.heightMm).toBe(16);
 
     // Turning the graft moves the cut with every other opening, since the
     // whole pattern is rigid.
     const turned = placeScallop(
       anatomy,
       { proximalDepthMm: 22, rotationDeg: 30 },
-      circumferenceMm,
+      uniformCircumference(circumferenceMm),
     );
     // 30° back from 12:15 lands at 11:15, an eighth of the way round from 12.
     expect(turned?.arcMm).toBeCloseTo((circumferenceMm * 45) / 48, 10);
@@ -262,7 +286,7 @@ describe("scallop", () => {
       placeScallop(
         normalizeAnatomy(coeliacTooClose("preserve")),
         { proximalDepthMm: 22, rotationDeg: 0 },
-        circumferenceMm,
+        uniformCircumference(circumferenceMm),
       ),
     ).toBeNull();
   });
@@ -271,16 +295,16 @@ describe("scallop", () => {
     const scallop = placeScallop(
       normalizeAnatomy(coeliacTooClose("scallop")),
       { proximalDepthMm: 22, rotationDeg: 0 },
-      120,
+      uniformCircumference(120),
     );
     if (!scallop) throw new Error("Expected a scallop.");
 
     // Deepest at the centre, and the bottom is a semicircle of the cut's own
     // half-width — 10 mm here — centred that far up from the deepest point.
-    expect(scallopEdgeDepthMm(scallop, 0)).toBeCloseTo(12, 10);
+    expect(scallopEdgeDepthMm(scallop, 0)).toBeCloseTo(16, 10);
     for (const offsetMm of [0, 3, 6, 9.9]) {
       const depthMm = scallopEdgeDepthMm(scallop, offsetMm);
-      expect(Math.hypot(offsetMm, depthMm - 2)).toBeCloseTo(10, 10);
+      expect(Math.hypot(offsetMm, depthMm - 6)).toBeCloseTo(10, 10);
     }
     // Outside the cut the fabric edge is untouched.
     expect(scallopEdgeDepthMm(scallop, 10)).toBe(0);
@@ -290,19 +314,27 @@ describe("scallop", () => {
   it("takes the fabric edge up the neck rather than stopping at the vessel", () => {
     // The seal rule alone would allow the edge to sit level with the coeliac,
     // at 10 mm, which cuts no scallop at all. What the cut is for is the aorta
-    // above the vessel, so the pose should use the 20 mm of neck declared.
+    // above the vessel, so the cut takes the whole 20 mm of neck declared —
+    // and it does so on every device, because the neck is a property of the
+    // patient rather than of the graft chosen.
     const plan = planGraft(coeliacTooClose("scallop"));
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
 
-    // 24.5 mm rather than the 30 mm the neck would allow, because deeper puts
-    // an opening into wire — the scallop takes what the neck offers and the
-    // struts permit, not whichever comes first.
-    expect(plan.solution.pose.proximalDepthMm).toBeCloseTo(24.5, 1);
-    expect(plan.solution.marginMm).toBeGreaterThan(0);
-    // Which is the order of the reference series: C002 has the same 10 mm
-    // coeliac-to-SMA gap and a 20 mm scallop.
-    expect(plan.scallop?.heightMm).toBeCloseTo(14.5, 1);
+    // 30 mm in: the 20 mm of neck above the coeliac plus its 10 mm above the
+    // SMA. Which is the order of the reference series — C002 has the same 10 mm
+    // coeliac-to-SMA gap and a 20 mm scallop quoted to the vessel centre.
+    expect(plan.solution.pose.proximalDepthMm).toBeCloseTo(30, 10);
+    expect(plan.scallop?.centreDepthMm).toBeCloseTo(20, 10);
+    expect(plan.scallop?.heightMm).toBeCloseTo(24, 10);
+
+    for (const fit of plan.considered) {
+      if (!fit.scallop) continue;
+      expect(fit.scallop.heightMm, fit.model.scan.reference.id).toBeCloseTo(
+        24,
+        10,
+      );
+    }
   });
 
   it("carries the placed cut on the plan", () => {
@@ -311,9 +343,11 @@ describe("scallop", () => {
     if (!plan.ok) return;
 
     expect(plan.scallop?.vessel.name).toBe("CELIAC");
-    // The height is what the solved pose implies, not a separate choice.
+    // The height is what the solved pose implies, not a separate choice: the
+    // push-in less the 10 mm separation, carried a coeliac radius past the
+    // vessel so the cut clears it.
     expect(plan.scallop?.heightMm).toBeCloseTo(
-      plan.solution.pose.proximalDepthMm - 10,
+      plan.solution.pose.proximalDepthMm - 10 + 4,
       10,
     );
 

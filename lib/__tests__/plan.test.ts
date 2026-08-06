@@ -80,7 +80,11 @@ describe("buildGraftModel", () => {
     // or every strut moves relative to every opening.
     const model = buildGraftModel("scan1");
 
-    expect(model.circumferenceMm).toBeLessThan(Math.PI * 42);
+    // Near the 42 mm label but not equal to it: the proximal sealing ring on
+    // this scan measures 42.4, and which side of nominal a free-state device
+    // falls is not something to assert — that it came from the scan is.
+    expect(model.circumferenceMm).not.toBe(Math.PI * 42);
+    expect(model.circumferenceMm).toBeCloseTo(Math.PI * 42, -0.5);
     expect(model.circumferenceMm).toBeCloseTo(
       Math.PI * model.renderModel.diameterAt(0),
       6,

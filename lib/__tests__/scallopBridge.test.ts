@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   measureScallopBridge,
+  uniformCircumference,
   type PlacedOpening,
   type PlacedScallop,
 } from "@/lib/planning/anatomy";
@@ -62,31 +63,41 @@ function arcMm(clock: string, circumferenceMm: number): number {
 
 function build(entry: (typeof SERIES)[number]) {
   const circumferenceMm = Math.PI * entry.proximalDiameterMm;
+  const graft = uniformCircumference(circumferenceMm);
+  const turn = (clock: string) => arcMm(clock, circumferenceMm) / circumferenceMm;
   const scallop = {
     vessel: { name: "SCALLOP" },
+    turnFraction: turn(entry.scallop.clock),
     arcMm: arcMm(entry.scallop.clock, circumferenceMm),
     semiArcMm: 10,
+    // The fixture states the plan sheet's height, which is the run from the
+    // fabric edge to the vessel centre. Taken here as the cut itself, because
+    // what this file tests is the measurement and not how far past the vessel
+    // the cut is carried.
     heightMm: entry.scallop.heightMm,
+    centreDepthMm: entry.scallop.heightMm,
   } as unknown as PlacedScallop;
   const openings = entry.fenestrations.map(
     (fenestration) =>
       ({
         vessel: { name: fenestration.name },
         depthMm: fenestration.depthMm,
+        turnFraction: turn(fenestration.clock),
+        circumferenceMm,
         arcMm: arcMm(fenestration.clock, circumferenceMm),
         semiArcMm: fenestration.widthMm / 2,
         semiDepthMm: fenestration.heightMm / 2,
         radiusMm: Math.max(fenestration.widthMm, fenestration.heightMm) / 2,
       }) as unknown as PlacedOpening,
   );
-  return { circumferenceMm, scallop, openings };
+  return { circumferenceMm, graft, scallop, openings };
 }
 
 describe("measureScallopBridge against the reference series", () => {
   it("reproduces the nadir-to-centre figure each plan sheet states", () => {
     for (const entry of SERIES) {
-      const { circumferenceMm, scallop, openings } = build(entry);
-      const bridge = measureScallopBridge(scallop, openings, circumferenceMm);
+      const { graft, scallop, openings } = build(entry);
+      const bridge = measureScallopBridge(scallop, openings, graft);
       expect(bridge, entry.id).not.toBeNull();
       expect(bridge!.toCentreMm, entry.id).toBeCloseTo(entry.expectToCentreMm, 6);
     }
@@ -96,8 +107,8 @@ describe("measureScallopBridge against the reference series", () => {
     // C001's scallop and SMA are half an hour apart and C002's a quarter, so
     // the shortest run between them is barely diagonal and the two agree.
     for (const entry of [SERIES[0], SERIES[1]]) {
-      const { circumferenceMm, scallop, openings } = build(entry);
-      const bridge = measureScallopBridge(scallop, openings, circumferenceMm)!;
+      const { graft, scallop, openings } = build(entry);
+      const bridge = measureScallopBridge(scallop, openings, graft)!;
       expect(bridge.vesselName, entry.id).toBe("SMA");
       expect(bridge.edgeToEdgeMm, entry.id).toBeGreaterThan(entry.handFormulaMm);
       expect(bridge.edgeToEdgeMm, entry.id).toBeLessThan(
@@ -112,8 +123,8 @@ describe("measureScallopBridge against the reference series", () => {
     // 13 mm of bridge; the fabric actually between them is half again as much,
     // because most of the run is circumferential.
     const entry = SERIES[2];
-    const { circumferenceMm, scallop, openings } = build(entry);
-    const bridge = measureScallopBridge(scallop, openings, circumferenceMm)!;
+    const { graft, scallop, openings } = build(entry);
+    const bridge = measureScallopBridge(scallop, openings, graft)!;
 
     expect(bridge.vesselName).toBe("LRA");
     expect(bridge.edgeToEdgeMm).toBeGreaterThan(entry.handFormulaMm + 5);
@@ -127,14 +138,14 @@ describe("measureScallopBridge against the reference series", () => {
     const narrow = build(SERIES[2]);
 
     expect(
-      measureScallopBridge(wide.scallop, wide.openings, wide.circumferenceMm)!
+      measureScallopBridge(wide.scallop, wide.openings, wide.graft)!
         .circumferenceFraction,
     ).toBeCloseTo(0.21, 2);
     expect(
       measureScallopBridge(
         narrow.scallop,
         narrow.openings,
-        narrow.circumferenceMm,
+        narrow.graft,
       )!.circumferenceFraction,
     ).toBeCloseTo(0.24, 2);
   });

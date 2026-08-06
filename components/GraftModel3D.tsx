@@ -97,7 +97,7 @@ export function GraftModel3D({
       (candidate) => candidate.vessel.name === selectedVessel,
     );
     if (opening) {
-      const theta = (opening.arcMm / graft.circumferenceMm) * Math.PI * 2;
+      const theta = opening.turnFraction * Math.PI * 2;
       const target = theta - Math.PI;
       // The nearest equivalent angle, so the graft takes the short way round.
       const turns = Math.round((azimuth - target) / (Math.PI * 2));
@@ -204,12 +204,14 @@ export function GraftModel3D({
        */
       const edgeDepthMm = (thetaRad: number) => {
         if (!scallop) return 0;
-        const arcMm = (thetaRad / (Math.PI * 2)) * circumferenceMm;
-        let offsetMm =
-          (((arcMm - scallop.arcMm) % circumferenceMm) + circumferenceMm) %
-          circumferenceMm;
-        if (offsetMm > circumferenceMm / 2) offsetMm -= circumferenceMm;
-        return scallopEdgeDepthMm(scallop, offsetMm);
+        // In angle, then into millimetres at the cut's own circumference —
+        // which is what `scallopEdgeDepthMm` measures its width in. Going via
+        // the proximal circumference instead would draw the cut a little narrow
+        // on a device that has narrowed by the depth the cut reaches.
+        let turns = (thetaRad / (Math.PI * 2)) - scallop.turnFraction;
+        turns = ((turns % 1) + 1) % 1;
+        if (turns > 0.5) turns -= 1;
+        return scallopEdgeDepthMm(scallop, turns * scallop.circumferenceMm);
       };
 
       /** One band of fabric, from the cut edge down to a given depth. */
@@ -401,7 +403,7 @@ export function GraftModel3D({
         // Name the cut where it faces the viewer, so turning the graft to the
         // scallop tells you it is one rather than a gap in the render.
         if (scallop) {
-          const theta = (scallop.arcMm / circumferenceMm) * Math.PI * 2;
+          const theta = scallop.turnFraction * Math.PI * 2;
           if (facesViewer(theta)) {
             const point = project(theta, scallop.heightMm / 2, radiusAt(0));
             plate(
@@ -417,7 +419,7 @@ export function GraftModel3D({
       const drawOpenings = () => {
         hitTargets.current = [];
         for (const opening of openings) {
-          const theta0 = (opening.arcMm / circumferenceMm) * Math.PI * 2;
+          const theta0 = opening.turnFraction * Math.PI * 2;
           if (!facesViewer(theta0)) continue;
           const selected = opening.vessel.name === selectedVessel;
 
@@ -451,9 +453,11 @@ export function GraftModel3D({
           ctx.font = "600 11px \"IBM Plex Mono\", ui-monospace, monospace";
           ctx.textAlign = "center";
           ctx.fillText(
+            // Read at the hole's own circumference. Against the proximal one a
+            // hole below a taper would be labelled with a clock it is not at.
             `${opening.vessel.name} ${arcMmToClockText(
               opening.arcMm,
-              circumferenceMm,
+              opening.circumferenceMm,
             )}`,
             label.sx,
             label.sy - 4,
@@ -475,8 +479,10 @@ export function GraftModel3D({
         if (!selected) return;
 
         const measurement = measureHole(graft, selected, 0);
-        const centreTheta = (measurement.arcMm / circumferenceMm) * Math.PI * 2;
+        const centreTheta = selected.turnFraction * Math.PI * 2;
         const rimMm = selected.radiusMm + graft.wireRadiusMm;
+        /** The hole's own rim as an angle, at the width the graft has there. */
+        const rimTheta = (rimMm / selected.circumferenceMm) * Math.PI * 2;
 
         const surfaceRun = (
           fromTheta: number,
@@ -558,7 +564,7 @@ export function GraftModel3D({
                 : offsetMm;
           const sign = Math.sign(wrapped) || 1;
           surfaceRun(
-            centreTheta + ((sign * rimMm) / circumferenceMm) * Math.PI * 2,
+            centreTheta + sign * rimTheta,
             measurement.depthMm,
             centreTheta + (wrapped / circumferenceMm) * Math.PI * 2,
             measurement.depthMm,
