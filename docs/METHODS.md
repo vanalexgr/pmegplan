@@ -44,7 +44,11 @@ measured strut lattice, find `(d₁, θ)` such that every opening clears wire.
 
 ## 2. Source data
 
-Three endografts were scanned on a bench, unconstrained, in air.
+Three endografts were scanned on a bench, deployed out of the delivery sheath
+and left **unconstrained** — resting inside a plastic container tube wide enough
+not to touch them. The tube is visible in every series and is not a constraint,
+but it is a segmentation hazard: it reads inside the fabric HU window used in
+3.3, and it runs past both ends of the device.
 
 | | Device | Series | Volume | In-plane | Slice |
 |---|---|---|---|---|---|
@@ -119,11 +123,34 @@ wire map has to fit its rotation rather than recompute it (section 4.2).
 
 Both are recorded per descriptor (`datum.z_zero`, `datum.theta_zero_deg_in_scan_frame`).
 
-**Where this failed:** on scan2 the fabric could not be segmented, and the
-extractor fell back to `z_zero: "metal"` — the proximal extent of metal. Its
-`covered_length_mm` is null as a result. Its fabric edge is therefore an
-annotation, not a measurement, and everything resting on the 10 mm seal rule is
-weaker for that one device.
+**Where this failed — on all three devices, not one.** On scan2 the fabric could
+not be segmented at all, and the extractor fell back to `z_zero: "metal"`, the
+proximal extent of metal; its `covered_length_mm` is null as a result. On scan1
+and scan3 the search returned a number, but not a measurement of fabric:
+
+| | `covered_length_mm` | `total_metal_length_mm` | annotated fabric span |
+|---|---|---|---|
+| scan1 | 186.79 | 180.46 | 15.6 → 182.9 = **167.3** |
+| scan3 | 199.14 | 197.87 | 12.1 → 196.9 = **184.8** |
+
+The reported length tracks the *metal*, exceeding it by 6.3 and 1.3 mm, where
+real fabric must stop short of a proximal bare fixation ring. The annotated
+spans do: both sit 13.1 mm inside the metal span, one bare-ring height, on two
+devices measured independently.
+
+The cause is that the window had no exclusion around metal. Every strut carries
+a partial-volume halo whose HU falls from the metal threshold to air, passing
+through −400 to 600 on the way, so the search found each strut's own edge
+wherever metal existed and nowhere else. The container tube is a second
+candidate for the same window on scan1, where its wall plausibly falls inside
+the radial band; it would not on scan3, which is why the halo is the likelier
+cause of both. `endograft_geometry.py` now dilates the metal mask and subtracts
+it before searching, and warns when the covered length comes back within 2 mm of
+the metal span — the signature of this failure.
+
+**The fabric edges used by the application are therefore annotations on all
+three devices**, and everything resting on the 10 mm seal rule is weaker for all
+three, not for scan2 alone. Nothing reads `covered_length_mm`.
 
 ### 3.4 Per-ring descriptors
 
@@ -217,9 +244,9 @@ rather than fabric.
 
 | | Apex points stored | Measured runs |
 |---|---|---|
-| scan1 | 112 | **5,552** |
-| scan2 | 180 | **7,191** |
-| scan3 | 100 | **6,501** |
+| scan1 | 112 | **5,546** |
+| scan2 | 180 | **7,255** |
+| scan3 | 100 | **6,516** |
 
 Median run length is 1.80 mm on the Alphas — consistent with a ~0.5 mm wire plus
 blooming. Median runs per bin is 8, 9 and 10, matching the ring counts.
@@ -244,40 +271,83 @@ The solution: **fit the frame, and use the fit as the validation.**
 - **θ** comes from the recorded datum, not re-derived. Re-deriving it from the
   marker centroid lands **19° away on scan1** — the marker segmentation is not
   stable enough.
-- **Axis sign, axial offset and a residual rotation** are fitted by minimising
-  the distance from each stored apex to the nearest measured metal boundary at
-  its angle.
+- **Axis sign, axial offset, a reflection and a residual rotation** are fitted by
+  minimising the distance from each stored apex to the nearest measured metal
+  boundary at its angle.
 
-The fit is heavily over-determined — three parameters against 100–180 apices
+The fit is heavily over-determined — four parameters against 100–180 apices
 spread down the whole device — so a small residual cannot be coincidence.
 
-| | axis sign | z offset | θ shift | **residual p50** | residual p95 |
-|---|---|---|---|---|---|
-| scan1 | −1 | 85.409 mm | −1.91° | **0.102 mm** | 0.239 mm |
-| scan2 | +1 | 90.373 mm | +3.50° | **0.625 mm** | 11.916 mm |
-| scan3 | +1 | 93.281 mm | −23.00° | **0.680 mm** | 17.921 mm |
-
-All three are sub-millimetre at the median against 0.3 mm voxels; scan1 is
-sub-voxel. The script refuses to write above a threshold, and did refuse twice
-during development while the fit was wrong.
-
-**Two traps, both now guarded in code:**
+**Three traps. The third went undetected for the life of the wire map:**
 
 1. *Matching against the wrong thing.* An apex must be matched to a **run
    boundary at its own angle**, not to the device-wide envelope — which at any
    angle spans every ring. Getting this wrong produced residuals of 62–79 mm.
 2. *Rotational aliasing.* A ring with `n` apices repeats every `360/n` degrees,
-   so a rotation search wider than half that period can settle one whole period
-   out. This happened: the first scan2 fit returned **+31°** against a 30°
-   period. It looks identical on an idealised ring but misaligns every measured
-   irregularity — the very thing the map exists to preserve. The search is now
-   bounded by `180/n`.
+   so a rotation search can settle one whole period out. This happened: the
+   first scan2 fit returned **+31°** against a 30° period. It looks identical on
+   an idealised ring but misaligns every measured irregularity — the very thing
+   the map exists to preserve.
+3. *A reflected frame.* `principal_axis` takes its in-plane basis from the fitted
+   axis, so flipping the axis sends `u = axis × helper` to `−u` while leaving
+   `v` alone. That is `θ → −θ`: a **reflection**, which no rotation can undo. The
+   axis sign came straight from SVD, which returns it arbitrarily, and only a
+   shift was searched — so a reflected frame was absorbed into a wrong rotation
+   and written out as a good fit.
 
-**The wide p95 tails are a finding, not a defect in the fit.** They are apices
-the peak detector placed where the scan has no metal — the same defect as the
-oscillation-count mismatch in 4.1. Conflict no longer depends on the apex rows,
-but they still drive ring-level display and the apex/valley landmarks, so
-re-deriving them from the wire map is outstanding work.
+**Two of the three devices had been written mirrored.** The previously published
+descriptors recorded `axis_sign` as −1, +1 and +1; the two carrying +1 were the
+runs in which SVD returned the opposite axis, and their maps were reflections of
+the devices they described. On those two, the strut geometry deciding
+fenestration conflict was a mirror image relative to the marker datum —
+producing plausible wrong answers rather than obvious ones.
+
+The library was regenerated from the source series with the axis sign
+**normalised**, so both extraction passes now build the same frame:
+
+| | axis sign | mirror | θ shift | **residual p50** | residual p90 | apices > 1 mm |
+|---|---|---|---|---|---|---|
+| scan1 | −1 | none | +1.50° | **0.078 mm** | 0.271 mm | 0.9% |
+| scan2 | −1 | none | +1.50° | **0.114 mm** | 0.314 mm | 3.3% |
+| scan3 | −1 | none | +0.50° | **0.072 mm** | 16.657 mm | 12.0% |
+
+All three now agree on handedness, and the reflection search never fires — which
+is itself the confirmation that the old `axis_sign: +1` *was* the sign flip and
+not some other frame difference. The residual rotation between the two
+extraction passes is now under 2° on every device, consistent with nothing but
+the helper-vector difference of 3.2, and the first time the two tools have
+visibly agreed. The previous library held −1.91°, +3.50° and **−23.00°**; that
+last was a fitted rotation trying to absorb a reflection it could not express.
+
+The old figures, for comparison: 4.5%, **32.8%** and **39.0%** of apices beyond
+a millimetre, against 0.9%, 3.3% and 12.0% now. scan1 was never mirrored but was
+still 3.4° out of true.
+
+The reflection is nonetheless still **searched**, so a frame that comes out
+mirrored despite the normalisation is corrected rather than absorbed.
+
+**Why the gate did not catch it.** The script refused to write above a threshold
+on the **median** residual. A median is the wrong statistic here: with seven to
+ten rings, every apex finds *some* run boundary near it whatever the frame, so
+half of them stay sub-millimetre through a reflection — 0.443 and 0.547 mm both
+passed a 1.5 mm gate. What discriminates is the **tail**: 2.7–10% of apices
+beyond 1 mm when the frame is recovered, against 33–39% when it is mirrored. The
+gate is now on that fraction, plus an **alias ratio** — how many times worse the
+best rotation a full apex period away scores — which replaces the previous
+half-period search bound. The bound had to go: with the reflection in play the
+true rotation is measured from the raw frame's arbitrary zero and can fall
+outside it, as it does on scan3 at −45.5° against a ±36° bound. Measuring the
+margin detects aliasing rather than assuming it away.
+
+`lib/__tests__/wireMapDatum.test.ts` asserts both invariants against the stored
+descriptors on every test run, including the direct one: a device's own apices
+must not fit its *reflected* map better than its stored one.
+
+**The remaining p90 tail on scan3 is a finding, not a defect in the fit.** Those
+are apices the peak detector placed where the scan has no metal — the same
+defect as the oscillation-count mismatch in 4.1. Conflict no longer depends on
+the apex rows, but they still drive ring-level display and the apex/valley
+landmarks, so re-deriving them from the wire map is outstanding work.
 
 ---
 
@@ -286,14 +356,16 @@ re-deriving them from the wire map is outstanding work.
 Stating this plainly matters more than any single figure.
 
 **Measured from CT:**
-- Strut positions, as 5,552–7,191 metal intervals per device
+- Strut positions, as 5,546–7,255 metal intervals per device
 - Ring diameters, heights, apex counts and phase
 - Device diameter profile (including the TX2's taper)
-- Fabric proximal and distal edges — **on scan1 and scan3 only**
 - Bare fixation ring presence and extent
 
 **Annotated, not measured:**
-- Fabric edge on **scan2** (segmentation failed; fell back to proximal metal)
+- **Fabric proximal and distal edges, on all three devices.** The automatic
+  search returned a length on scan1 and scan3, but it measured the metal, not
+  the textile (3.3); it returned nothing at all on scan2. The edges the
+  application uses are hand-annotated in each descriptor's `rendering` block.
 - Bare-ring indices and device topology
 - Nominal sizes (inferred from measured geometry; see section 9)
 
@@ -653,6 +725,18 @@ application does not model deployment.
 
 No bench cutting, no imaging of a modified device against its plan, no clinical
 series. The clearance figures are geometric predictions from a free-state scan.
+
+### 9.7 Clearance figures predating the regeneration are void
+
+The library was regenerated from source on 2026-08-07 to correct the reflection
+in 4.3. **Any clearance figure, punch card or saved plan produced for scan2 or
+scan3 before that date was computed against a mirrored device and is void.**
+scan1's map was corrected by 3.4° of rotation over the same regeneration, so its
+figures shift slightly too — about 1.2 mm of arc at its circumference.
+
+This is worth stating plainly in any write-up, because the defect was invisible
+in every output: a mirrored lattice is still a plausible lattice, and the plans
+it produced looked exactly like the plans it produces now.
 
 ---
 

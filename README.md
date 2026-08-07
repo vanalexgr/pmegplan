@@ -30,10 +30,11 @@ Live: <https://pmegplan.vercel.app>
 
 This distinction is load-bearing and is kept explicit throughout the code and
 the UI. In short: the **wire map** and **ring diameters** are measured; the
-**fabric edge** is measured on two of the three devices and annotated on the
-third; **nominal sizes** are inferred from measurement and not read off
-packaging; **barbs** are not drawn at all, because the segmentation resolves no
-metal past the fixation ring's own apices. See METHODS §5 and §9.2.
+**fabric edge** is annotated on all three devices, because the automatic search
+measured the metal's own partial-volume halo rather than the textile;
+**nominal sizes** are inferred from measurement and not read off packaging;
+**barbs** are not drawn at all, because the segmentation resolves no metal past
+the fixation ring's own apices. See METHODS §3.3, §5 and §9.2.
 
 Two frames coexist, and confusing them is the most common way to get a wrong
 answer here (METHODS §6.4):
@@ -62,10 +63,15 @@ Then open <http://localhost:3000>.
 npm test
 ```
 
-209 tests. `lib/__tests__/geometryMatrix.test.ts` runs the configuration matrix
+215 tests. `lib/__tests__/geometryMatrix.test.ts` runs the configuration matrix
 — four fenestrations; three with the coeliac preserved; two renals with the SMA
 scalloped; three with the coeliac scalloped — against all three scans, and is
 the place to add a case when the planning model changes.
+
+`lib/__tests__/wireMapDatum.test.ts` checks each descriptor's wire map against
+its own apex rows, including that the map is not a *reflection* of the device it
+describes — the failure that went undetected until 2026-08-07 and silently
+mirrored two of the three devices. See METHODS §4.3.
 
 ## Layout
 

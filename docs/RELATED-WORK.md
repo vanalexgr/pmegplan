@@ -74,7 +74,7 @@ the template.
 
 | | EndoDraft | PMEGplan |
 |---|---|---|
-| Strut geometry | none embedded | 5,552–7,191 segmented metal intervals per device |
+| Strut geometry | none embedded | 5,546–7,255 segmented metal intervals per device |
 | Strut avoidance | manual rotation at the table | solved computationally over `(d₁, θ)` |
 | Clearance | not quantified | mm per hole, plus a margin that *is* the robustness radius |
 | 3-D model | parametric cylinder, decorative rings | measured lattice, scan's own diameter profile |
