@@ -106,7 +106,12 @@ def load_series(directory: str, selected: str | None) -> tuple[sitk.Image, str, 
 
 
 def number(value: str | None) -> float | None:
+    """First value of a DICOM decimal string, or None if it will not parse."""
     if value is None:
+        return None
+    try:
+        return float(value.split("\\")[0])
+    except ValueError:
         return None
 
 
@@ -116,10 +121,6 @@ def iso_date(value: str | None) -> str | None:
         return None
     match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})", value)
     return f"{match.group(1)}-{match.group(2)}-{match.group(3)}" if match else None
-    try:
-        return float(value.split("\\")[0])
-    except ValueError:
-        return None
 
 
 def voxel_dimensions(image: sitk.Image, tags: dict[str, str | None]) -> tuple[float, float, float]:
@@ -297,11 +298,32 @@ def profile(s: np.ndarray, radius: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def fabric_datum(
     array: np.ndarray, image: sitk.Image, frame: tuple[np.ndarray, ...], radius: np.ndarray,
-    s_metal: np.ndarray, lo: float, hi: float, flip_z: bool = False,
+    s_metal: np.ndarray, lo: float, hi: float, metal: np.ndarray, spacing: float,
+    exclusion_mm: float, flip_z: bool = False,
 ) -> tuple[float, float | None, bool]:
-    """Estimate fabric extent from a shell around the metal wall; safely fall back."""
-    shell = (array >= lo) & (array <= hi)
+    """Estimate fabric extent from a shell around the metal wall; safely fall back.
+
+    Voxels adjacent to metal are excluded first, and that exclusion is the whole
+    difference between measuring textile and measuring the stent. Every strut
+    carries a partial-volume halo whose HU falls from the metal threshold to air,
+    passing straight through the fabric window on the way; unmasked, the window
+    finds that halo wherever metal exists and nowhere else. Left in, it set the
+    fabric extent on both devices where this was thought to have succeeded —
+    `covered_length_mm` came out at 186.79 and 199.14 mm against metal spans of
+    180.46 and 197.87 mm on scan1 and scan3, tracking the metal rather than the
+    textile it was supposed to find.
+
+    A container tube is the other contaminant this band can pick up: the radial
+    window is centred on the metal wall, so a tube whose wall falls within it
+    reads as fabric and, running past both ends of the device, stretches the
+    extent the same way. It cannot be masked generically, which is why the
+    caller cross-checks the result against the metal span.
+    """
     oriented_metal_s = -s_metal if flip_z else s_metal
+    shell = (array >= lo) & (array <= hi)
+    if exclusion_mm > 0 and metal.any():
+        iterations = max(1, int(round(exclusion_mm / max(spacing, 1e-6))))
+        shell &= ~ndimage.binary_dilation(metal, iterations=iterations)
     if shell.sum() < 500:
         return float(np.percentile(oriented_metal_s, 0.5)), None, False
     fabric_points = points_mm(image, shell)
@@ -314,7 +336,7 @@ def fabric_datum(
     wall = float(np.percentile(radius, 90))
     selected = (np.abs(radial - wall) < 3.0) & (s > oriented_metal_s.min() - 25) & (s < oriented_metal_s.max() + 25)
     if selected.sum() < 500:
-        return float(np.percentile(s_metal, 0.5)), None, False
+        return float(np.percentile(oriented_metal_s, 0.5)), None, False
     fabric_s = s[selected]
     z0 = float(np.percentile(fabric_s, 1))
     return z0, float(np.percentile(fabric_s, 99) - z0), True
@@ -385,7 +407,7 @@ def cmd_extract(args: argparse.Namespace) -> None:
     if args.z_datum == "fabric":
         z_zero, covered_length, fabric_found = fabric_datum(
             array, image, frame, radius, s_raw, args.hu_fabric_lo, args.hu_fabric_hi,
-            flip_z=args.flip_z,
+            metal, spacing, args.fabric_metal_exclusion_mm, flip_z=args.flip_z,
         )
     else:
         z_zero, covered_length, fabric_found = float(np.percentile(s, 0.5)), None, False
@@ -501,6 +523,15 @@ def cmd_extract(args: argparse.Namespace) -> None:
     print(f"QC image: {png_path}")
     if not fabric_found and args.z_datum == "fabric":
         print("warning: fabric was not reliably segmented; fabric datum uses the proximal metal extent.", file=sys.stderr)
+    # A covered length that matches the metal span is the signature of the
+    # window having found something that spans the device rather than the fabric
+    # — the metal's own halo, or a container tube running past both ends. Real
+    # fabric stops short of a proximal bare ring, so on a device that has one
+    # the two lengths should differ by about a ring height.
+    if covered_length is not None and abs(covered_length - float(s.max() - s.min())) < 2.0:
+        print("warning: covered length is within 2 mm of the total metal span; the fabric "
+              "window has probably found metal halo or a container wall rather than textile. "
+              "Treat the fabric edges as annotations until this is resolved.", file=sys.stderr)
     if worst_source_voxel > PHASE_RELIABLE_VOXEL_MM:
         print("warning: apex phase is marked unreliable at this source voxel size.", file=sys.stderr)
 
@@ -522,6 +553,10 @@ def parser() -> argparse.ArgumentParser:
     extract.add_argument("--hu-marker", type=float, default=HU_MARKER_DEFAULT)
     extract.add_argument("--hu-fabric-lo", type=float, default=HU_FABRIC_LO_DEFAULT)
     extract.add_argument("--hu-fabric-hi", type=float, default=HU_FABRIC_HI_DEFAULT)
+    extract.add_argument("--fabric-metal-exclusion-mm", type=float, default=0.9,
+                         help="dilate the metal mask by this much and exclude it before "
+                              "looking for fabric, so the search cannot return the "
+                              "partial-volume halo around each strut")
     extract.add_argument("--apex-prominence", type=float, default=0.5, help="peak sensitivity as a fraction of ring height")
     extract.add_argument("--min-component-frac", type=float, default=0.1, help="minimum ring size as a fraction of largest component")
     extract.add_argument("--theta-ref", default="auto", help="auto, none, or an angle in degrees")
@@ -547,6 +582,8 @@ def main() -> None:
         die("--proximal-fixation-rings cannot be negative.")
     if getattr(args, "barb_length_mm", 0.0) < 0:
         die("--barb-length-mm cannot be negative.")
+    if getattr(args, "fabric_metal_exclusion_mm", 0.0) < 0:
+        die("--fabric-metal-exclusion-mm cannot be negative.")
     args.handler(args)
 
 

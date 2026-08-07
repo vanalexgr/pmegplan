@@ -32,7 +32,9 @@ describe("bench CT device library", () => {
 
       expect(map.theta_bins).toBe(map.runs.length);
       // The fit that put the map in the descriptor's frame has to be tight, or
-      // the measured wire is not where the plan thinks it is.
+      // the measured wire is not where the plan thinks it is. This median is a
+      // gross check only — it stays sub-millimetre even on a mirrored frame, so
+      // it is `wireMapDatum.test.ts` that decides whether the fit succeeded.
       expect(map.datum_fit.apex_residual_p50_mm).toBeLessThan(1);
 
       const runs = map.runs.flat();
