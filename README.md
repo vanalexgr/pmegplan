@@ -22,6 +22,7 @@ Live: <https://pmegplan.vercel.app>
 | Document | What it covers |
 |---|---|
 | [docs/METHODS.md](docs/METHODS.md) | How it works: extraction pipeline, wire map, planning model, solver, outputs, limitations. The primary reference, written to be usable as source material for a methods section. |
+| [docs/EXTRACTION-AUDIT.md](docs/EXTRACTION-AUDIT.md) | A review of the DICOM-to-descriptor path (2026-08-07): what was found wrong, what was corrected, what is still outstanding, and the measured effect on plans. Includes the θ reflection that had mirrored two of the three devices. |
 | [docs/DEVICE-SELECTION.md](docs/DEVICE-SELECTION.md) | The argument that a scanned library automates *which device to implant*, not only where to cut the one already chosen. |
 | [docs/IN-SILICO-STUDY.md](docs/IN-SILICO-STUDY.md) | A study design publishable with the devices currently scanned, with pilot results. |
 | [docs/RELATED-WORK.md](docs/RELATED-WORK.md) | EndoDraft (Juhos et al., JEVT 2026) — the closest published comparator, and how the two tools differ. |

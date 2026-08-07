@@ -9,6 +9,12 @@ Everything here describes the state of the code at the time of writing. Figures
 quoted are reproducible from `library/*.json`, `tools/extract_wire_map.py` and
 the test suite.
 
+[EXTRACTION-AUDIT.md](EXTRACTION-AUDIT.md) is the companion record for the
+extraction path: the defects found in it on 2026-08-07, which are corrected,
+which are still outstanding, and what the corrections did to the plans. Where
+this document states what the pipeline *does*, that one states what was wrong
+with it and what remains so.
+
 ---
 
 ## 1. Problem
