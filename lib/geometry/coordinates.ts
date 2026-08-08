@@ -99,3 +99,68 @@ export function arcSepFromSeam(
   if (sep < -circ / 2) sep += circ;
   return sep;
 }
+
+/**
+ * How far off the facing direction an opening may sit and still read as being
+ * on the near surface rather than on the silhouette, in degrees.
+ */
+const NEAR_FACE_DEG = 75;
+
+/**
+ * The angle to face so that the most openings sit on the near surface.
+ *
+ * A cylinder shows half its circumference at once, so any fixed starting angle
+ * leaves whichever openings happen to face away invisible: a four-vessel plan
+ * can open showing one hole of four, which reads as the view being broken.
+ *
+ * The circular mean is not the answer. A single posterior opening pulls it back
+ * toward the anterior ones, so on a coeliac/SMA/renal chain it returns roughly
+ * 12:00 whatever else is on the graft — the same problem it was meant to solve.
+ *
+ * This scans candidate facings instead and prefers, in order: the most openings
+ * on the near face; then the smallest *worst* offset among them; then the
+ * tightest total. The worst offset has to come before the total, or a view with
+ * two holes dead centre and a third on the silhouette beats one with all three
+ * comfortably in view — which is the opposite of what is wanted.
+ *
+ * Returns radians clockwise from 12:00; an empty plan faces 12:00, which is
+ * where a graft with nothing on it should sit.
+ */
+export function bestFacingAngle(turnFractions: readonly number[]): number {
+  if (turnFractions.length === 0) return 0;
+
+  const angles = turnFractions.map(
+    (fraction) => (((fraction % 1) + 1) % 1) * 360,
+  );
+
+  let bestFacing = 0;
+  let bestCount = -1;
+  let bestWorst = Number.POSITIVE_INFINITY;
+  let bestSpread = Number.POSITIVE_INFINITY;
+
+  for (let facing = 0; facing < 360; facing += 1) {
+    let count = 0;
+    let worst = 0;
+    let spread = 0;
+    for (const angle of angles) {
+      const delta = Math.abs(((angle - facing + 540) % 360) - 180);
+      if (delta <= NEAR_FACE_DEG) {
+        count += 1;
+        worst = Math.max(worst, delta);
+        spread += delta;
+      }
+    }
+    const better =
+      count > bestCount ||
+      (count === bestCount &&
+        (worst < bestWorst || (worst === bestWorst && spread < bestSpread)));
+    if (better) {
+      bestFacing = facing;
+      bestCount = count;
+      bestWorst = worst;
+      bestSpread = spread;
+    }
+  }
+
+  return (bestFacing * Math.PI) / 180;
+}

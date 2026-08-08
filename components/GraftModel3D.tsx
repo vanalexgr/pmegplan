@@ -14,6 +14,7 @@ import {
   type PlacedOpening,
   type PlacedScallop,
 } from "@/lib/planning/anatomy";
+import { bestFacingAngle } from "@/lib/geometry/coordinates";
 import { arcMmToClockText } from "@/lib/planning/clock";
 import { measureHole } from "@/lib/planning/holeMeasurements";
 import type { GraftModel } from "@/lib/planning/plan";
@@ -74,7 +75,15 @@ export function GraftModel3D({
 }: GraftModel3DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [azimuth, setAzimuth] = useState(0.5);
+  // Open on the angle showing the most openings, rather than an arbitrary one
+  // that turned whichever vessel happened to be there into the view. Computed
+  // once on mount, so a later drag is never overridden. Same convention as the
+  // face-a-vessel adjustment below: `theta - PI` faces `theta`.
+  const [azimuth, setAzimuth] = useState(
+    () =>
+      bestFacingAngle(openings.map((opening) => opening.turnFraction)) -
+      Math.PI,
+  );
   const [elevation, setElevation] = useState(DEFAULT_ELEVATION);
   const [zoom, setZoom] = useState(1);
   const hitTargets = useRef<HitTarget[]>([]);

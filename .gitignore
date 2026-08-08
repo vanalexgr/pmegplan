@@ -62,3 +62,9 @@ __pycache__/
 # public and the DICOM series run to hundreds of megabytes; only the derived
 # geometry descriptors under lib/geometry belong in version control.
 /new plan/
+
+# Manuscript drafts and figures. Kept out of version control because the
+# case table is derived from studies/data/ — a small series from a named
+# institution, re-identifiable by device configuration. Same reasoning as
+# studies/data/ above; see studies/README.md.
+/manuscript/
